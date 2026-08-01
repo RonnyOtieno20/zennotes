@@ -91,7 +91,8 @@ const WEB_CAPABILITIES: ZenCapabilities = {
   supportsRemoteWorkspace: false,
   supportsCliInstall: false,
   supportsCustomTemplates: false,
-  supportsCustomCodeLanguages: false
+  supportsCustomCodeLanguages: false,
+  supportsGrammarProviderTransport: false
 }
 
 const WEB_APP_INFO: ZenAppInfo = {

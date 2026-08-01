@@ -36,6 +36,12 @@ import type {
 } from './ipc'
 import type { CustomTemplateFile, WriteTemplateInput } from './templates'
 import type {
+  GrammarCancelRequest,
+  GrammarCancelResponse,
+  GrammarCheckRequest,
+  GrammarCheckResponse
+} from './grammar'
+import type {
   ApplyWorkflowInput,
   ExportWorkflowInput,
   ImportedWorkflowFile,
@@ -77,6 +83,8 @@ export interface ZenCapabilities {
   /** Custom templates require local-filesystem CRUD; false on web/remote. */
   supportsCustomTemplates: boolean
   supportsCustomCodeLanguages?: boolean
+  /** Host-mediated provider transport; false/absent on the web runtime. */
+  supportsGrammarProviderTransport?: boolean
 }
 
 export interface ZenAppInfo {
@@ -330,6 +338,10 @@ export interface ZenBridge {
   getQuickCapturePinned(): Promise<boolean>
   setQuickCapturePinned(pinned: boolean): Promise<boolean>
   renderTikz(source: string): Promise<TikzRenderResponse>
+
+  /** Optional because browser hosts do not expose arbitrary provider access. */
+  grammarCheck?(request: GrammarCheckRequest): Promise<GrammarCheckResponse>
+  grammarCancel?(request: GrammarCancelRequest): Promise<GrammarCancelResponse>
 
   mcpGetRuntime(): Promise<McpServerRuntime>
   mcpGetStatuses(): Promise<McpClientStatus[]>

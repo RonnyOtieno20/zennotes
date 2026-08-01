@@ -17,12 +17,13 @@ export type IndexedDatasetKey =
   | 'notelistIdx'
   | 'connectionsIdx'
   | 'commentsIdx'
+  | 'grammarIdx'
   | 'outlineIdx'
 
 /** Panels whose rows are addressed by a numeric cursor held in the store. The
  *  comments panel is deliberately absent: it tracks the active comment by id,
  *  not by row index, so it gets its own pair of helpers below. */
-export type RowPanel = 'sidebar' | 'notelist' | 'connections' | 'outline'
+export type RowPanel = 'sidebar' | 'notelist' | 'connections' | 'grammar' | 'outline'
 
 export const ROW_PANEL_DEFS: Record<
   RowPanel,
@@ -31,6 +32,7 @@ export const ROW_PANEL_DEFS: Record<
   sidebar: { selector: '[data-sidebar-idx]', datasetKey: 'sidebarIdx' },
   notelist: { selector: '[data-notelist-idx]', datasetKey: 'notelistIdx' },
   connections: { selector: '[data-connections-idx]', datasetKey: 'connectionsIdx' },
+  grammar: { selector: '[data-grammar-idx]', datasetKey: 'grammarIdx' },
   outline: { selector: '[data-outline-idx]', datasetKey: 'outlineIdx' }
 }
 
@@ -126,6 +128,8 @@ export function rowCursor(
       return { index: state.noteListCursorIndex, setIndex: state.setNoteListCursorIndex }
     case 'connections':
       return { index: state.connectionsCursorIndex, setIndex: state.setConnectionsCursorIndex }
+    case 'grammar':
+      return { index: state.grammarCursorIndex, setIndex: state.setGrammarCursorIndex }
     case 'outline':
       return { index: state.outlineCursorIndex, setIndex: state.setOutlineCursorIndex }
   }
@@ -167,7 +171,8 @@ export function activatePanelRow(panel: RowPanel): boolean {
   const { index } = rowCursor(panel, state)
   const row = items[findPositionByIndex(items, datasetKey, index)]
   if (!row) return false
-  row.click()
+  const primaryAction = row.querySelector<HTMLElement>('[data-panel-activate]')
+  ;(primaryAction ?? row).click()
   return true
 }
 

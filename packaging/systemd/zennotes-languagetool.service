@@ -1,0 +1,16 @@
+[Unit]
+Description=LanguageTool server for ZenNotes
+Documentation=https://dev.languagetool.org/http-server.html
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/.local/share/zennotes/languagetool/current
+ExecStart=/usr/bin/java -Xms64m -Xmx768m -cp %h/.local/share/zennotes/languagetool/current/languagetool-server.jar org.languagetool.server.HTTPServer --config %h/.config/zennotes/languagetool/server.properties --port 8081
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

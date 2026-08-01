@@ -5,12 +5,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const storeMock = vi.hoisted(() => ({
   state: {
     outlineCursorIndex: 0,
+    grammarCursorIndex: 0,
     connectionsCursorIndex: 0,
     sidebarCursorIndex: 0,
     noteListCursorIndex: 0,
     activeCommentId: null as string | null,
     setOutlineCursorIndex: (idx: number) => {
       storeMock.state.outlineCursorIndex = idx
+    },
+    setGrammarCursorIndex: (idx: number) => {
+      storeMock.state.grammarCursorIndex = idx
     },
     setConnectionsCursorIndex: (idx: number) => {
       storeMock.state.connectionsCursorIndex = idx
@@ -44,7 +48,10 @@ import {
  *  scan reads as "not on screen") and a zero bounding box. Stack the rows
  *  vertically by hand so they sort the way real rows do. */
 function layOutRows(): void {
-  document.querySelectorAll<HTMLElement>('[data-outline-idx],[data-connections-idx],[data-comments-idx]')
+  document
+    .querySelectorAll<HTMLElement>(
+      '[data-outline-idx],[data-connections-idx],[data-comments-idx],[data-grammar-idx]'
+    )
     .forEach((el, i) => {
       el.getClientRects = (() => [{ width: 200, height: 24 }] as unknown as DOMRectList) as never
       el.getBoundingClientRect = (() =>
@@ -64,6 +71,7 @@ function renderRows(attr: string, count: number, extra = ''): void {
 beforeEach(() => {
   document.body.innerHTML = ''
   storeMock.state.outlineCursorIndex = 0
+  storeMock.state.grammarCursorIndex = 0
   storeMock.state.connectionsCursorIndex = 0
   storeMock.state.activeCommentId = null
 })
@@ -72,6 +80,7 @@ describe('panel row cursors (#477 follow-up)', () => {
   it('knows which panels are row lists', () => {
     expect(isRowPanel('outline')).toBe(true)
     expect(isRowPanel('connections')).toBe(true)
+    expect(isRowPanel('grammar')).toBe(true)
     // Comments track the active comment by id, calendar owns its own keys.
     expect(isRowPanel('comments')).toBe(false)
     expect(isRowPanel('calendar')).toBe(false)
@@ -123,6 +132,25 @@ describe('panel row cursors (#477 follow-up)', () => {
     storeMock.state.outlineCursorIndex = 2
     expect(activatePanelRow('outline')).toBe(true)
     expect(clicked).toEqual([2])
+  })
+
+  it('activates a grammar card primary action instead of the card shell', () => {
+    document.body.innerHTML = `
+      <article data-grammar-idx="0">
+        <button data-panel-activate>Apply correction</button>
+      </article>
+    `
+    layOutRows()
+    const cardClick = vi.fn()
+    const applyClick = vi.fn()
+    document.querySelector('[data-grammar-idx]')?.addEventListener('click', cardClick)
+    document.querySelector('[data-panel-activate]')?.addEventListener('click', (event) => {
+      event.stopPropagation()
+      applyClick()
+    })
+    expect(activatePanelRow('grammar')).toBe(true)
+    expect(applyClick).toHaveBeenCalledOnce()
+    expect(cardClick).not.toHaveBeenCalled()
   })
 
   it('keeps each panel on its own cursor', () => {
