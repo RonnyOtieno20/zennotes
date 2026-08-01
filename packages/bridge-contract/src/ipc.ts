@@ -125,6 +125,8 @@ export const IPC = {
   APP_OPEN_FILE_DIALOG: 'app:open-file-dialog',
   APP_OPEN_FOLDER_TEMPORARY: 'app:open-folder-temporary',
   TIKZ_RENDER: 'tikz:render',
+  GRAMMAR_CHECK: 'grammar:check',
+  GRAMMAR_CANCEL: 'grammar:cancel',
   MCP_STATUS: 'mcp:status',
   MCP_INSTALL: 'mcp:install',
   MCP_UNINSTALL: 'mcp:uninstall',

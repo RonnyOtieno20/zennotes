@@ -3950,6 +3950,140 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   font-size: 0.75em;
   color: rgb(var(--z-fg-2));
 }
+
+/* Grammar diagnostics and the pane-local correction card. */
+.cm-grammar-diagnostic {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1.2px;
+  text-decoration-color: rgb(var(--z-red));
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.cm-grammar-diagnostic-punctuation {
+  text-decoration-color: rgb(var(--z-accent-soft));
+}
+.cm-grammar-diagnostic-style,
+.cm-grammar-diagnostic-other {
+  text-decoration-color: rgb(var(--z-aqua));
+}
+.cm-grammar-diagnostic-selected {
+  border-radius: 2px;
+  background: rgb(var(--z-accent) / 0.14);
+}
+span.cm-grammar-diagnostic:empty {
+  display: inline-block;
+  width: 0.34em;
+  height: 0.9em;
+  border-bottom: 2px solid rgb(var(--z-red));
+  vertical-align: baseline;
+}
+/* CodeMirror gives keyboard/click cards their own `.cm-tooltip` root, but
+   hover cards are hosted inside `.cm-tooltip-hover`. Style the hosted card
+   itself and clear the generic wrapper so both entry points are identical. */
+.cm-tooltip.cm-grammar-suggestion-card,
+.cm-tooltip.cm-tooltip-hover:has(> .cm-grammar-suggestion-card)
+  > .cm-grammar-suggestion-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: min(330px, calc(100vw - 24px));
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-radius: 10px;
+  background: rgb(var(--z-bg-1));
+  color: rgb(var(--z-fg));
+  box-shadow: var(--shadow-panel, 0 8px 28px rgb(0 0 0 / 0.28));
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+}
+.cm-tooltip.cm-tooltip-hover:has(> .cm-grammar-suggestion-card) {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.cm-grammar-suggestion-category {
+  color: rgb(var(--z-fg-2));
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.cm-grammar-suggestion-message {
+  color: rgb(var(--z-fg-1));
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.cm-grammar-suggestion-original {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  color: rgb(var(--z-fg-2));
+  font-family: var(--z-mono-font, ui-monospace, monospace);
+  font-size: 0.76rem;
+  text-decoration: line-through;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-grammar-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.cm-grammar-suggestion-actions button {
+  padding: 5px 8px;
+  border: 1px solid rgb(var(--z-bg-3) / 0.72);
+  border-radius: 7px;
+  background: transparent;
+  color: rgb(var(--z-fg-1));
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+}
+.cm-grammar-suggestion-actions button:hover,
+.cm-grammar-suggestion-actions button:focus-visible,
+.cm-grammar-suggestion-actions button.cm-grammar-suggestion-active {
+  border-color: rgb(var(--z-accent) / 0.48);
+  background: rgb(var(--z-accent) / 0.16);
+  outline: none;
+}
+.cm-grammar-suggestion-actions .cm-grammar-suggestion {
+  color: rgb(var(--z-fg));
+  font-weight: 650;
+}
+.cm-grammar-suggestion-actions .cm-grammar-suggestion-dismiss {
+  margin-left: auto;
+  color: rgb(var(--z-fg-2));
+}
+
+/* Compact category badges in the full-note grammar review panel. */
+.grammar-review-category {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: rgb(var(--z-fg-1));
+  background: rgb(var(--z-bg-3) / 0.58);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+.grammar-review-category-spelling,
+.grammar-review-category-grammar {
+  color: rgb(var(--z-red));
+  background: rgb(var(--z-red) / 0.12);
+}
+.grammar-review-category-punctuation {
+  color: rgb(var(--z-accent-soft));
+  background: rgb(var(--z-accent) / 0.12);
+}
+.grammar-review-category-style,
+.grammar-review-category-other {
+  color: rgb(var(--z-aqua));
+  background: rgb(var(--z-aqua) / 0.12);
+}
 .zen-diagram-modal-host .zen-tikz,
 .zen-diagram-modal-host .zen-jsxgraph,
 .zen-diagram-modal-host .zen-function-plot,

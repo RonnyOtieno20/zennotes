@@ -649,6 +649,17 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       }
     },
     {
+      id: 'view.grammar-review',
+      title: 'Toggle Grammar Review',
+      category: 'View',
+      shortcut: shortcut('global.toggleGrammarReview'),
+      keywords: 'grammar spelling proofreading review issues corrections',
+      when: () => !!getState().activeNote,
+      run: () => {
+        window.dispatchEvent(new Event('zen:toggle-grammar-review'))
+      }
+    },
+    {
       id: 'editor.add-comment',
       title: 'Add Comment to Selection',
       category: 'Editor',

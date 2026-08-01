@@ -48,6 +48,7 @@ export type Panel =
   | 'editor'
   | 'connections'
   | 'comments'
+  | 'grammar'
   | 'outline'
   | 'calendar'
   | 'hoverpreview'
@@ -60,6 +61,7 @@ export interface PanelVisibility {
   unifiedSidebar: boolean
   connectionsOpen: boolean
   commentsOpen: boolean
+  grammarOpen: boolean
   outlineOpen: boolean
   calendarOpen: boolean
   tasksViewOpen: boolean
@@ -67,7 +69,7 @@ export interface PanelVisibility {
 
 /** Every panel on screen, ordered left to right — the focus order both pane
  *  navigations walk. The editor-pane side panels follow the order EditorPane
- *  renders them in: connections, comments, outline, calendar. (#285, #477) */
+ *  renders them in: connections, comments, grammar, outline, calendar. (#285, #477) */
 export function getVisiblePanels(visibility: PanelVisibility): Panel[] {
   const panels: Panel[] = []
   if (visibility.sidebarOpen) panels.push('sidebar')
@@ -75,6 +77,7 @@ export function getVisiblePanels(visibility: PanelVisibility): Panel[] {
   panels.push(visibility.tasksViewOpen ? 'tasks' : 'editor')
   if (visibility.connectionsOpen) panels.push('connections')
   if (visibility.commentsOpen) panels.push('comments')
+  if (visibility.grammarOpen) panels.push('grammar')
   if (visibility.outlineOpen) panels.push('outline')
   if (visibility.calendarOpen) panels.push('calendar')
   return panels
@@ -86,6 +89,7 @@ export function getVisiblePanels(visibility: PanelVisibility): Panel[] {
 const PANEL_MARKERS = {
   connections: '[data-connections-panel]',
   comments: '[data-comments-panel]',
+  grammar: '[data-grammar-panel]',
   outline: '[data-outline-panel]',
   calendar: '[data-calendar-panel]'
 } as const
@@ -112,6 +116,7 @@ export function getVisiblePanelsNow(state: {
     tasksViewOpen: state.tasksViewOpen,
     connectionsOpen: onScreen(PANEL_MARKERS.connections),
     commentsOpen: onScreen(PANEL_MARKERS.comments),
+    grammarOpen: onScreen(PANEL_MARKERS.grammar),
     outlineOpen: onScreen(PANEL_MARKERS.outline),
     calendarOpen: onScreen(PANEL_MARKERS.calendar)
   })

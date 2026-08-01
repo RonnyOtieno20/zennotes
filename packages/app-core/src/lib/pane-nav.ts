@@ -124,7 +124,7 @@ function resolveNeighborPanel(
  * copies of "how do I focus the comments panel" is exactly how `Alt+hjkl` ended
  * up reaching fewer panels than `<C-w>hjkl`. (#477)
  *
- * Row-list panels (sidebar / note list / connections / outline) don't take DOM
+ * Row-list panels (sidebar / note list / connections / grammar / outline) don't take DOM
  * focus: their keys are handled centrally off `focusedPanel`, so we only blur
  * whatever held focus and scroll their cursor row back into view. The comments
  * and calendar panels own their keyboard handling, so they take real DOM focus.

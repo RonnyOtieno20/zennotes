@@ -1,7 +1,7 @@
 {
   "name": "@zennotes/desktop",
   "productName": "ZenNotes",
-  "version": "2.20.2",
+  "version": "2.20.3-grammar.1",
   "description": "ZenNotes desktop shell",
   "private": true,
   "main": "./out/main/index.js",
@@ -111,7 +111,7 @@
     "appId": "com.adibhanna.zennotes",
     "executableName": "ZenNotes",
     "productName": "ZenNotes",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "${productName}-Grammar-${version}-${os}-${arch}.${ext}",
     "afterPack": "build/after-pack.js",
     "asar": true,
     "compression": "maximum",
@@ -129,6 +129,10 @@
       {
         "from": "../../node_modules/@excalidraw/excalidraw/dist/prod/fonts",
         "to": "excalidraw-fonts"
+      },
+      {
+        "from": "../../packaging/downstream/grammar-edition.json",
+        "to": "downstream-edition.json"
       },
       {
         "from": "build/icon.png",
