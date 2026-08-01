@@ -1,0 +1,7 @@
+{
+  "id": "grammar",
+  "displayName": "ZenNotes Grammar Edition",
+  "updater": "disabled",
+  "upstreamRepository": "ZenNotes/zennotes",
+  "releaseTagPrefix": "grammar-v"
+}

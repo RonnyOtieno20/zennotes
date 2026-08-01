@@ -1301,6 +1301,84 @@ describe('pdfExportUseTheme — theme in PDF export', () => {
   })
 })
 
+describe('grammarEnabled (local grammar opt-in)', () => {
+  it('defaults off and round-trips through local persistence', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().grammarEnabled).toBe(false)
+
+    useStore.getState().setGrammarEnabled(true)
+    expect(useStore.getState().grammarEnabled).toBe(true)
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.grammarEnabled).toBe(true)
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().grammarEnabled).toBe(true)
+  })
+
+  it('normalizes missing and non-boolean stored values to off', async () => {
+    installZen()
+    await loadStore()
+
+    localStorage.setItem('zen:prefs:v2', JSON.stringify({ grammarEnabled: 'yes' }))
+    vi.resetModules()
+    const bad = await import('./store')
+    expect(bad.useStore.getState().grammarEnabled).toBe(false)
+
+    localStorage.setItem('zen:prefs:v2', JSON.stringify({ themeId: 'dark-hard' }))
+    vi.resetModules()
+    const missing = await import('./store')
+    expect(missing.useStore.getState().grammarEnabled).toBe(false)
+  })
+})
+
+describe('grammarPreferences', () => {
+  it('normalizes updates and round-trips them through local persistence', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+
+    useStore.getState().setGrammarPreferences({
+      endpoint: ' https://grammar.example.test/v2 ',
+      language: 'en-GB',
+      debounceMs: 100_000,
+      ignoredRules: ['RULE_A', 'rule_a', 'bad rule'],
+      customDictionary: ['ZenNotes', 'zennotes']
+    })
+    expect(useStore.getState().grammarPreferences).toMatchObject({
+      endpoint: 'https://grammar.example.test/v2',
+      language: 'en-GB',
+      debounceMs: 5_000,
+      ignoredRules: ['RULE_A'],
+      customDictionary: ['ZenNotes']
+    })
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().grammarPreferences).toMatchObject({
+      endpoint: 'https://grammar.example.test/v2',
+      language: 'en-GB'
+    })
+  })
+
+  it('restores local-first defaults for malformed stored preferences', async () => {
+    installZen()
+    await loadStore()
+    localStorage.setItem(
+      'zen:prefs:v2',
+      JSON.stringify({ grammarPreferences: { endpoint: null, language: '../bad' } })
+    )
+    vi.resetModules()
+    const reloaded = await import('./store')
+
+    expect(reloaded.useStore.getState().grammarPreferences).toMatchObject({
+      endpoint: 'http://127.0.0.1:8081/v2',
+      language: 'en-US',
+      automaticChecks: true
+    })
+  })
+})
+
 describe('workflowsEnabled (Workflows feature switch)', () => {
   it('defaults off and round-trips the opt-in through persistence', async () => {
     installZen()

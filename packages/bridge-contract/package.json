@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./bridge": "./src/bridge.ts",
+    "./grammar": "./src/grammar.ts",
     "./ipc": "./src/ipc.ts",
     "./templates": "./src/templates.ts",
     "./workflows": "./src/workflows.ts"

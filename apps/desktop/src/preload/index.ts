@@ -11,6 +11,12 @@ import type {
   WriteTemplateInput
 } from '@zennotes/bridge-contract/templates'
 import type {
+  GrammarCancelRequest,
+  GrammarCancelResponse,
+  GrammarCheckRequest,
+  GrammarCheckResponse
+} from '@zennotes/bridge-contract/grammar'
+import type {
   ApplyWorkflowInput,
   ExportWorkflowInput,
   ImportedWorkflowFile,
@@ -84,7 +90,8 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   // and is gated to a follow-up.
   supportsCliInstall: process.platform === 'darwin' || process.platform === 'linux',
   supportsCustomTemplates: true,
-  supportsCustomCodeLanguages: true
+  supportsCustomCodeLanguages: true,
+  supportsGrammarProviderTransport: true
 }
 
 const DESKTOP_APP_INFO: ZenAppInfo = {
@@ -539,6 +546,10 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.APP_SET_QUICK_CAPTURE_PINNED, pinned),
   renderTikz: (source: string): Promise<{ ok: boolean; svg?: string; error?: string }> =>
     ipcRenderer.invoke(IPC.TIKZ_RENDER, source),
+  grammarCheck: (request: GrammarCheckRequest): Promise<GrammarCheckResponse> =>
+    ipcRenderer.invoke(IPC.GRAMMAR_CHECK, request),
+  grammarCancel: (request: GrammarCancelRequest): Promise<GrammarCancelResponse> =>
+    ipcRenderer.invoke(IPC.GRAMMAR_CANCEL, request),
 
   mcpGetRuntime: (): Promise<McpServerRuntime> => ipcRenderer.invoke(IPC.MCP_RUNTIME),
   mcpGetStatuses: (): Promise<McpClientStatus[]> => ipcRenderer.invoke(IPC.MCP_STATUS),

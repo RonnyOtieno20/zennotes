@@ -126,6 +126,12 @@ import {
 } from './lib/system-folder-labels'
 import { recordRendererPerf } from './lib/perf'
 import {
+  DEFAULT_GRAMMAR_PREFERENCES,
+  normalizeGrammarPreferences,
+  type GrammarPreferences,
+  type GrammarPreferencesPatch,
+} from "./grammar/preferences";
+import {
   initialWorkspaceRestoreContentPaths,
   isWorkspaceVirtualTabPath,
   workspaceRestorePrefetchContentPaths
@@ -444,11 +450,12 @@ export type CalendarWeekStart = 'monday' | 'sunday' | 'locale'
 const VALID_CALENDAR_WEEK_STARTS: CalendarWeekStart[] = ['monday', 'sunday', 'locale']
 
 /** The editor-pane right-side panels whose width the user can drag-resize. */
-export type RightPanelId = 'outline' | 'connections' | 'comments' | 'calendar'
+export type RightPanelId = 'outline' | 'connections' | 'comments' | 'grammar' | 'calendar'
 export interface PanelWidths {
   outline: number
   connections: number
   comments: number
+  grammar: number
   calendar: number
 }
 export const MIN_RIGHT_PANEL_WIDTH = 200
@@ -457,6 +464,7 @@ export const DEFAULT_PANEL_WIDTHS: PanelWidths = {
   outline: 260,
   connections: 288,
   comments: 360,
+  grammar: 340,
   calendar: 280
 }
 
@@ -472,6 +480,7 @@ function normalizePanelWidths(value: unknown): PanelWidths {
     outline: pick('outline'),
     connections: pick('connections'),
     comments: pick('comments'),
+    grammar: pick('grammar'),
     calendar: pick('calendar')
   }
 }
@@ -637,6 +646,10 @@ interface Prefs {
   /** Show `/`-separated tags as a collapsible tree (sidebar + Tags view)
    *  instead of a flat list. Degrades to a flat list when no tag nests. (#439) */
   nestedTags: boolean
+  /** Master switch for grammar checking. Local-only and off by default. */
+  grammarEnabled: boolean
+  /** Local provider, language, privacy, and review behavior. */
+  grammarPreferences: GrammarPreferences
   /** Master switch for the Workflows feature. Off hides the `zen://workflows`
    *  view together with every way in (sidebar row, command, leader binding) and
    *  closes any tab already showing it. OFF by default, deliberately: it can
@@ -1027,6 +1040,8 @@ export const DEFAULT_PREFS: Prefs = {
   contentAlign: 'center',
   tagsCollapsed: false,
   nestedTags: true,
+  grammarEnabled: false,
+  grammarPreferences: DEFAULT_GRAMMAR_PREFERENCES,
   // Off by default, deliberately: workflows can rewrite notes in bulk, and the
   // graph editor asks more of a new user than any other view. The feature is
   // opted into once in Settings -> Workflows, not stumbled into.
@@ -1319,6 +1334,11 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     tagsCollapsed:
       typeof p.tagsCollapsed === 'boolean' ? p.tagsCollapsed : DEFAULT_PREFS.tagsCollapsed,
     nestedTags: typeof p.nestedTags === 'boolean' ? p.nestedTags : DEFAULT_PREFS.nestedTags,
+    grammarEnabled:
+      typeof p.grammarEnabled === 'boolean'
+        ? p.grammarEnabled
+        : DEFAULT_PREFS.grammarEnabled,
+    grammarPreferences: normalizeGrammarPreferences(p.grammarPreferences),
     workflowsEnabled:
       typeof p.workflowsEnabled === 'boolean'
         ? p.workflowsEnabled
@@ -2161,6 +2181,8 @@ function collectPrefs(s: {
   contentAlign: 'center' | 'left'
   tagsCollapsed: boolean
   nestedTags: boolean
+  grammarEnabled: boolean
+  grammarPreferences: GrammarPreferences
   workflowsEnabled: boolean
   hiddenWorkflowPresets: string[]
   collapsedTagNodes: string[]
@@ -2252,6 +2274,8 @@ function collectPrefs(s: {
     contentAlign: s.contentAlign,
     tagsCollapsed: s.tagsCollapsed,
     nestedTags: s.nestedTags,
+    grammarEnabled: s.grammarEnabled,
+    grammarPreferences: s.grammarPreferences,
     workflowsEnabled: s.workflowsEnabled,
     hiddenWorkflowPresets: s.hiddenWorkflowPresets,
     collapsedTagNodes: s.collapsedTagNodes,
@@ -2813,6 +2837,10 @@ interface Store {
   /** Render `/`-separated tags as a collapsible tree (sidebar + Tags view).
    *  Persisted. (#439) */
   nestedTags: boolean
+  /** Local opt-in for grammar checking. Not exported with portable config. */
+  grammarEnabled: boolean
+  /** Local grammar provider and review preferences. Not exported with portable config. */
+  grammarPreferences: GrammarPreferences
   /** Master switch for the Workflows feature. Persisted. Off hides the sidebar
    *  row, the `view.workflows` command, and the leader binding, so the canvas
    *  has no way in at all. */
@@ -2909,6 +2937,8 @@ interface Store {
   /** Row cursor for the Outline panel, mirroring the connections cursor so
    *  pane navigation can restore where you were. (#477) */
   outlineCursorIndex: number
+  /** Row cursor for the categorized grammar review cards. */
+  grammarCursorIndex: number
   connectionPreview: ConnectionPreviewState | null
   editorViewRef: EditorView | null
   pendingTitleFocusPath: string | null
@@ -3184,6 +3214,8 @@ interface Store {
   setAutoPairs: (on: boolean) => void
   setAutoPairQuotesInProse: (on: boolean) => void
   setHideBuiltinTemplates: (hidden: boolean) => void
+  setGrammarEnabled: (on: boolean) => void
+  setGrammarPreferences: (patch: GrammarPreferencesPatch) => void
   /** Turn the whole Workflows feature on or off. Switching it off also closes
    *  any pane still showing the canvas. */
   setWorkflowsEnabled: (on: boolean) => void
@@ -3342,6 +3374,7 @@ interface Store {
   setNoteListCursorIndex: (idx: number) => void
   setConnectionsCursorIndex: (idx: number) => void
   setOutlineCursorIndex: (idx: number) => void
+  setGrammarCursorIndex: (idx: number) => void
   setConnectionPreview: (preview: ConnectionPreviewState | null) => void
   setEditorViewRef: (view: EditorView | null) => void
 
@@ -4518,6 +4551,8 @@ export const useStore = create<Store>((set, get) => {
   contentAlign: loadPrefs().contentAlign,
   tagsCollapsed: loadPrefs().tagsCollapsed,
   nestedTags: loadPrefs().nestedTags,
+  grammarEnabled: loadPrefs().grammarEnabled,
+  grammarPreferences: loadPrefs().grammarPreferences,
   workflowsEnabled: loadPrefs().workflowsEnabled,
   hiddenWorkflowPresets: loadPrefs().hiddenWorkflowPresets,
   collapsedTagNodes: loadPrefs().collapsedTagNodes,
@@ -4554,6 +4589,7 @@ export const useStore = create<Store>((set, get) => {
   noteListCursorIndex: 0,
   connectionsCursorIndex: 0,
   outlineCursorIndex: 0,
+  grammarCursorIndex: 0,
   connectionPreview: null,
   editorViewRef: null,
   pendingTitleFocusPath: null,
@@ -7053,6 +7089,19 @@ export const useStore = create<Store>((set, get) => {
     set({ hideBuiltinTemplates: hidden })
     savePrefs(collectPrefs(get()))
   },
+  setGrammarEnabled: (on) => {
+    set({ grammarEnabled: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setGrammarPreferences: (patch) => {
+    set((state) => ({
+      grammarPreferences: normalizeGrammarPreferences({
+        ...state.grammarPreferences,
+        ...patch
+      })
+    }))
+    savePrefs(collectPrefs(get()))
+  },
   setWorkflowsEnabled: (on) => {
     set({ workflowsEnabled: on })
     savePrefs(collectPrefs(get()))
@@ -7968,6 +8017,7 @@ export const useStore = create<Store>((set, get) => {
   setNoteListCursorIndex: (idx) => set({ noteListCursorIndex: idx }),
   setConnectionsCursorIndex: (idx) => set({ connectionsCursorIndex: idx }),
   setOutlineCursorIndex: (idx) => set({ outlineCursorIndex: idx }),
+  setGrammarCursorIndex: (idx) => set({ grammarCursorIndex: idx }),
   setConnectionPreview: (preview) => set({ connectionPreview: preview }),
   setEditorViewRef: (view) => set({ editorViewRef: view }),
   setActivePane: (paneId) => {

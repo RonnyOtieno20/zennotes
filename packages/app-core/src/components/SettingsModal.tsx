@@ -125,10 +125,12 @@ import { RemoteWorkspaceProfileModal } from "./RemoteWorkspaceProfileModal";
 import { Button } from "./ui/Button";
 import { CustomCodeLanguagesSettings } from "./CustomCodeLanguagesSettings";
 import { TextReplacementsSettings } from "./TextReplacementsSettings";
+import { GrammarSettings } from "./GrammarSettings";
 
 type SettingsCategoryId =
   | "appearance"
   | "editor"
+  | "grammar"
   | "keymaps"
   | "tasks"
   | "typography"
@@ -204,6 +206,12 @@ const SETTINGS_CATEGORY_ICONS: Record<SettingsCategoryId, JSX.Element> = {
       <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
     </NavIcon>
   ),
+  grammar: (
+    <NavIcon>
+      <path d="m4 13 4 4L20 5" />
+      <path d="M4 7h6M4 11h4" />
+    </NavIcon>
+  ),
   keymaps: (
     <NavIcon>
       <rect x="3" y="6" width="18" height="12" rx="2" />
@@ -262,7 +270,7 @@ const SETTINGS_SECTIONS: {
   {
     id: "editing",
     title: "Editing",
-    categoryIds: ["editor", "tasks", "keymaps"],
+    categoryIds: ["editor", "grammar", "tasks", "keymaps"],
   },
   { id: "vault", title: "Vault", categoryIds: ["vault", "templates"] },
   { id: "system", title: "System", categoryIds: ["mcp", "cli", "about"] },
@@ -2666,6 +2674,38 @@ export function SettingsModal(): JSX.Element {
           ),
         },
       ],
+    },
+    {
+      id: "grammar",
+      title: "Grammar",
+      description:
+        "Configure LanguageTool, spelling and grammar categories, privacy, and review behavior.",
+      keywords: [
+        "grammar",
+        "spelling",
+        "languagetool",
+        "dictionary",
+        "proofreading",
+        "provider",
+        "privacy",
+      ],
+      searchItems: [
+        {
+          id: "grammar-provider",
+          title: "Grammar provider",
+          description:
+            "Configure LanguageTool connection, language, checking regions, and personal dictionary.",
+          keywords: [
+            "endpoint",
+            "local",
+            "remote",
+            "language",
+            "ignored rules",
+            "underlines",
+          ],
+        },
+      ],
+      content: <GrammarSettings />,
     },
     {
       id: "keymaps",

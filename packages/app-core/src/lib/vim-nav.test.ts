@@ -121,6 +121,7 @@ describe('getVisiblePanels — the focus cycle (#285, #477)', () => {
     unifiedSidebar: false,
     connectionsOpen: false,
     commentsOpen: false,
+    grammarOpen: false,
     outlineOpen: false,
     calendarOpen: false,
     tasksViewOpen: false,
@@ -144,12 +145,13 @@ describe('getVisiblePanels — the focus cycle (#285, #477)', () => {
     expect(getVisiblePanels(visibility({ calendarOpen: false }))).not.toContain('calendar')
   })
 
-  it('slots the outline between comments and calendar, matching how they render (#477)', () => {
+  it('slots grammar and outline between comments and calendar, matching how they render (#477)', () => {
     expect(
       getVisiblePanels(
         visibility({
           connectionsOpen: true,
           commentsOpen: true,
+          grammarOpen: true,
           outlineOpen: true,
           calendarOpen: true
         })
@@ -160,6 +162,7 @@ describe('getVisiblePanels — the focus cycle (#285, #477)', () => {
       'editor',
       'connections',
       'comments',
+      'grammar',
       'outline',
       'calendar'
     ])
@@ -177,6 +180,7 @@ describe('getVisiblePanels — the focus cycle (#285, #477)', () => {
   it('reads the open side panels off the DOM so both navigations see the same list (#477)', () => {
     document.body.innerHTML = `
       <div data-connections-panel></div>
+      <div data-grammar-panel></div>
       <div data-outline-panel></div>
       <div data-calendar-panel></div>
     `
@@ -187,23 +191,30 @@ describe('getVisiblePanels — the focus cycle (#285, #477)', () => {
         unifiedSidebar: false,
         tasksViewOpen: false
       })
-    ).toEqual(['sidebar', 'editor', 'connections', 'outline', 'calendar'])
+    ).toEqual(['sidebar', 'editor', 'connections', 'grammar', 'outline', 'calendar'])
     document.body.innerHTML = ''
   })
 
   it('walks every open panel in order, so no panel is a dead end (#477)', () => {
     const panels = getVisiblePanels(
-      visibility({ connectionsOpen: true, commentsOpen: true, outlineOpen: true, calendarOpen: true })
+      visibility({
+        connectionsOpen: true,
+        commentsOpen: true,
+        grammarOpen: true,
+        outlineOpen: true,
+        calendarOpen: true
+      })
     )
     const walk: Panel[] = ['editor']
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 5; i++) {
       const next = resolveNextPanel(walk[walk.length - 1], 'right', panels)
       if (!next) break
       walk.push(next)
     }
-    expect(walk).toEqual(['editor', 'connections', 'comments', 'outline', 'calendar'])
+    expect(walk).toEqual(['editor', 'connections', 'comments', 'grammar', 'outline', 'calendar'])
     // …and back again.
-    expect(resolveNextPanel('outline', 'left', panels)).toBe('comments')
+    expect(resolveNextPanel('outline', 'left', panels)).toBe('grammar')
+    expect(resolveNextPanel('grammar', 'left', panels)).toBe('comments')
     expect(resolveNextPanel('connections', 'left', panels)).toBe('editor')
   })
 })
