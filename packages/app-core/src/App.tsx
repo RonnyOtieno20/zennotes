@@ -834,6 +834,12 @@ function App(): JSX.Element {
         window.dispatchEvent(new Event('zen:toggle-outline'))
         return
       }
+      // ⇧⌘G — toggle grammar review in the active pane
+      if (matchesShortcut(e, overrides, 'global.toggleGrammarReview')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:toggle-grammar-review'))
+        return
+      }
       // ⇧⌘C — toggle the comments panel in the active pane
       if (matchesShortcut(e, overrides, 'global.toggleCommentsPanel')) {
         e.preventDefault()

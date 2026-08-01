@@ -7,6 +7,7 @@ import electronUpdater, {
   type UpdateInfo
 } from 'electron-updater'
 import { IPC, type AppUpdateState } from '@shared/ipc'
+import { getDownstreamEdition } from './downstream-edition'
 
 const { autoUpdater } = electronUpdater
 const execFileAsync = promisify(execFile)
@@ -164,6 +165,17 @@ export function getAppUpdateState(): AppUpdateState {
 export function initAppUpdater(): void {
   if (initialized) return
   initialized = true
+
+  const edition = getDownstreamEdition()
+  if (edition.updater === 'disabled') {
+    setUpdateState(
+      makeState({
+        phase: 'unsupported',
+        message: `${edition.displayName} is updated through its downstream package. Official ZenNotes updates are disabled so they cannot replace this edition.`
+      })
+    )
+    return
+  }
 
   if (!app.isPackaged) {
     setUpdateState(

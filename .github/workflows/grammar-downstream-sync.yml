@@ -1,0 +1,130 @@
+name: Grammar Edition upstream sync
+
+on:
+  schedule:
+    - cron: '13 6 * * 1'
+  workflow_dispatch:
+    inputs:
+      upstream_tag:
+        description: 'Upstream ZenNotes tag to incorporate (blank = newest release)'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: grammar-edition-upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Rebase Grammar Edition on upstream
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: '--max-old-space-size=12288'
+      UPSTREAM_REMOTE: upstream
+      DOWNSTREAM_BRANCH: grammar-main
+    steps:
+      - name: Check out downstream branch
+        uses: actions/checkout@v6
+        with:
+          ref: grammar-main
+          fetch-depth: 0
+
+      - name: Configure upstream remote
+        run: |
+          git remote add upstream https://github.com/ZenNotes/zennotes.git 2>/dev/null || \
+            git remote set-url upstream https://github.com/ZenNotes/zennotes.git
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+      - name: Resolve upstream release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.upstream_tag }}
+        run: |
+          tag="$REQUESTED_TAG"
+          if [ -z "$tag" ]; then
+            tag="$(gh release view --repo ZenNotes/zennotes --json tagName --jq .tagName)"
+          fi
+          case "$tag" in
+            v[0-9]*) ;;
+            *) echo "Unexpected upstream release tag: $tag" >&2; exit 1 ;;
+          esac
+          echo "UPSTREAM_TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Rebase downstream commits
+        id: rebase
+        continue-on-error: true
+        run: |
+          if ! output="$(scripts/downstream/sync-upstream.sh "$UPSTREAM_TAG" 2>&1)"; then
+            printf '%s\n' "$output"
+            exit 1
+          fi
+          printf '%s\n' "$output"
+          branch="$(printf '%s\n' "$output" | sed -n 's/^SYNC_BRANCH=//p')"
+          test -n "$branch"
+          echo "SYNC_BRANCH=$branch" >> "$GITHUB_ENV"
+
+      - name: Open conflict report
+        if: steps.rebase.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Grammar Edition sync blocked by ${UPSTREAM_TAG}"
+          conflicts="$(git diff --name-only --diff-filter=U || true)"
+          body="The automated rebase of grammar-main onto upstream ZenNotes ${UPSTREAM_TAG} stopped with conflicts.
+
+          Conflicted files:
+          ${conflicts:-The rebase failed before Git reported conflict paths. Inspect the workflow log.}
+
+          Reproduce locally with:
+          \`UPSTREAM_REMOTE=upstream DOWNSTREAM_BRANCH=grammar-main scripts/downstream/sync-upstream.sh ${UPSTREAM_TAG}\`
+
+          Resolve the rebase, run the full production build, and push the resulting sync branch for review. This workflow never publishes after a conflict."
+          if ! gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json title --jq 'length' | grep -qx '0'; then
+            echo "An open conflict report already exists: $title"
+          else
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
+          fi
+          exit 1
+
+      - name: Set up Node.js
+        if: steps.rebase.outcome == 'success'
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.rebase.outcome == 'success'
+        run: npm ci
+
+      - name: Install Linux packaging tools
+        if: steps.rebase.outcome == 'success'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools rpm ruby ruby-dev build-essential
+          sudo gem install fpm --no-document
+          echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
+
+      - name: Build and verify downstream artifacts
+        if: steps.rebase.outcome == 'success'
+        run: npm run dist:grammar-linux
+
+      - name: Upload candidate artifacts
+        if: steps.rebase.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: grammar-edition-${{ env.UPSTREAM_TAG }}
+          path: |
+            dist/ZenNotes-Grammar-*.deb
+            dist/ZenNotes-Grammar-*.AppImage
+            dist/ZenNotes-Grammar-*-SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Push sync branch for review
+        if: steps.rebase.outcome == 'success'
+        run: git push origin "HEAD:refs/heads/${SYNC_BRANCH}"

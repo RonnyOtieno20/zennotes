@@ -18,10 +18,12 @@ import {
 import { isCalendarToggleAvailable } from '../lib/vault-layout'
 import { focusPanel, focusPaneInDirection } from '../lib/pane-nav'
 import {
+  activatePanelRow,
   findPositionByIndex,
   getIndexedElementByIndex,
   getIndexedElements,
   getIndexedValue,
+  movePanelCursor,
   scrollToIndexedElement,
   scrollToIndexedIndex,
   type IndexedDatasetKey
@@ -1112,6 +1114,11 @@ export function VimNav(): JSX.Element | null {
         return
       }
 
+      if (state.focusedPanel === 'grammar') {
+        handleGrammarKey(e, state)
+        return
+      }
+
       if (state.focusedPanel === 'outline') {
         handleOutlineKey(e, state)
         return
@@ -1608,6 +1615,82 @@ export function VimNav(): JSX.Element | null {
       return
     }
     if (matchesSequenceToken(e, overrides, 'nav.back') || key === 'ArrowLeft' || key === 'Escape') {
+      focusEditor()
+    }
+  }
+
+  /** Grammar cards are a row panel, but Enter accepts the first replacement
+   *  instead of merely selecting the row. The panel component synchronizes the
+   *  row cursor back to the shared document session and editor decoration. */
+  function handleGrammarKey(
+    e: KeyboardEvent,
+    state: ReturnType<typeof useStore.getState>
+  ): void {
+    const key = e.key
+    const overrides = state.keymapOverrides
+    const target = e.target instanceof HTMLElement ? e.target : null
+    const nativeControlActivation =
+      !!target?.closest('[data-grammar-panel-control]') && (key === 'Enter' || key === ' ')
+    if (nativeControlActivation) return
+
+    const wantsHandledKey =
+      matchesSequenceToken(e, overrides, 'nav.moveDown') ||
+      matchesSequenceToken(e, overrides, 'nav.moveUp') ||
+      matchesSequenceToken(e, overrides, 'nav.jumpBottom') ||
+      sequenceTokenFromEvent(e) === getSequenceTokens(overrides, 'nav.jumpTop')[0] ||
+      matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
+      matchesSequenceToken(e, overrides, 'nav.back') ||
+      key === 'Enter' ||
+      key === 'Escape' ||
+      key === 'ArrowDown' ||
+      key === 'ArrowUp' ||
+      key === 'ArrowLeft' ||
+      key === 'ArrowRight'
+    if (!wantsHandledKey) return
+    e.preventDefault()
+    e.stopImmediatePropagation()
+
+    if (matchesSequenceToken(e, overrides, 'nav.moveDown') || key === 'ArrowDown') {
+      movePanelCursor('grammar', 'down')
+      return
+    }
+    if (matchesSequenceToken(e, overrides, 'nav.moveUp') || key === 'ArrowUp') {
+      movePanelCursor('grammar', 'up')
+      return
+    }
+    if (matchesSequenceToken(e, overrides, 'nav.jumpBottom')) {
+      movePanelCursor('grammar', 'last')
+      return
+    }
+    if (
+      advanceSequence(
+        e,
+        getKeymapBinding(overrides, 'nav.jumpTop'),
+        jumpTopPending,
+        jumpTopTimer,
+        () => movePanelCursor('grammar', 'first'),
+        () => {
+          e.preventDefault()
+          e.stopImmediatePropagation()
+        },
+        300
+      )
+    ) {
+      return
+    }
+    if (
+      key === 'Enter' ||
+      matchesSequenceToken(e, overrides, 'nav.openSideItem') ||
+      key === 'ArrowRight'
+    ) {
+      activatePanelRow('grammar')
+      return
+    }
+    if (
+      matchesSequenceToken(e, overrides, 'nav.back') ||
+      key === 'ArrowLeft' ||
+      key === 'Escape'
+    ) {
       focusEditor()
     }
   }

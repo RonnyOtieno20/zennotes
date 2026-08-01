@@ -18,6 +18,7 @@ export type KeymapId =
   | "global.toggleSidebar"
   | "global.toggleConnections"
   | "global.toggleOutlinePanel"
+  | "global.toggleGrammarReview"
   | "global.toggleCommentsPanel"
   | "global.addComment"
   | "global.focusPaneLeft"
@@ -212,6 +213,15 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Toggle outline panel",
     description: "Toggle the outline panel in the active pane.",
     defaultBinding: "Mod+3",
+  },
+  {
+    id: "global.toggleGrammarReview",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Toggle grammar review",
+    description: "Toggle the grammar review panel in the active pane.",
+    defaultBinding: "Shift+Mod+G",
   },
   {
     id: "global.toggleCommentsPanel",
