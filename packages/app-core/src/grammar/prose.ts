@@ -22,6 +22,8 @@ const MARKER_NODE_EXCLUSIONS = new Set([
   'URL'
 ])
 
+const INLINE_CODE_CONTEXT = 'Code'
+
 interface ProseCandidate extends SourceRange {
   kind: string
 }
@@ -272,20 +274,40 @@ function fingerprint(value: string): string {
 function buildSegment(
   text: string,
   candidate: ProseCandidate,
-  exclusions: readonly SourceRange[]
+  exclusions: readonly SourceRange[],
+  inlineCodeRanges: readonly SourceRange[]
 ): ProseSegment | null {
   const codeUnits: string[] = []
-  const sourceOffsets: number[] = []
+  const sourceOffsets: Array<number | null> = []
   let exclusionIndex = 0
+  let inlineCodeIndex = 0
+  let hasVisibleContent = false
 
   for (let sourceOffset = candidate.from; sourceOffset < candidate.to; sourceOffset += 1) {
+    while (
+      inlineCodeIndex < inlineCodeRanges.length &&
+      inlineCodeRanges[inlineCodeIndex]!.to <= sourceOffset
+    ) {
+      inlineCodeIndex += 1
+    }
+    const inlineCode = inlineCodeRanges[inlineCodeIndex]
+    if (inlineCode && sourceOffset === inlineCode.from && !hasVisibleContent) {
+      for (const character of INLINE_CODE_CONTEXT) {
+        codeUnits.push(character)
+        sourceOffsets.push(null)
+      }
+      sourceOffset = inlineCode.to - 1
+      continue
+    }
     while (exclusionIndex < exclusions.length && exclusions[exclusionIndex]!.to <= sourceOffset) {
       exclusionIndex += 1
     }
     const exclusion = exclusions[exclusionIndex]
     if (exclusion && sourceOffset >= exclusion.from && sourceOffset < exclusion.to) continue
-    codeUnits.push(text.slice(sourceOffset, sourceOffset + 1))
+    const character = text.slice(sourceOffset, sourceOffset + 1)
+    codeUnits.push(character)
     sourceOffsets.push(sourceOffset)
+    if (/\S/u.test(character)) hasVisibleContent = true
   }
 
   let fromIndex = 0
@@ -297,13 +319,23 @@ function buildSegment(
   const segmentText = codeUnits.slice(fromIndex, toIndex).join('')
   if (!/[\p{L}\p{N}]/u.test(segmentText)) return null
   const mappedOffsets = sourceOffsets.slice(fromIndex, toIndex)
-  const sourceFrom = mappedOffsets[0]!
-  const sourceTo = mappedOffsets[mappedOffsets.length - 1]! + 1
+  const firstMappedOffset = mappedOffsets.find((offset): offset is number => offset !== null)
+  const lastMappedOffset = [...mappedOffsets]
+    .reverse()
+    .find((offset): offset is number => offset !== null)
+  if (firstMappedOffset === undefined || lastMappedOffset === undefined) return null
+  const firstContextOffset = mappedOffsets.findIndex((offset) => offset === null)
+  const sourceFrom = firstContextOffset === 0 ? candidate.from : firstMappedOffset
+  const sourceTo = lastMappedOffset + 1
   const sourceMap = [...mappedOffsets, sourceTo]
   const insertionMap: Array<number | null> = [sourceFrom]
   for (let index = 1; index < mappedOffsets.length; index += 1) {
     insertionMap.push(
-      mappedOffsets[index] === mappedOffsets[index - 1]! + 1 ? mappedOffsets[index]! : null
+      mappedOffsets[index] !== null &&
+      mappedOffsets[index - 1] !== null &&
+      mappedOffsets[index] === mappedOffsets[index - 1]! + 1
+        ? mappedOffsets[index]!
+        : null
     )
   }
   insertionMap.push(sourceTo)
@@ -339,6 +371,7 @@ export function extractProseSegments(
   const candidates: ProseCandidate[] = []
   const syntaxExclusions: SourceRange[] = []
   const opaqueRanges: SourceRange[] = []
+  const inlineCodeRanges: SourceRange[] = []
 
   tree.iterate({
     enter(node) {
@@ -350,6 +383,7 @@ export function extractProseSegments(
         const range = { from: node.from, to: node.to }
         syntaxExclusions.push(range)
         opaqueRanges.push(range)
+        if (node.name === 'InlineCode') inlineCodeRanges.push(range)
         return false
       }
       if (MARKER_NODE_EXCLUSIONS.has(node.name)) {
@@ -377,7 +411,7 @@ export function extractProseSegments(
   const exclusions = mergeRanges(syntaxExclusions)
   const segments = candidates
     .sort((a, b) => a.from - b.from || a.to - b.to)
-    .map((candidate) => buildSegment(text, candidate, exclusions))
+    .map((candidate) => buildSegment(text, candidate, exclusions, inlineCodeRanges))
     .filter((segment): segment is ProseSegment => segment !== null)
   const occurrences = new Map<string, number>()
   return segments.map((segment) => {
