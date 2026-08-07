@@ -127,6 +127,15 @@ Visible prose after blocks.`
     expect(texts(doc)).toEqual(['Visible prose before  and after.', 'Visible prose after blocks.'])
   })
 
+  it('keeps sentence context when inline code starts the prose', () => {
+    const doc = '- `AND` combines two conditions.'
+    const [segment] = extractProseSegments(stateFor(doc))
+
+    expect(segment?.text).toBe('Code combines two conditions.')
+    expect(segment?.sourceMap.slice(0, 4)).toEqual([null, null, null, null])
+    expect(segment?.sourceMap[5]).toBe(doc.indexOf('combines'))
+  })
+
   it('keeps a mixed Markdown review fixture free of structured and private content', () => {
     const doc = `---
 title: Private project codename
