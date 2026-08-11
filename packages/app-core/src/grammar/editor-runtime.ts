@@ -26,6 +26,8 @@ import type { GrammarDiagnostic } from './types'
 const DEFAULT_LANGUAGE = 'en-US'
 const MAX_AUTOMATIC_CHECK_CHARACTERS = 120_000
 const AUTOMATIC_PARSE_BUDGET_MS = 8
+const AUTOMATIC_PARSE_RETRY_MS = 100
+const AUTOMATIC_PARSE_RETRY_LIMIT = 20
 const MANUAL_PARSE_BUDGET_MS = 50
 
 let defaultRegistry: GrammarDocumentSessionRegistry | null = null
@@ -49,6 +51,10 @@ export interface GrammarEditorBindingOptions {
   showUnderlines?: boolean
   ignoreRule?(ruleId: string): void
   addToDictionary?(entry: string): void
+  /** @internal Override automatic parse readiness for deterministic runtime tests. */
+  automaticParseReady?(state: EditorState, timeoutMs: number): boolean
+  /** @internal Override the automatic parse retry delay for deterministic runtime tests. */
+  automaticParseRetryMs?: number
 }
 
 function editorSnapshot(state: GrammarDocumentSessionState): GrammarEditorSnapshot {
@@ -120,22 +126,57 @@ function grammarCheckExtension(
   const language = options.language ?? DEFAULT_LANGUAGE
   const maxCharacters = options.maxAutomaticCheckCharacters ?? MAX_AUTOMATIC_CHECK_CHARACTERS
   const automaticChecks = options.automaticChecks !== false
+  const automaticParseReady = options.automaticParseReady ?? ensureGrammarSyntaxTree
+  const automaticParseRetryMs = options.automaticParseRetryMs ?? AUTOMATIC_PARSE_RETRY_MS
 
   return ViewPlugin.fromClass(
     class {
       private queued = false
       private destroyed = false
+      private parseRetryCount = 0
+      private parseRetryTimer: ReturnType<typeof setTimeout> | null = null
 
       constructor(private readonly view: EditorView) {
         this.queue()
       }
 
       update(update: ViewUpdate): void {
-        if (update.docChanged) this.queue()
+        if (!update.docChanged) return
+        this.cancelParseRetry()
+        this.parseRetryCount = 0
+        this.queue()
       }
 
       destroy(): void {
         this.destroyed = true
+        this.cancelParseRetry()
+      }
+
+      private cancelParseRetry(): void {
+        if (this.parseRetryTimer === null) return
+        clearTimeout(this.parseRetryTimer)
+        this.parseRetryTimer = null
+      }
+
+      private retryWhenParsed(): void {
+        if (this.destroyed || this.parseRetryTimer !== null) return
+        if (this.parseRetryCount >= AUTOMATIC_PARSE_RETRY_LIMIT) {
+          const state = this.view.state
+          void session.schedule({
+            text: state.doc.toString(),
+            segments: [],
+            language,
+            providerConfigKey: options.providerConfigKey,
+            enabled: false
+          })
+          return
+        }
+
+        this.parseRetryCount += 1
+        this.parseRetryTimer = setTimeout(() => {
+          this.parseRetryTimer = null
+          this.queue()
+        }, automaticParseRetryMs)
       }
 
       private queue(): void {
@@ -147,11 +188,9 @@ function grammarCheckExtension(
 
           const state = this.view.state
           const text = state.doc.toString()
-          if (
-            !automaticChecks ||
-            text.length > maxCharacters ||
-            !ensureGrammarSyntaxTree(state, AUTOMATIC_PARSE_BUDGET_MS)
-          ) {
+          if (!automaticChecks || text.length > maxCharacters) {
+            this.cancelParseRetry()
+            this.parseRetryCount = 0
             void session.schedule({
               text,
               segments: [],
@@ -161,6 +200,14 @@ function grammarCheckExtension(
             })
             return
           }
+
+          if (!automaticParseReady(state, AUTOMATIC_PARSE_BUDGET_MS)) {
+            this.retryWhenParsed()
+            return
+          }
+
+          this.cancelParseRetry()
+          this.parseRetryCount = 0
 
           const segments = extractProseSegments(state, options.proseOptions)
           void session
