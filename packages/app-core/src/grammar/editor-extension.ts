@@ -22,6 +22,7 @@ import {
   type ViewUpdate
 } from '@codemirror/view'
 import type { GrammarDiagnostic } from './types'
+import { canIgnoreGrammarRule } from './preferences'
 
 export interface GrammarDocumentContext {
   documentId: string | null
@@ -651,7 +652,7 @@ function suggestionTooltip(diagnostic: GrammarDiagnostic): Tooltip {
         view.focus()
       })
 
-      if (sessionFor(view)?.ignoreRule) {
+      if (sessionFor(view)?.ignoreRule && canIgnoreGrammarRule(diagnostic.ruleId)) {
         const ignoreRule = document.createElement('button')
         ignoreRule.type = 'button'
         ignoreRule.className = 'cm-grammar-ignore-rule'

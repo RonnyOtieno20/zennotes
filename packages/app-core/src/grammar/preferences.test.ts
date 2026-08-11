@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canIgnoreGrammarRule,
   DEFAULT_GRAMMAR_PREFERENCES,
   classifyGrammarEndpoint,
   grammarProviderConfigKey,
@@ -21,7 +22,7 @@ describe('grammar preferences', () => {
         language: 'en-GB',
         debounceMs: 20_000,
         enabledCategories: ['spelling', 'style', 'unknown'],
-        ignoredRules: ['RULE_1', 'rule_1', 'bad rule'],
+        ignoredRules: ['RULE_1', 'rule_1', 'bad rule', 'MORFOLOGIK_RULE_EN_GB'],
         customDictionary: ['ZenNotes', 'zennotes', '  CodeMirror  ', '']
       })
     ).toMatchObject({
@@ -32,6 +33,12 @@ describe('grammar preferences', () => {
       ignoredRules: ['RULE_1'],
       customDictionary: ['ZenNotes', 'CodeMirror']
     })
+  })
+
+  it('does not allow a blanket spelling-engine rule to be ignored', () => {
+    expect(canIgnoreGrammarRule('MORFOLOGIK_RULE_EN_GB')).toBe(false)
+    expect(canIgnoreGrammarRule('MORFOLOGIK_RULE_EN_US')).toBe(false)
+    expect(canIgnoreGrammarRule('UPPERCASE_SENTENCE_START')).toBe(true)
   })
 
   it('classifies local, remote, and unsafe endpoints for disclosure', () => {

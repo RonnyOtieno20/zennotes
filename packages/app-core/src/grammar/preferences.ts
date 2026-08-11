@@ -57,6 +57,17 @@ export interface GrammarEndpointClassification {
 
 const LANGUAGE_PATTERN = /^(?:auto|[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*)$/
 const RULE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
+const BROAD_SPELLING_RULE_PATTERN = /^MORFOLOGIK_RULE(?:_|$)/u
+
+/**
+ * LanguageTool's MORFOLOGIK rules are the dictionary engines for an entire
+ * language, not narrow grammar rules. Ignoring one silently disables nearly
+ * all spelling diagnostics; users can disable the spelling category explicitly
+ * when that is really what they want.
+ */
+export function canIgnoreGrammarRule(ruleId: string): boolean {
+  return RULE_ID_PATTERN.test(ruleId) && !BROAD_SPELLING_RULE_PATTERN.test(ruleId)
+}
 
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase()
@@ -165,7 +176,7 @@ export function normalizeGrammarPreferences(
     enabledCategories,
     ignoredRules: uniqueStrings(candidate.ignoredRules, {
       limit: 500,
-      validate: (item) => RULE_ID_PATTERN.test(item)
+      validate: canIgnoreGrammarRule
     }),
     customDictionary: uniqueStrings(candidate.customDictionary, { limit: 2_000 }),
     showUnderlines: booleanOr(candidate.showUnderlines, fallback.showUnderlines),
