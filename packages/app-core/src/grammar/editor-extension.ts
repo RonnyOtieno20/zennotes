@@ -76,6 +76,7 @@ export interface GrammarEditorState {
   diagnostics: readonly GrammarDiagnostic[]
   selectedDiagnosticId: string | null
   openDiagnosticId: string | null
+  suggestionCardsEnabled: boolean
   decorations: DecorationSet
 }
 
@@ -335,6 +336,7 @@ export interface GrammarUiEffect {
 
 export const setGrammarSnapshot = StateEffect.define<GrammarEditorSnapshot>()
 export const updateGrammarUi = StateEffect.define<GrammarUiEffect>()
+export const setGrammarSuggestionCardsEnabled = StateEffect.define<boolean>()
 
 const grammarSessionFacet = Facet.define<
   GrammarEditorExtensionOptions,
@@ -364,6 +366,7 @@ function makeEditorState(
     diagnostics,
     selectedDiagnosticId: selected,
     openDiagnosticId: open,
+    suggestionCardsEnabled: true,
     decorations: showUnderlines ? buildGrammarDecorations(diagnostics, selected) : Decoration.none
   }
 }
@@ -388,6 +391,7 @@ export const grammarEditorStateField = StateField.define<GrammarEditorState>({
     let generation = value.generation
     let selected = value.selectedDiagnosticId
     let open = value.openDiagnosticId
+    let suggestionCardsEnabled = value.suggestionCardsEnabled
 
     for (const effect of transaction.effects) {
       if (effect.is(setGrammarSnapshot)) {
@@ -408,6 +412,9 @@ export const grammarEditorStateField = StateField.define<GrammarEditorState>({
         }
         if (effect.value.selectId !== undefined) selected = effect.value.selectId
         if (effect.value.openId !== undefined) open = effect.value.openId
+      } else if (effect.is(setGrammarSuggestionCardsEnabled)) {
+        suggestionCardsEnabled = effect.value
+        if (!suggestionCardsEnabled) open = null
       }
     }
 
@@ -420,6 +427,7 @@ export const grammarEditorStateField = StateField.define<GrammarEditorState>({
       diagnostics,
       selectedDiagnosticId: selected,
       openDiagnosticId: open,
+      suggestionCardsEnabled,
       decorations:
         transaction.state.facet(grammarSessionFacet)?.showUnderlines === false
           ? Decoration.none
@@ -429,6 +437,7 @@ export const grammarEditorStateField = StateField.define<GrammarEditorState>({
   provide: (field) => [
     EditorView.decorations.from(field, (value) => value.decorations),
     showTooltip.from(field, (value) => {
+      if (!value.suggestionCardsEnabled) return null
       const diagnostic = value.diagnostics.find((item) => item.id === value.openDiagnosticId)
       return diagnostic ? suggestionTooltip(diagnostic) : null
     })
@@ -455,7 +464,7 @@ export function selectGrammarDiagnostic(view: EditorView, diagnosticId: string |
 
 export function openGrammarSuggestionCard(view: EditorView): boolean {
   const grammar = getGrammarEditorState(view.state)
-  if (!grammar) return false
+  if (!grammar?.suggestionCardsEnabled) return false
   const cursor = view.state.selection.main.head
   const diagnostic = grammarDiagnosticAt(grammar.diagnostics, cursor)
   if (!diagnostic) return false
@@ -469,13 +478,14 @@ export function openGrammarSuggestionCard(view: EditorView): boolean {
   return true
 }
 
-/** Open and reveal the adjacent issue, wrapping at either end of the note. */
-export function openAdjacentGrammarSuggestionCard(
+function navigateAdjacentGrammarDiagnostic(
   view: EditorView,
-  direction: -1 | 1
+  direction: -1 | 1,
+  openCard: boolean
 ): boolean {
   const grammar = getGrammarEditorState(view.state)
   if (!grammar) return false
+  if (openCard && !grammar.suggestionCardsEnabled) return false
   const diagnostics = sortedValidDiagnostics(grammar.diagnostics, view.state.doc.length)
   if (diagnostics.length === 0) return false
 
@@ -498,13 +508,35 @@ export function openAdjacentGrammarSuggestionCard(
   }
 
   view.dispatch({
-    selection: { anchor: target.range.from, head: target.range.to },
+    selection: { anchor: target.range.from },
     effects: [
-      updateGrammarUi.of({ selectId: target.id, openId: target.id }),
+      updateGrammarUi.of({ selectId: target.id, openId: openCard ? target.id : null }),
       EditorView.scrollIntoView(target.range.from, { y: 'center' })
     ]
   })
   sessionFor(view)?.selectDiagnostic?.(target.id)
+  return true
+}
+
+/** Open and reveal the adjacent issue, wrapping at either end of the note. */
+export function openAdjacentGrammarSuggestionCard(
+  view: EditorView,
+  direction: -1 | 1
+): boolean {
+  return navigateAdjacentGrammarDiagnostic(view, direction, true)
+}
+
+/** Select the adjacent issue for the review panel without opening a floating card. */
+export function selectAdjacentGrammarDiagnostic(
+  view: EditorView,
+  direction: -1 | 1
+): boolean {
+  return navigateAdjacentGrammarDiagnostic(view, direction, false)
+}
+
+export function setGrammarSuggestionCards(view: EditorView, enabled: boolean): boolean {
+  if (!getGrammarEditorState(view.state)) return false
+  view.dispatch({ effects: setGrammarSuggestionCardsEnabled.of(enabled) })
   return true
 }
 
@@ -760,13 +792,14 @@ function suggestionTooltip(diagnostic: GrammarDiagnostic): Tooltip {
 
 const grammarHoverTooltip = hoverTooltip((view, position, side) => {
   const grammar = getGrammarEditorState(view.state)
-  if (!grammar || grammar.openDiagnosticId) return null
+  if (!grammar?.suggestionCardsEnabled || grammar.openDiagnosticId) return null
   const diagnostic = grammarDiagnosticAt(grammar.diagnostics, position, side)
   return diagnostic ? suggestionTooltip(diagnostic) : null
 })
 
 const grammarClickHandler = EditorView.domEventHandlers({
   mousedown(event, view) {
+    if (!getGrammarEditorState(view.state)?.suggestionCardsEnabled) return false
     const target =
       event.target instanceof Element
         ? event.target.closest<HTMLElement>('[data-grammar-diagnostic]')

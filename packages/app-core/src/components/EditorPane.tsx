@@ -128,6 +128,8 @@ import {
   getGrammarEditorState,
   ignoreGrammarDiagnosticOnce,
   openAdjacentGrammarSuggestionCard,
+  selectAdjacentGrammarDiagnostic,
+  setGrammarSuggestionCards,
   selectGrammarDiagnostic
 } from '../grammar/editor-extension'
 import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from '../lib/cm-wikilinks'
@@ -1087,6 +1089,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const toggleGrammarReviewPanel = useCallback(() => {
     setGrammarReviewOpen((open) => {
       const next = !open
+      const view = viewRef.current
+      if (view) setGrammarSuggestionCards(view, !next)
       if (next) {
         setFocusedPanel('grammar')
       } else if (focusedPanel === 'grammar') {
@@ -1159,13 +1163,25 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!isActive) return
     const next = (): void => {
       const view = viewRef.current
-      if (!view || !openAdjacentGrammarSuggestionCard(view, 1)) return
+      if (!view) return
+      if (grammarReviewOpen) {
+        if (!selectAdjacentGrammarDiagnostic(view, 1)) return
+        setFocusedPanel('grammar')
+        return
+      }
+      if (!openAdjacentGrammarSuggestionCard(view, 1)) return
       setFocusedPanel('editor')
       view.focus()
     }
     const previous = (): void => {
       const view = viewRef.current
-      if (!view || !openAdjacentGrammarSuggestionCard(view, -1)) return
+      if (!view) return
+      if (grammarReviewOpen) {
+        if (!selectAdjacentGrammarDiagnostic(view, -1)) return
+        setFocusedPanel('grammar')
+        return
+      }
+      if (!openAdjacentGrammarSuggestionCard(view, -1)) return
       setFocusedPanel('editor')
       view.focus()
     }
@@ -1175,7 +1191,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       window.removeEventListener('zen:next-grammar-issue', next)
       window.removeEventListener('zen:previous-grammar-issue', previous)
     }
-  }, [isActive, setFocusedPanel])
+  }, [grammarReviewOpen, isActive, setFocusedPanel])
 
   useEffect(() => {
     if (!isActive) return
@@ -2244,6 +2260,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     vault?.root,
   ])
 
+  // The review panel and the floating suggestion card are alternate workflows.
+  // Keep cards disabled while the panel owns navigation, including after a note
+  // change recreates the grammar extension compartment.
+  useLayoutEffect(() => {
+    const view = viewRef.current
+    if (view) setGrammarSuggestionCards(view, !grammarReviewOpen)
+  }, [content?.path, grammarEnabled, grammarReviewOpen, grammarSupported])
+
   const grammarLogSnapshotRef = useRef('')
   useEffect(() => {
     if (!grammarPreferences.diagnosticLogging || !grammarSessionState) return
@@ -2277,7 +2301,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     )
     if (!diagnostic) return
     view.dispatch({
-      selection: { anchor: diagnostic.range.from, head: diagnostic.range.to },
+      selection: { anchor: diagnostic.range.from },
       effects: EditorView.scrollIntoView(diagnostic.range.from, {
         y: 'center'
       })
