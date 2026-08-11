@@ -155,52 +155,50 @@ export function GrammarReviewPanel({
       onFocusCapture={() => setFocusedPanel('grammar')}
     >
       <PanelResizeHandle onStart={startResize} />
-      <div className="border-b border-paper-300/60 px-3 py-3">
-        <div className="flex items-center justify-between gap-2">
-          <div>
-            <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-400">
-              Grammar review
-            </div>
-            <div className="mt-1 text-xs text-ink-500">
-              {counts.all} issue{counts.all === 1 ? '' : 's'} · {providerLabel}
-            </div>
-            <div className="mt-1 text-2xs text-ink-400">
-              F8/Shift+F8 issues · j/k navigate · Enter applies
-            </div>
-          </div>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              data-grammar-panel-control
-              aria-label="Previous grammar issue"
-              title="Previous issue"
-              disabled={filtered.length === 0}
-              onClick={() => selectRelative(-1)}
-              className="rounded border border-paper-300/70 px-2 py-1 text-xs text-ink-600 hover:bg-paper-200 disabled:cursor-default disabled:opacity-40"
-            >
-              ↑
-            </button>
-            <button
-              type="button"
-              data-grammar-panel-control
-              aria-label="Next grammar issue"
-              title="Next issue"
-              disabled={filtered.length === 0}
-              onClick={() => selectRelative(1)}
-              className="rounded border border-paper-300/70 px-2 py-1 text-xs text-ink-600 hover:bg-paper-200 disabled:cursor-default disabled:opacity-40"
-            >
-              ↓
-            </button>
-            <button
-              type="button"
-              data-grammar-panel-control
-              onClick={onRecheck}
-              disabled={!enabled || !supported || state?.status === 'checking'}
-              className="rounded border border-paper-300/70 px-2 py-1 text-xs text-ink-600 hover:bg-paper-200 disabled:cursor-default disabled:opacity-40"
-            >
-              Recheck
-            </button>
-          </div>
+      <div className="grammar-review-header border-b border-paper-300/60 px-3 py-3">
+        <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-400">
+          Grammar review
+        </div>
+        <div className="mt-1 text-xs text-ink-500">
+          {counts.all} issue{counts.all === 1 ? '' : 's'} · {providerLabel}
+        </div>
+        <div className="grammar-review-shortcuts mt-1 text-2xs text-ink-400">
+          <span>F8 / Shift+F8 issues</span>
+          <span>j / k navigate</span>
+          <span>Enter applies</span>
+        </div>
+        <div className="grammar-review-toolbar mt-2 flex items-center gap-1">
+          <button
+            type="button"
+            data-grammar-panel-control
+            aria-label="Previous grammar issue"
+            title="Previous issue"
+            disabled={filtered.length === 0}
+            onClick={() => selectRelative(-1)}
+            className="rounded border border-paper-300/70 px-2 py-1 text-xs text-ink-600 hover:bg-paper-200 disabled:cursor-default disabled:opacity-40"
+          >
+            ↑
+          </button>
+          <button
+            type="button"
+            data-grammar-panel-control
+            aria-label="Next grammar issue"
+            title="Next issue"
+            disabled={filtered.length === 0}
+            onClick={() => selectRelative(1)}
+            className="rounded border border-paper-300/70 px-2 py-1 text-xs text-ink-600 hover:bg-paper-200 disabled:cursor-default disabled:opacity-40"
+          >
+            ↓
+          </button>
+          <button
+            type="button"
+            data-grammar-panel-control
+            onClick={onRecheck}
+            disabled={!enabled || !supported || state?.status === 'checking'}
+            className="grammar-review-recheck rounded border border-paper-300/70 px-2 py-1 text-xs text-ink-600 hover:bg-paper-200 disabled:cursor-default disabled:opacity-40"
+          >
+            Recheck
+          </button>
         </div>
 
         {counts.all > 0 && (
