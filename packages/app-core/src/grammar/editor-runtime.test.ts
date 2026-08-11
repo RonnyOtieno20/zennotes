@@ -110,6 +110,28 @@ describe('grammar editor runtime', () => {
     expect(getGrammarEditorState(view.state)?.diagnostics).toEqual([])
   })
 
+  it('retries the initial automatic check when the Markdown parser is not ready', async () => {
+    vi.useFakeTimers()
+    const grammarProvider = providerWithBadDiagnostic()
+    const registry = new GrammarDocumentSessionRegistry(grammarProvider, {
+      debounceMs: 10
+    })
+    const automaticParseReady = vi.fn().mockReturnValueOnce(false).mockReturnValue(true)
+    const { view } = mount(registry, 'note.md', 'A bad sentence.', {
+      automaticParseReady,
+      automaticParseRetryMs: 5
+    })
+
+    await Promise.resolve()
+    expect(grammarProvider.check).not.toHaveBeenCalled()
+
+    await vi.advanceTimersByTimeAsync(5)
+    await flushCheck(10)
+    expect(automaticParseReady).toHaveBeenCalledTimes(2)
+    expect(grammarProvider.check).toHaveBeenCalledOnce()
+    expect(getGrammarEditorState(view.state)?.diagnostics).toHaveLength(1)
+  })
+
   it('supports an immediate full-note recheck for the review panel', async () => {
     vi.useFakeTimers()
     const grammarProvider = providerWithBadDiagnostic()
