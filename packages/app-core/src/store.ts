@@ -7092,6 +7092,10 @@ export const useStore = create<Store>((set, get) => {
   setGrammarEnabled: (on) => {
     set({ grammarEnabled: on })
     savePrefs(collectPrefs(get()))
+    const setHostEnabled = typeof window !== 'undefined' ? window.zen.grammarSetEnabled : undefined
+    if (typeof setHostEnabled === 'function') {
+      void setHostEnabled.call(window.zen, on).catch(() => undefined)
+    }
   },
   setGrammarPreferences: (patch) => {
     set((state) => ({

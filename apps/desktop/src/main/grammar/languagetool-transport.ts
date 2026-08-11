@@ -38,6 +38,11 @@ interface PendingRequest {
   timedOut: boolean
 }
 
+export interface LanguageToolRequestLifecycle {
+  beginRequest(url: URL, ownerId: number): Promise<boolean>
+  endRequest(): void
+}
+
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/
 const LANGUAGE_PATTERN = /^(?:auto|[A-Za-z]{2,8}(?:-[A-Za-z0-9]{1,8})*)$/
 const PROVIDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/
@@ -279,7 +284,10 @@ function parseLanguageToolResponse(body: string): GrammarLanguageToolResponse {
 export class LanguageToolTransport {
   private readonly pending = new Map<string, PendingRequest>()
 
-  constructor(private readonly fetchImpl: typeof fetch = globalThis.fetch) {}
+  constructor(
+    private readonly fetchImpl: typeof fetch = globalThis.fetch,
+    private readonly lifecycle?: LanguageToolRequestLifecycle
+  ) {}
 
   private requestKey(ownerId: number, requestId: string): string {
     return `${ownerId}:${requestId}`
@@ -305,13 +313,30 @@ export class LanguageToolTransport {
       timedOut: false
     }
     this.pending.set(key, pending)
+    let lifecycleStarted = false
+    let timeout: ReturnType<typeof setTimeout> | null = null
     const timeoutMs = request.timeoutMs ?? GRAMMAR_DEFAULT_TIMEOUT_MS
-    const timeout = setTimeout(() => {
-      pending.timedOut = true
-      pending.controller.abort()
-    }, timeoutMs)
 
     try {
+      try {
+        lifecycleStarted = (await this.lifecycle?.beginRequest(requestUrl, ownerId)) ?? false
+      } catch {
+        throw new GrammarTransportError(
+          'provider-error',
+          'Managed LanguageTool could not be started'
+        )
+      }
+      if (pending.cancelled) {
+        throw new GrammarTransportError(
+          'cancelled',
+          'LanguageTool request was cancelled'
+        )
+      }
+      timeout = setTimeout(() => {
+        pending.timedOut = true
+        pending.controller.abort()
+      }, timeoutMs)
+
       const params = new URLSearchParams({
         language: request.language,
         text: request.text
@@ -375,8 +400,9 @@ export class LanguageToolTransport {
         'LanguageTool request failed'
       )
     } finally {
-      clearTimeout(timeout)
+      if (timeout !== null) clearTimeout(timeout)
       this.pending.delete(key)
+      if (lifecycleStarted) this.lifecycle?.endRequest()
     }
   }
 

@@ -128,6 +128,7 @@ export const IPC = {
   TIKZ_RENDER: 'tikz:render',
   GRAMMAR_CHECK: 'grammar:check',
   GRAMMAR_CANCEL: 'grammar:cancel',
+  GRAMMAR_SET_ENABLED: 'grammar:set-enabled',
   MCP_STATUS: 'mcp:status',
   MCP_INSTALL: 'mcp:install',
   MCP_UNINSTALL: 'mcp:uninstall',

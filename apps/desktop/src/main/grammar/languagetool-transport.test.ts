@@ -88,6 +88,25 @@ describe('LanguageToolTransport', () => {
     )
   })
 
+  it('wraps managed requests in lifecycle activity', async () => {
+    const lifecycle = {
+      beginRequest: vi.fn(async () => true),
+      endRequest: vi.fn()
+    }
+    const transport = new LanguageToolTransport(
+      vi.fn<typeof fetch>(async () => jsonResponse({ matches: [] })),
+      lifecycle
+    )
+
+    await transport.check(VALID_REQUEST, 7)
+
+    expect(lifecycle.beginRequest).toHaveBeenCalledWith(
+      new URL('http://127.0.0.1:8081/v2/check'),
+      7
+    )
+    expect(lifecycle.endRequest).toHaveBeenCalledOnce()
+  })
+
   it('rejects invalid and oversized request text before fetch', async () => {
     const fetchImpl = vi.fn<typeof fetch>()
     const transport = new LanguageToolTransport(fetchImpl)

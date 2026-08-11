@@ -49,12 +49,14 @@ install -m 0644 \
   "${user_unit_dir}/${service_name}"
 
 systemctl --user daemon-reload
-systemctl --user enable --now "${service_name}"
+systemctl --user disable --now "${service_name}"
+systemctl --user start "${service_name}"
 
 for _ in {1..30}; do
   if curl --fail --silent \
     "http://127.0.0.1:8081/v2/languages" >/dev/null; then
-    echo "LanguageTool is ready at http://127.0.0.1:8081/v2"
+    systemctl --user stop "${service_name}"
+    echo "LanguageTool is installed and ready for on-demand startup at http://127.0.0.1:8081/v2"
     exit 0
   fi
   sleep 1

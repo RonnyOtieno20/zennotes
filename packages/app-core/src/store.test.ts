@@ -1303,7 +1303,8 @@ describe('pdfExportUseTheme — theme in PDF export', () => {
 
 describe('grammarEnabled (local grammar opt-in)', () => {
   it('defaults off and round-trips through local persistence', async () => {
-    installZen()
+    const grammarSetEnabled = vi.fn().mockResolvedValue(undefined)
+    installZen({ grammarSetEnabled })
     const { useStore } = await loadStore()
     expect(useStore.getState().grammarEnabled).toBe(false)
 
@@ -1311,6 +1312,7 @@ describe('grammarEnabled (local grammar opt-in)', () => {
     expect(useStore.getState().grammarEnabled).toBe(true)
     const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
     expect(saved.grammarEnabled).toBe(true)
+    expect(grammarSetEnabled).toHaveBeenCalledWith(true)
 
     vi.resetModules()
     const reloaded = await import('./store')

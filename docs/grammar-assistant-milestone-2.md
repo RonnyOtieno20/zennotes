@@ -76,8 +76,12 @@ curl --fail \
 
 ### Service management
 
-The installer creates the user service `zennotes-languagetool.service`. It starts
-automatically with the user session and listens only on localhost by default.
+The installer creates the user service `zennotes-languagetool.service`. ZenNotes starts
+it on demand when grammar checking first needs the managed local endpoint, stops it
+immediately when grammar is disabled, and stops it after five minutes without a check.
+The service is deliberately not enabled at login.
+
+For manual diagnostics, use:
 
 ```bash
 systemctl --user status zennotes-languagetool.service
