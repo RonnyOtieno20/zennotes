@@ -4143,6 +4143,41 @@ span.cm-grammar-diagnostic:empty {
   line-height: 1.35;
 }
 
+/* The grammar review panel can be resized down to 200px. Keep its command
+   summary and controls legible without competing for one horizontal row. */
+[data-grammar-panel] {
+  container-type: inline-size;
+}
+.grammar-review-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.45rem;
+  row-gap: 0.1rem;
+  line-height: 1.35;
+}
+.grammar-review-shortcuts span + span::before {
+  content: '·';
+  margin-right: 0.45rem;
+}
+.grammar-review-recheck {
+  margin-left: auto;
+}
+@container (max-width: 260px) {
+  .grammar-review-header {
+    padding: 0.625rem;
+  }
+  .grammar-review-shortcuts {
+    display: grid;
+    gap: 0.125rem;
+  }
+  .grammar-review-shortcuts span + span::before {
+    content: none;
+  }
+  .grammar-review-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
 /* Compact category badges in the full-note grammar review panel. */
 .grammar-review-category {
   display: inline-flex;

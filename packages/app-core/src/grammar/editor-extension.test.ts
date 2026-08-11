@@ -16,6 +16,8 @@ import {
   nextGrammarDiagnostic,
   openAdjacentGrammarSuggestionCard,
   openGrammarSuggestionCard,
+  selectAdjacentGrammarDiagnostic,
+  setGrammarSuggestionCards,
   setGrammarSnapshot,
   updateGrammarUi,
   validateGrammarReplacement,
@@ -458,14 +460,46 @@ describe('grammar CodeMirror extension', () => {
       selectedDiagnosticId: 'one',
       openDiagnosticId: 'one'
     })
-    expect(view.state.selection.main).toMatchObject({ from: 0, to: 3 })
+    expect(view.state.selection.main).toMatchObject({ from: 0, to: 0, empty: true })
 
     expect(openAdjacentGrammarSuggestionCard(view, -1)).toBe(true)
     expect(getGrammarEditorState(view.state)).toMatchObject({
       selectedDiagnosticId: 'two',
       openDiagnosticId: 'two'
     })
-    expect(view.state.selection.main).toMatchObject({ from: 4, to: 8 })
+    expect(view.state.selection.main).toMatchObject({ from: 4, to: 4, empty: true })
     expect(session.selectDiagnostic).toHaveBeenLastCalledWith('two')
+  })
+
+  it('keeps floating cards disabled while review-panel navigation selects issues', () => {
+    const one = diagnostic('one', 0, 3, 'bad')
+    const two = diagnostic('two', 4, 8, 'text')
+    const session = makeSession({
+      documentId: 'note.md',
+      generation: 4,
+      diagnostics: [one, two]
+    })
+    const view = makeView('bad text', session)
+
+    expect(openAdjacentGrammarSuggestionCard(view, 1)).toBe(true)
+    expect(setGrammarSuggestionCards(view, false)).toBe(true)
+    expect(getGrammarEditorState(view.state)).toMatchObject({
+      openDiagnosticId: null,
+      suggestionCardsEnabled: false
+    })
+    expect(openGrammarSuggestionCard(view)).toBe(false)
+    expect(openAdjacentGrammarSuggestionCard(view, 1)).toBe(false)
+
+    expect(selectAdjacentGrammarDiagnostic(view, 1)).toBe(true)
+    expect(getGrammarEditorState(view.state)).toMatchObject({
+      selectedDiagnosticId: 'two',
+      openDiagnosticId: null,
+      suggestionCardsEnabled: false
+    })
+    expect(view.state.selection.main).toMatchObject({ from: 4, to: 4, empty: true })
+
+    expect(setGrammarSuggestionCards(view, true)).toBe(true)
+    expect(openAdjacentGrammarSuggestionCard(view, 1)).toBe(true)
+    expect(getGrammarEditorState(view.state)?.openDiagnosticId).toBe('one')
   })
 })

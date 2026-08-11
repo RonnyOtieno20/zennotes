@@ -143,6 +143,15 @@ describe('grammar review model', () => {
 })
 
 describe('GrammarReviewPanel', () => {
+  it('keeps shortcuts and controls in responsive panel rows', () => {
+    const { container } = renderPanel()
+    expect(container.querySelector('[data-grammar-panel]')).not.toBeNull()
+    expect(container.querySelector('.grammar-review-shortcuts')?.textContent).toContain(
+      'F8 / Shift+F8 issues'
+    )
+    expect(container.querySelector('.grammar-review-toolbar')).not.toBeNull()
+  })
+
   it('renders categorized cards and applies a replacement with one click', () => {
     const { container, onApply } = renderPanel()
     expect(container.textContent).toContain('2 issues · Local')
