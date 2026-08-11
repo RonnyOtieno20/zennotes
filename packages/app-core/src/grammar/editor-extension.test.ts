@@ -409,6 +409,27 @@ describe('grammar CodeMirror extension', () => {
     expect(ignoreRule).toHaveBeenCalledWith('rule-one')
   })
 
+  it('does not offer to ignore an entire spelling engine', () => {
+    const issue = {
+      ...diagnostic('one', 0, 3, 'bad', 'spelling'),
+      ruleId: 'MORFOLOGIK_RULE_EN_GB'
+    }
+    const session = makeSession({
+      documentId: 'note.md',
+      generation: 4,
+      diagnostics: [issue]
+    })
+    Object.assign(session, { ignoreRule: vi.fn(), addToDictionary: vi.fn() })
+    const view = makeView('bad text', session)
+    view.dispatch({ effects: updateGrammarUi.of({ openId: 'one' }) })
+
+    const labels = [
+      ...document.querySelectorAll<HTMLButtonElement>('.cm-grammar-suggestion-card button')
+    ].map((button) => button.textContent)
+    expect(labels).not.toContain('Ignore rule')
+    expect(labels).toContain('Add word')
+  })
+
   it('does not open a suggestion card when the cursor is outside an issue', () => {
     const issue = diagnostic('one', 0, 3, 'bad')
     const session = makeSession({
