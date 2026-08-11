@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GrammarDocumentSessionState } from '../grammar/document-sessions'
 import type { GrammarCategory, GrammarDiagnostic } from '../grammar/types'
+import { canIgnoreGrammarRule } from '../grammar/preferences'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { useStore } from '../store'
 import { PanelResizeHandle } from './PanelResizeHandle'
@@ -347,7 +348,7 @@ export function GrammarReviewPanel({
                       >
                         Ignore once
                       </button>
-                      {onIgnoreRule && (
+                      {onIgnoreRule && canIgnoreGrammarRule(diagnostic.ruleId) && (
                         <button
                           type="button"
                           data-grammar-panel-control
