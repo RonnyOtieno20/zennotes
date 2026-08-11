@@ -127,6 +127,7 @@ import {
   closeGrammarSuggestionCard,
   getGrammarEditorState,
   ignoreGrammarDiagnosticOnce,
+  openAdjacentGrammarSuggestionCard,
   selectGrammarDiagnostic
 } from '../grammar/editor-extension'
 import { wikilinkSource, wikilinkHeadingSource, atNoteSource } from '../lib/cm-wikilinks'
@@ -1144,6 +1145,37 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     window.addEventListener('zen:toggle-outline', handler)
     return () => window.removeEventListener('zen:toggle-outline', handler)
   }, [isActive, toggleOutlinePanel])
+
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (): void => {
+      toggleGrammarReviewPanel()
+    }
+    window.addEventListener('zen:toggle-grammar-review', handler)
+    return () => window.removeEventListener('zen:toggle-grammar-review', handler)
+  }, [isActive, toggleGrammarReviewPanel])
+
+  useEffect(() => {
+    if (!isActive) return
+    const next = (): void => {
+      const view = viewRef.current
+      if (!view || !openAdjacentGrammarSuggestionCard(view, 1)) return
+      setFocusedPanel('editor')
+      view.focus()
+    }
+    const previous = (): void => {
+      const view = viewRef.current
+      if (!view || !openAdjacentGrammarSuggestionCard(view, -1)) return
+      setFocusedPanel('editor')
+      view.focus()
+    }
+    window.addEventListener('zen:next-grammar-issue', next)
+    window.addEventListener('zen:previous-grammar-issue', previous)
+    return () => {
+      window.removeEventListener('zen:next-grammar-issue', next)
+      window.removeEventListener('zen:previous-grammar-issue', previous)
+    }
+  }, [isActive, setFocusedPanel])
 
   useEffect(() => {
     if (!isActive) return
@@ -3417,7 +3449,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                 grammarSupported
                   ? grammarReviewOpen
                     ? "Hide grammar review"
-                    : `Show grammar review${grammarSessionState?.diagnostics.length ? ` (${grammarSessionState.diagnostics.length})` : ""} (⇧⌘G)`
+                    : `Show grammar review${grammarSessionState?.diagnostics.length ? ` (${grammarSessionState.diagnostics.length})` : ""} (${getKeymapDisplay(tabNavOverrides, 'global.toggleGrammarReview')})`
                   : "Grammar review is unavailable in this runtime"
               }
               active={grammarReviewOpen}
@@ -3487,6 +3519,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     toggleConnectionsPanel,
     grammarReviewOpen,
     grammarSessionState?.diagnostics.length,
+    tabNavOverrides,
     toggleGrammarReviewPanel,
     commentsOpen,
     openCommentCount,

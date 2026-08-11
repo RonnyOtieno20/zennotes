@@ -4130,6 +4130,11 @@ span.cm-grammar-diagnostic:empty {
   margin-left: auto;
   color: rgb(var(--z-fg-2));
 }
+.cm-grammar-suggestion-hint {
+  color: rgb(var(--z-fg-2));
+  font-size: 0.67rem;
+  line-height: 1.35;
+}
 
 /* Compact category badges in the full-note grammar review panel. */
 .grammar-review-category {

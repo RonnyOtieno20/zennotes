@@ -834,10 +834,22 @@ function App(): JSX.Element {
         window.dispatchEvent(new Event('zen:toggle-outline'))
         return
       }
-      // ⇧⌘G — toggle grammar review in the active pane
+      // Ctrl+Alt+G / Cmd+Option+G — toggle grammar review in the active pane.
+      // Ctrl+Shift+G is reserved by Chromium for Find Previous.
       if (matchesShortcut(e, overrides, 'global.toggleGrammarReview')) {
         e.preventDefault()
         window.dispatchEvent(new Event('zen:toggle-grammar-review'))
+        return
+      }
+      // F8 / Shift+F8 — standard next/previous diagnostic navigation.
+      if (matchesShortcut(e, overrides, 'global.nextGrammarIssue')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:next-grammar-issue'))
+        return
+      }
+      if (matchesShortcut(e, overrides, 'global.previousGrammarIssue')) {
+        e.preventDefault()
+        window.dispatchEvent(new Event('zen:previous-grammar-issue'))
         return
       }
       // ⇧⌘C — toggle the comments panel in the active pane

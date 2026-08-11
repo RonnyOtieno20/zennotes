@@ -96,6 +96,12 @@ describe('shortcutBindingFromEvent', () => {
     })
   })
 
+  it('keeps grammar issue navigation on the standard diagnostics keys', () => {
+    expect(getDefaultKeymapBinding('global.toggleGrammarReview')).toBe('Alt+Mod+G')
+    expect(getDefaultKeymapBinding('global.nextGrammarIssue')).toBe('F8')
+    expect(getDefaultKeymapBinding('global.previousGrammarIssue')).toBe('Shift+F8')
+  })
+
   it('records Shift+digit as the typed symbol (Shift+Mod+!)', () => {
     const event = fakeEvent({ key: '!', code: 'Digit1', shiftKey: true, metaKey: true })
     withPlatform('darwin', () => {

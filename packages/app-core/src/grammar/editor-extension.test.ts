@@ -14,6 +14,7 @@ import {
   ignoreGrammarDiagnosticOnce,
   mapGrammarDiagnostics,
   nextGrammarDiagnostic,
+  openAdjacentGrammarSuggestionCard,
   openGrammarSuggestionCard,
   setGrammarSnapshot,
   updateGrammarUi,
@@ -440,5 +441,31 @@ describe('grammar CodeMirror extension', () => {
     const view = makeView('bad text', session)
     view.dispatch({ selection: { anchor: 5 } })
     expect(openGrammarSuggestionCard(view)).toBe(false)
+  })
+
+  it('opens next and previous issues from the keyboard and wraps', () => {
+    const one = diagnostic('one', 0, 3, 'bad')
+    const two = diagnostic('two', 4, 8, 'text')
+    const session = makeSession({
+      documentId: 'note.md',
+      generation: 4,
+      diagnostics: [one, two]
+    })
+    const view = makeView('bad text', session)
+
+    expect(openAdjacentGrammarSuggestionCard(view, 1)).toBe(true)
+    expect(getGrammarEditorState(view.state)).toMatchObject({
+      selectedDiagnosticId: 'one',
+      openDiagnosticId: 'one'
+    })
+    expect(view.state.selection.main).toMatchObject({ from: 0, to: 3 })
+
+    expect(openAdjacentGrammarSuggestionCard(view, -1)).toBe(true)
+    expect(getGrammarEditorState(view.state)).toMatchObject({
+      selectedDiagnosticId: 'two',
+      openDiagnosticId: 'two'
+    })
+    expect(view.state.selection.main).toMatchObject({ from: 4, to: 8 })
+    expect(session.selectDiagnostic).toHaveBeenLastCalledWith('two')
   })
 })
