@@ -1,0 +1,15 @@
+[Unit]
+Description=Update and install the ZenNotes Grammar Edition
+Documentation=file://%h/projects/grammar-checker/zennotes/scripts/downstream/update-grammar-linux.sh
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/projects/grammar-checker/zennotes
+Environment="PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=%h/projects/grammar-checker/zennotes/scripts/downstream/update-grammar-linux.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+TimeoutStartSec=infinity
