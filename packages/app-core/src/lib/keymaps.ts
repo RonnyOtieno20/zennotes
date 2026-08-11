@@ -19,6 +19,8 @@ export type KeymapId =
   | "global.toggleConnections"
   | "global.toggleOutlinePanel"
   | "global.toggleGrammarReview"
+  | "global.nextGrammarIssue"
+  | "global.previousGrammarIssue"
   | "global.toggleCommentsPanel"
   | "global.addComment"
   | "global.focusPaneLeft"
@@ -230,7 +232,25 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "global",
     title: "Toggle grammar review",
     description: "Toggle the grammar review panel in the active pane.",
-    defaultBinding: "Shift+Mod+G",
+    defaultBinding: "Mod+Alt+G",
+  },
+  {
+    id: "global.nextGrammarIssue",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Next grammar issue",
+    description: "Open the next grammar suggestion in the active editor.",
+    defaultBinding: "F8",
+  },
+  {
+    id: "global.previousGrammarIssue",
+    kind: "shortcut",
+    scope: "app",
+    group: "global",
+    title: "Previous grammar issue",
+    description: "Open the previous grammar suggestion in the active editor.",
+    defaultBinding: "Shift+F8",
   },
   {
     id: "global.toggleCommentsPanel",
