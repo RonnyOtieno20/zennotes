@@ -84,12 +84,21 @@ jobs:
           \`UPSTREAM_REMOTE=upstream DOWNSTREAM_BRANCH=grammar-main scripts/downstream/sync-upstream.sh ${UPSTREAM_TAG}\`
 
           Resolve the rebase, run the full production build, and push the resulting sync branch for review. This workflow never publishes after a conflict."
+          {
+            echo "## Grammar Edition sync needs attention"
+            echo
+            echo "The automated rebase onto **${UPSTREAM_TAG}** stopped before publishing."
+            echo
+            echo "Conflicted files:"
+            echo '```'
+            echo "${conflicts:-No conflict paths were reported; inspect the rebase log.}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           if ! gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json title --jq 'length' | grep -qx '0'; then
             echo "An open conflict report already exists: $title"
           else
             gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body "$body"
           fi
-          exit 1
 
       - name: Set up Node.js
         if: steps.rebase.outcome == 'success'

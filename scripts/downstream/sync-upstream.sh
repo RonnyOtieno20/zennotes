@@ -43,7 +43,40 @@ base="$(git merge-base "$downstream_branch" "$upstream_ref")" || \
 sync_branch="sync/${upstream_tag#v}"
 
 git switch --quiet -C "$sync_branch" "$downstream_branch"
-if ! git rebase --rebase-merges --onto "$upstream_ref" "$base"; then
+
+# Every completed sync ends with a generated Grammar Edition version commit.
+# That historical version is deliberately replaced after the next rebase, so
+# skip it when it is the only thing blocking a newer upstream package version.
+rebase_status=0
+git rebase --rebase-merges --onto "$upstream_ref" "$base" || rebase_status=$?
+while [[ "$rebase_status" -ne 0 ]]; do
+  rebase_subject="$(git show -s --format=%s REBASE_HEAD 2>/dev/null || true)"
+  mapfile -t conflicted_files < <(git diff --name-only --diff-filter=U)
+  version_only=true
+  [[ "${#conflicted_files[@]}" -gt 0 ]] || version_only=false
+  for path in "${conflicted_files[@]}"; do
+    case "$path" in
+      apps/desktop/package.json|package-lock.json) ;;
+      *) version_only=false ;;
+    esac
+  done
+  if [[ "$version_only" != true ]]; then
+    break
+  fi
+
+  rebase_status=0
+  if [[ "$rebase_subject" == "Prepare Grammar Edition "* ]]; then
+    printf 'Skipping obsolete downstream version commit: %s\n' "$rebase_subject"
+    git rebase --skip || rebase_status=$?
+  else
+    printf 'Keeping upstream package versions while replaying: %s\n' "$rebase_subject"
+    git checkout --ours -- "${conflicted_files[@]}"
+    git add -- "${conflicted_files[@]}"
+    GIT_EDITOR=true git rebase --continue || rebase_status=$?
+  fi
+done
+
+if [[ "$rebase_status" -ne 0 ]]; then
   printf 'SYNC_BRANCH=%s\n' "$sync_branch"
   printf 'UPSTREAM_TAG=%s\n' "$upstream_tag"
   printf 'CONFLICTED_FILES:\n' >&2
