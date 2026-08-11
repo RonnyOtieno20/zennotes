@@ -164,6 +164,9 @@ export function GrammarReviewPanel({
             <div className="mt-1 text-xs text-ink-500">
               {counts.all} issue{counts.all === 1 ? '' : 's'} · {providerLabel}
             </div>
+            <div className="mt-1 text-2xs text-ink-400">
+              F8/Shift+F8 issues · j/k navigate · Enter applies
+            </div>
           </div>
           <div className="flex items-center gap-1">
             <button

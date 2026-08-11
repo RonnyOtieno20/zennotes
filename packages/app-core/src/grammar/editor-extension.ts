@@ -469,6 +469,45 @@ export function openGrammarSuggestionCard(view: EditorView): boolean {
   return true
 }
 
+/** Open and reveal the adjacent issue, wrapping at either end of the note. */
+export function openAdjacentGrammarSuggestionCard(
+  view: EditorView,
+  direction: -1 | 1
+): boolean {
+  const grammar = getGrammarEditorState(view.state)
+  if (!grammar) return false
+  const diagnostics = sortedValidDiagnostics(grammar.diagnostics, view.state.doc.length)
+  if (diagnostics.length === 0) return false
+
+  const activeId = grammar.openDiagnosticId ?? grammar.selectedDiagnosticId
+  const activeIndex = activeId
+    ? diagnostics.findIndex((diagnostic) => diagnostic.id === activeId)
+    : -1
+  let target: GrammarDiagnostic
+  if (activeIndex >= 0) {
+    target = diagnostics[(activeIndex + direction + diagnostics.length) % diagnostics.length]!
+  } else {
+    const cursor = view.state.selection.main.head
+    target =
+      direction === 1
+        ? diagnostics.find((diagnostic) => diagnostic.range.from >= cursor) ?? diagnostics[0]!
+        : diagnostics
+            .slice()
+            .reverse()
+            .find((diagnostic) => diagnostic.range.to <= cursor) ?? diagnostics.at(-1)!
+  }
+
+  view.dispatch({
+    selection: { anchor: target.range.from, head: target.range.to },
+    effects: [
+      updateGrammarUi.of({ selectId: target.id, openId: target.id }),
+      EditorView.scrollIntoView(target.range.from, { y: 'center' })
+    ]
+  })
+  sessionFor(view)?.selectDiagnostic?.(target.id)
+  return true
+}
+
 export function closeGrammarSuggestionCard(view: EditorView): boolean {
   const grammar = getGrammarEditorState(view.state)
   if (!grammar?.openDiagnosticId) return false
@@ -684,6 +723,12 @@ function suggestionTooltip(diagnostic: GrammarDiagnostic): Tooltip {
         closeGrammarSuggestionCard(view)
         view.focus()
       })
+
+      appendText(
+        dom,
+        'cm-grammar-suggestion-hint',
+        'F8 next · Shift+F8 previous · ↑/↓ or j/k choose · Enter apply · Esc close'
+      )
 
       const controller: SuggestionCardController = {
         active: 0,
