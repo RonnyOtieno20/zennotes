@@ -2,8 +2,8 @@
 set -euo pipefail
 
 # Rebase the small downstream commit series onto a selected upstream release.
-# A conflict intentionally leaves the sync branch and rebase state intact so a
-# maintainer can inspect and resolve it without reconstructing the attempt.
+# A conflict is reported and cleaned up so an automated update cannot strand
+# the checkout in a half-completed rebase.
 
 upstream_remote="${UPSTREAM_REMOTE:-upstream}"
 downstream_branch="${DOWNSTREAM_BRANCH:-grammar-main}"
@@ -81,7 +81,9 @@ if [[ "$rebase_status" -ne 0 ]]; then
   printf 'UPSTREAM_TAG=%s\n' "$upstream_tag"
   printf 'CONFLICTED_FILES:\n' >&2
   git diff --name-only --diff-filter=U >&2 || true
-  printf 'Resolve the conflicts, run git rebase --continue, then test before pushing.\n' >&2
+  git rebase --abort >/dev/null 2>&1 || true
+  git switch --quiet "$downstream_branch" 2>/dev/null || true
+  printf 'The rebase was aborted; %s was left unchanged. Resolve the downstream conflict separately, then retry.\n' "$downstream_branch" >&2
   exit 1
 fi
 
