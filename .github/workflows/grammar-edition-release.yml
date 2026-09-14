@@ -1,0 +1,91 @@
+name: Grammar Edition release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Downstream release tag (for example grammar-v2.20.2.1)'
+        required: true
+        type: string
+      ref:
+        description: 'Tested downstream branch or commit to package'
+        default: grammar-main
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: grammar-edition-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build Grammar Edition release
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: '--max-old-space-size=12288'
+    steps:
+      - name: Validate downstream release tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          case "$TAG" in
+            grammar-v[0-9]*) ;;
+            *) echo 'Release tags must start with grammar-v followed by a version.' >&2; exit 1 ;;
+          esac
+
+      - name: Check out tested downstream revision
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Linux packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools rpm ruby ruby-dev build-essential
+          sudo gem install fpm --no-document
+          echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
+
+      - name: Build and verify release artifacts
+        run: npm run dist:grammar-linux
+
+      - name: Retain workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: grammar-edition-${{ inputs.tag }}
+          path: |
+            dist/ZenNotes-Grammar-*.deb
+            dist/ZenNotes-Grammar-*.AppImage
+            dist/ZenNotes-Grammar-*-SHA256SUMS.txt
+          if-no-files-found: error
+
+      - name: Create a draft downstream release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG already exists." >&2
+            exit 1
+          fi
+          mapfile -t assets < <(find dist -maxdepth 1 -type f \( -name 'ZenNotes-Grammar-*.deb' -o -name 'ZenNotes-Grammar-*.AppImage' -o -name 'ZenNotes-Grammar-*-SHA256SUMS.txt' \) | sort)
+          test "${#assets[@]}" -gt 0
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --draft \
+            --title "ZenNotes Grammar Edition $TAG" \
+            --notes "Local-first LanguageTool grammar and spelling support for ZenNotes. Verify the attached SHA-256 manifest before installing." \
+            "${assets[@]}"

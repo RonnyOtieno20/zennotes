@@ -60,6 +60,12 @@ import type {
   CloudVaultLink
 } from './cloud-sync'
 import type {
+  GrammarCancelRequest,
+  GrammarCancelResponse,
+  GrammarCheckRequest,
+  GrammarCheckResponse
+} from './grammar'
+import type {
   ApplyWorkflowInput,
   ExportWorkflowInput,
   ImportedWorkflowFile,
@@ -109,6 +115,8 @@ export interface ZenCapabilities {
    *  Harper's worker and ships it. Absent on hosts that have not verified
    *  that yet (the mobile shells), which hides the setting there. */
   supportsHarper?: boolean
+  /** Host-mediated provider transport; false/absent on the web runtime. */
+  supportsGrammarProviderTransport?: boolean
 }
 
 export interface ZenAppInfo {
@@ -421,6 +429,11 @@ export interface ZenBridge {
   getQuickCapturePinned(): Promise<boolean>
   setQuickCapturePinned(pinned: boolean): Promise<boolean>
   renderTikz(source: string): Promise<TikzRenderResponse>
+
+  /** Optional because browser hosts do not expose arbitrary provider access. */
+  grammarCheck?(request: GrammarCheckRequest): Promise<GrammarCheckResponse>
+  grammarCancel?(request: GrammarCancelRequest): Promise<GrammarCancelResponse>
+  grammarSetEnabled?(enabled: boolean): Promise<void>
 
   mcpGetRuntime(): Promise<McpServerRuntime>
   mcpGetStatuses(): Promise<McpClientStatus[]>
