@@ -217,6 +217,12 @@ import { registerEphemeralRoot, isEphemeralRoot } from "./ephemeral-vaults";
 import { renderTikz } from "./tikz";
 import { fetchLinkMetadata } from "./link-metadata";
 import { RemoteRequestError, RemoteServerClient } from "./remote/server-client";
+import { LanguageToolTransport } from "./grammar/languagetool-transport";
+import { ManagedLanguageToolLifecycle } from "./grammar/managed-languagetool";
+import type {
+  GrammarCancelRequest,
+  GrammarCheckRequest,
+} from "@zennotes/bridge-contract/grammar";
 import {
   getMcpClientStatuses,
   getMcpServerRuntime,
@@ -2811,6 +2817,19 @@ const DEFAULT_LIST_NOTES_STREAM_CHUNK_SIZE = 500;
 const MAX_LIST_NOTES_STREAM_CHUNK_SIZE = 1000;
 const LIST_NOTES_STREAM_STATE_TTL_MS = 60_000;
 const listNotesStreamStates = new Map<string, ListNotesStreamState>();
+const grammarLifecycle = new ManagedLanguageToolLifecycle()
+const grammarTransport = new LanguageToolTransport(globalThis.fetch, grammarLifecycle)
+const grammarOwnerCleanupRegistered = new WeakSet<WebContents>()
+
+function ensureGrammarOwnerCleanup(sender: WebContents): void {
+  if (grammarOwnerCleanupRegistered.has(sender)) return
+  grammarOwnerCleanupRegistered.add(sender)
+  const ownerId = sender.id
+  sender.once('destroyed', () => {
+    grammarTransport.cancelOwner(ownerId)
+    void grammarLifecycle.removeOwner(ownerId)
+  })
+}
 
 function listNotesStreamChunkSize(raw: unknown): number {
   const parsed = Number.parseInt(String(raw ?? ""), 10);
@@ -3075,6 +3094,18 @@ function registerIpc(): void {
       return null;
     }
   });
+  handle(IPC.GRAMMAR_CHECK, async (event, request: GrammarCheckRequest) => {
+    ensureGrammarOwnerCleanup(event.sender)
+    return await grammarTransport.check(request, event.sender.id)
+  })
+  handle(IPC.GRAMMAR_CANCEL, (event, request: GrammarCancelRequest) => {
+    return grammarTransport.cancel(request, event.sender.id)
+  })
+  handle(IPC.GRAMMAR_SET_ENABLED, async (event, enabled: boolean) => {
+    if (typeof enabled !== 'boolean') throw new TypeError('Expected grammar enabled state')
+    ensureGrammarOwnerCleanup(event.sender)
+    await grammarLifecycle.setOwnerEnabled(event.sender.id, enabled)
+  })
   on(IPC.APP_RENDERER_READY, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) return;
@@ -5591,4 +5622,5 @@ app.on("before-quit", () => {
   stopRemoteWatch();
   quickCaptureQuitting = true;
   unregisterQuickCaptureHotkey();
+  void grammarLifecycle.shutdown();
 });

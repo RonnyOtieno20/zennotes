@@ -1788,6 +1788,121 @@ textarea,
   font-size: 15px;
 }
 
+/* --- CodeMirror dialogs (Go to line) ---------------------------------- */
+/*
+ * `gotoLine` is provided by @codemirror/search and uses the generic
+ * `.cm-dialog` panel. CodeMirror's defaults intentionally stay minimal, but
+ * that leaves the line prompt looking like a browser-native form beside the
+ * rest of ZenNotes' themed panels. Keep the dialog compact and keyboard-first
+ * while reusing the same surfaces, borders, focus ring, and type scale as the
+ * search panel above.
+ */
+.cm-editor .cm-dialog {
+  display: flex;
+  align-items: center;
+  min-height: 42px;
+  box-sizing: border-box;
+  padding: 6px 38px 6px 12px !important;
+  background: rgb(var(--z-bg-softer)) !important;
+  border-top: 1px solid rgb(var(--z-bg-3)) !important;
+  color: rgb(var(--z-fg)) !important;
+  font-family: var(
+    --z-mono-font,
+    "SF Mono",
+    "SFMono-Regular",
+    ui-monospace,
+    "JetBrains Mono",
+    Menlo,
+    Consolas,
+    monospace
+  ) !important;
+  font-size: 12px;
+  line-height: 1;
+}
+.cm-editor .cm-dialog form {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+.cm-editor .cm-dialog label {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  color: rgb(var(--z-fg-2));
+  font-size: inherit;
+  white-space: nowrap;
+}
+.cm-editor .cm-dialog .cm-textfield {
+  width: clamp(5.5rem, 12vw, 10rem);
+  height: 28px;
+  box-sizing: border-box;
+  border: 1px solid rgb(var(--z-bg-3)) !important;
+  border-radius: 7px;
+  background: rgb(var(--z-bg)) !important;
+  color: rgb(var(--z-fg)) !important;
+  caret-color: rgb(var(--z-accent));
+  font: inherit;
+  line-height: 28px;
+  outline: none !important;
+  padding: 0 9px;
+  box-shadow: none !important;
+}
+.cm-editor .cm-dialog .cm-textfield:focus {
+  border-color: rgb(var(--z-accent)) !important;
+  box-shadow: 0 0 0 2px rgb(var(--z-accent) / 0.22) !important;
+}
+.cm-editor .cm-dialog .cm-button {
+  flex: 0 0 auto;
+  height: 28px;
+  border: 1px solid rgb(var(--z-bg-3)) !important;
+  border-radius: 7px;
+  background: rgb(var(--z-bg-2)) !important;
+  color: rgb(var(--z-fg)) !important;
+  font: inherit;
+  line-height: 1;
+  padding: 0 11px;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.cm-editor .cm-dialog .cm-button:hover {
+  border-color: rgb(var(--z-accent) / 0.45) !important;
+  background: rgb(var(--z-accent) / 0.14) !important;
+  color: rgb(var(--z-fg)) !important;
+}
+.cm-editor .cm-dialog .cm-button:focus-visible {
+  outline: 2px solid rgb(var(--z-accent) / 0.45);
+  outline-offset: 1px;
+}
+.cm-editor .cm-dialog .cm-dialog-close {
+  top: 50%;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  transform: translateY(-50%);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent !important;
+  color: rgb(var(--z-fg-2)) !important;
+  line-height: 20px;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.cm-editor .cm-dialog .cm-dialog-close:hover {
+  border-color: rgb(var(--z-bg-3));
+  background: rgb(var(--z-bg-2)) !important;
+  color: rgb(var(--z-fg)) !important;
+}
+.cm-editor .cm-dialog .cm-dialog-close:focus-visible {
+  outline: 2px solid rgb(var(--z-accent) / 0.45);
+  outline-offset: 1px;
+}
+
 .cm-editor .cm-search label {
   display: inline-flex;
   align-items: center;
@@ -4317,6 +4432,178 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   border-radius: 999px;
   background: rgb(var(--z-yellow) / 0.16);
   color: rgb(var(--z-fg-1));
+/* Grammar diagnostics and the pane-local correction card. */
+.cm-grammar-diagnostic {
+  text-decoration-line: underline;
+  text-decoration-style: wavy;
+  text-decoration-thickness: 1.2px;
+  text-decoration-color: rgb(var(--z-red));
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.cm-grammar-diagnostic-punctuation {
+  text-decoration-color: rgb(var(--z-accent-soft));
+}
+.cm-grammar-diagnostic-style,
+.cm-grammar-diagnostic-other {
+  text-decoration-color: rgb(var(--z-aqua));
+}
+.cm-grammar-diagnostic-selected {
+  border-radius: 2px;
+  background: rgb(var(--z-accent) / 0.14);
+}
+span.cm-grammar-diagnostic:empty {
+  display: inline-block;
+  width: 0.34em;
+  height: 0.9em;
+  border-bottom: 2px solid rgb(var(--z-red));
+  vertical-align: baseline;
+}
+/* CodeMirror gives keyboard/click cards their own `.cm-tooltip` root, but
+   hover cards are hosted inside `.cm-tooltip-hover`. Style the hosted card
+   itself and clear the generic wrapper so both entry points are identical. */
+.cm-tooltip.cm-grammar-suggestion-card,
+.cm-tooltip.cm-tooltip-hover:has(> .cm-grammar-suggestion-card)
+  > .cm-grammar-suggestion-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: min(330px, calc(100vw - 24px));
+  margin-top: 8px;
+  padding: 10px;
+  border: 1px solid rgb(var(--z-bg-3) / 0.7);
+  border-radius: 10px;
+  background: rgb(var(--z-bg-1));
+  color: rgb(var(--z-fg));
+  box-shadow: var(--shadow-panel, 0 8px 28px rgb(0 0 0 / 0.28));
+  font-family: var(--z-interface-font, system-ui, sans-serif);
+}
+.cm-tooltip.cm-tooltip-hover:has(> .cm-grammar-suggestion-card) {
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+.cm-grammar-suggestion-category {
+  color: rgb(var(--z-fg-2));
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.cm-grammar-suggestion-message {
+  color: rgb(var(--z-fg-1));
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+.cm-grammar-suggestion-original {
+  align-self: flex-start;
+  max-width: 100%;
+  overflow: hidden;
+  color: rgb(var(--z-fg-2));
+  font-family: var(--z-mono-font, ui-monospace, monospace);
+  font-size: 0.76rem;
+  text-decoration: line-through;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cm-grammar-suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.cm-grammar-suggestion-actions button {
+  padding: 5px 8px;
+  border: 1px solid rgb(var(--z-bg-3) / 0.72);
+  border-radius: 7px;
+  background: transparent;
+  color: rgb(var(--z-fg-1));
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+}
+.cm-grammar-suggestion-actions button:hover,
+.cm-grammar-suggestion-actions button:focus-visible,
+.cm-grammar-suggestion-actions button.cm-grammar-suggestion-active {
+  border-color: rgb(var(--z-accent) / 0.48);
+  background: rgb(var(--z-accent) / 0.16);
+  outline: none;
+}
+.cm-grammar-suggestion-actions .cm-grammar-suggestion {
+  color: rgb(var(--z-fg));
+  font-weight: 650;
+}
+.cm-grammar-suggestion-actions .cm-grammar-suggestion-dismiss {
+  margin-left: auto;
+  color: rgb(var(--z-fg-2));
+}
+.cm-grammar-suggestion-hint {
+  color: rgb(var(--z-fg-2));
+  font-size: 0.67rem;
+  line-height: 1.35;
+}
+
+/* The grammar review panel can be resized down to 200px. Keep its command
+   summary and controls legible without competing for one horizontal row. */
+[data-grammar-panel] {
+  container-type: inline-size;
+}
+.grammar-review-shortcuts {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.45rem;
+  row-gap: 0.1rem;
+  line-height: 1.35;
+}
+.grammar-review-shortcuts span + span::before {
+  content: '·';
+  margin-right: 0.45rem;
+}
+.grammar-review-recheck {
+  margin-left: auto;
+}
+@container (max-width: 260px) {
+  .grammar-review-header {
+    padding: 0.625rem;
+  }
+  .grammar-review-shortcuts {
+    display: grid;
+    gap: 0.125rem;
+  }
+  .grammar-review-shortcuts span + span::before {
+    content: none;
+  }
+  .grammar-review-toolbar {
+    flex-wrap: wrap;
+  }
+}
+
+/* Compact category badges in the full-note grammar review panel. */
+.grammar-review-category {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 7px;
+  color: rgb(var(--z-fg-1));
+  background: rgb(var(--z-bg-3) / 0.58);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.045em;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+.grammar-review-category-spelling,
+.grammar-review-category-grammar {
+  color: rgb(var(--z-red));
+  background: rgb(var(--z-red) / 0.12);
+}
+.grammar-review-category-punctuation {
+  color: rgb(var(--z-accent-soft));
+  background: rgb(var(--z-accent) / 0.12);
+}
+.grammar-review-category-style,
+.grammar-review-category-other {
+  color: rgb(var(--z-aqua));
+  background: rgb(var(--z-aqua) / 0.12);
 }
 .zen-diagram-modal-host .zen-tikz,
 .zen-diagram-modal-host .zen-jsxgraph,

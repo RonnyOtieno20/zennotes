@@ -116,6 +116,21 @@ describe('editor and preview typography rhythm', () => {
     )
   })
 
+  it('styles the built-in Go to line dialog with app theme tokens', () => {
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-dialog\s*\{[^}]*background:\s*rgb\(var\(--z-bg-softer\)\)\s*!important;/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-dialog \.cm-textfield\s*\{[^}]*background:\s*rgb\(var\(--z-bg\)\)\s*!important;/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-dialog \.cm-button\s*\{[^}]*background:\s*rgb\(var\(--z-bg-2\)\)\s*!important;/s
+    )
+    expect(stylesSource).toMatch(
+      /\.cm-editor \.cm-dialog \.cm-dialog-close\s*\{[^}]*background:\s*transparent\s*!important;/s
+    )
+  })
+
   it('keeps expanded diagram SVGs visible inside the pan and zoom viewport', () => {
     expect(stylesSource).toMatch(
       /\.zen-diagram-pan-content\s*\{[^}]*width:\s*100%;/s

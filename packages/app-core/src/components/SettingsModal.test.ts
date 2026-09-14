@@ -29,6 +29,24 @@ const mocks = vi.hoisted(() => {
       editorLineHeight: 1.6,
       editorScrollOff: 0,
       fzfBinaryPath: null,
+      grammarEnabled: false,
+      grammarPreferences: {
+        provider: 'languagetool',
+        endpoint: 'http://127.0.0.1:8081/v2',
+        language: 'en-US',
+        automaticChecks: true,
+        debounceMs: 750,
+        checkHeadings: true,
+        checkLists: true,
+        checkBlockquotes: true,
+        checkTables: true,
+        checkLinkLabels: true,
+        enabledCategories: ['spelling', 'grammar', 'punctuation', 'style', 'other'],
+        ignoredRules: [],
+        customDictionary: [],
+        showUnderlines: true,
+        diagnosticLogging: false
+      },
       hiddenWorkflowPresets: [],
       hideBuiltinTemplates: false,
       interfaceFont: null,
@@ -41,6 +59,8 @@ const mocks = vi.hoisted(() => {
       remoteWorkspaceProfiles: [],
       ripgrepBinaryPath: null,
       setSettingsOpen: vi.fn(),
+      setGrammarEnabled: vi.fn(),
+      setGrammarPreferences: vi.fn(),
       setVaultSettings: vi.fn(),
       showSidebarChevrons: true,
       systemFolderLabels: {},
@@ -112,6 +132,7 @@ vi.mock("@zennotes/bridge-contract/bridge", () => ({
       supportsCustomTemplates: true,
       supportsRemoteWorkspace: false,
       supportsCloudSync: true,
+      supportsGrammarProviderTransport: true,
     }),
     ...cloudMocks,
   }),
@@ -454,5 +475,22 @@ describe("SettingsModal date note directories", () => {
     expect(newTemplateButton()).toBeUndefined();
     expect(host.textContent).toContain("need ZenNotes server 2.46 or later");
     expect(host.textContent).toContain("reconnect this workspace");
+  });
+
+  it("shows the grammar provider privacy disclosure from settings search", async () => {
+    await act(async () => {
+      root.render(createElement(SettingsModal));
+    });
+    const search = [...host.querySelectorAll<HTMLInputElement>("input")].find(
+      (input) => input.placeholder === "Search settings…",
+    );
+
+    await act(async () => {
+      changeInput(search!, "grammar provider");
+    });
+
+    expect(host.textContent).toContain("LanguageTool provider");
+    expect(host.textContent).toContain("Local: Note text stays on this device.");
+    expect(host.textContent).toContain("Custom dictionary");
   });
 });

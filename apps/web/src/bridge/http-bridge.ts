@@ -97,7 +97,8 @@ const WEB_CAPABILITIES: ZenCapabilities = {
   supportsCliInstall: false,
   supportsCustomTemplates: false,
   supportsCustomCodeLanguages: false,
-  supportsWorkflows: false
+  supportsWorkflows: false,
+  supportsGrammarProviderTransport: false
 }
 
 const WEB_APP_INFO: ZenAppInfo = {
