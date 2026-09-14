@@ -4432,6 +4432,8 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   border-radius: 999px;
   background: rgb(var(--z-yellow) / 0.16);
   color: rgb(var(--z-fg-1));
+}
+
 /* Grammar diagnostics and the pane-local correction card. */
 .cm-grammar-diagnostic {
   text-decoration-line: underline;
