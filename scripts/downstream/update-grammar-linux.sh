@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # One-command personal update path. It never promotes or installs a candidate
-# until the rebase, production checks, package verification, and dpkg install
-# all succeed. A dated backup branch keeps the prior downstream baseline
-# recoverable before the reviewed rebase is promoted.
+# until the upstream merge, production checks, package verification, and dpkg
+# install all succeed. A dated backup branch keeps the prior downstream
+# baseline recoverable before the reviewed merge is promoted.
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$root"

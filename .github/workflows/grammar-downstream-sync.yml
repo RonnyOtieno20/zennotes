@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   sync:
-    name: Rebase Grammar Edition on upstream
+    name: Merge Grammar Edition with upstream
     runs-on: ubuntu-latest
     env:
       NODE_OPTIONS: '--max-old-space-size=12288'
@@ -55,8 +55,8 @@ jobs:
           esac
           echo "UPSTREAM_TAG=$tag" >> "$GITHUB_ENV"
 
-      - name: Rebase downstream commits
-        id: rebase
+      - name: Merge downstream edition
+        id: merge
         continue-on-error: true
         run: |
           if ! output="$(scripts/downstream/sync-upstream.sh "$UPSTREAM_TAG" 2>&1)"; then
@@ -69,29 +69,29 @@ jobs:
           echo "SYNC_BRANCH=$branch" >> "$GITHUB_ENV"
 
       - name: Open conflict report
-        if: steps.rebase.outcome == 'failure'
+        if: steps.merge.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="Grammar Edition sync blocked by ${UPSTREAM_TAG}"
           conflicts="$(git diff --name-only --diff-filter=U || true)"
-          body="The automated rebase of grammar-main onto upstream ZenNotes ${UPSTREAM_TAG} stopped with conflicts.
+          body="The automated merge of upstream ZenNotes ${UPSTREAM_TAG} into grammar-main stopped unexpectedly.
 
           Conflicted files:
-          ${conflicts:-The rebase failed before Git reported conflict paths. Inspect the workflow log.}
+          ${conflicts:-The merge failed before Git reported conflict paths. Inspect the workflow log.}
 
           Reproduce locally with:
           \`UPSTREAM_REMOTE=upstream DOWNSTREAM_BRANCH=grammar-main scripts/downstream/sync-upstream.sh ${UPSTREAM_TAG}\`
 
-          Resolve the rebase, run the full production build, and push the resulting sync branch for review. This workflow never publishes after a conflict."
+          The merge script normally resolves conflicts automatically in favor of the working Grammar Edition files. Inspect the workflow log, run the full production build, and push the resulting sync branch for review. This workflow never publishes after a failed merge."
           {
             echo "## Grammar Edition sync needs attention"
             echo
-            echo "The automated rebase onto **${UPSTREAM_TAG}** stopped before publishing."
+            echo "The automated merge with **${UPSTREAM_TAG}** stopped before publishing."
             echo
             echo "Conflicted files:"
             echo '```'
-            echo "${conflicts:-No conflict paths were reported; inspect the rebase log.}"
+            echo "${conflicts:-No conflict paths were reported; inspect the merge log.}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
           if ! gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json title --jq 'length' | grep -qx '0'; then
@@ -101,18 +101,18 @@ jobs:
           fi
 
       - name: Set up Node.js
-        if: steps.rebase.outcome == 'success'
+        if: steps.merge.outcome == 'success'
         uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
-        if: steps.rebase.outcome == 'success'
+        if: steps.merge.outcome == 'success'
         run: npm ci
 
       - name: Install Linux packaging tools
-        if: steps.rebase.outcome == 'success'
+        if: steps.merge.outcome == 'success'
         run: |
           sudo apt-get update
           sudo apt-get install -y libarchive-tools rpm ruby ruby-dev build-essential
@@ -120,11 +120,11 @@ jobs:
           echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
 
       - name: Build and verify downstream artifacts
-        if: steps.rebase.outcome == 'success'
+        if: steps.merge.outcome == 'success'
         run: npm run dist:grammar-linux
 
       - name: Upload candidate artifacts
-        if: steps.rebase.outcome == 'success'
+        if: steps.merge.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: grammar-edition-${{ env.UPSTREAM_TAG }}
@@ -135,5 +135,5 @@ jobs:
           if-no-files-found: error
 
       - name: Push sync branch for review
-        if: steps.rebase.outcome == 'success'
+        if: steps.merge.outcome == 'success'
         run: git push origin "HEAD:refs/heads/${SYNC_BRANCH}"
