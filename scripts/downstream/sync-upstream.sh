@@ -44,6 +44,45 @@ sync_branch="sync/${upstream_tag#v}"
 
 git switch --quiet -C "$sync_branch" "$downstream_branch"
 
+# Conflicted package manifests are resolved at hunk level: the upstream side
+# of each conflicted hunk wins (version bumps, dependency changes) while
+# cleanly merged downstream content - Grammar artifact naming, packaged
+# edition metadata, downstream scripts - is preserved. Whole-file
+# "git checkout --ours" would silently discard those downstream settings.
+prefer_upstream_hunks() {
+  awk '
+    BEGIN { state = 0 }
+    /^<<<<<<< / && state == 0 { state = 1; next }
+    /^\|\|\|\|\|\|\| / && state == 1 { state = 2; next }
+    /^=======$/ && state == 1 { state = 2; next }
+    /^>>>>>>> / && state == 2 { state = 0; next }
+    state != 2 { print }
+  ' "$1" > "$1.resolved" && mv "$1.resolved" "$1"
+}
+
+# Root package.json also carries downstream npm scripts. Re-add any script
+# that exists in the downstream commit being replayed but vanished from the
+# upstream-resolved merge, so Grammar tooling keeps working after the rebase.
+restore_downstream_scripts() {
+  node -e '
+    const fs = require("node:fs")
+    const { execFileSync } = require("node:child_process")
+    const path = process.argv[1]
+    const merged = JSON.parse(fs.readFileSync(path, "utf8"))
+    const downstream = JSON.parse(
+      execFileSync("git", ["show", "REBASE_HEAD:package.json"], { encoding: "utf8" })
+    )
+    merged.scripts = { ...(merged.scripts || {}) }
+    for (const [name, command] of Object.entries(downstream.scripts || {})) {
+      if (!(name in merged.scripts)) {
+        merged.scripts[name] = command
+        console.log(`Restored downstream script: ${name}`)
+      }
+    }
+    fs.writeFileSync(path, JSON.stringify(merged, null, 2) + "\n")
+  ' "$1"
+}
+
 # Every completed sync ends with a generated Grammar Edition version commit.
 # That historical version is deliberately replaced after the next rebase, so
 # skip it when it is the only thing blocking a newer upstream package version.
@@ -52,15 +91,15 @@ git rebase --rebase-merges --onto "$upstream_ref" "$base" || rebase_status=$?
 while [[ "$rebase_status" -ne 0 ]]; do
   rebase_subject="$(git show -s --format=%s REBASE_HEAD 2>/dev/null || true)"
   mapfile -t conflicted_files < <(git diff --name-only --diff-filter=U)
-  version_only=true
-  [[ "${#conflicted_files[@]}" -gt 0 ]] || version_only=false
+  metadata_only=true
+  [[ "${#conflicted_files[@]}" -gt 0 ]] || metadata_only=false
   for path in "${conflicted_files[@]}"; do
     case "$path" in
-      apps/desktop/package.json|package-lock.json) ;;
-      *) version_only=false ;;
+      apps/desktop/package.json|package-lock.json|package.json) ;;
+      *) metadata_only=false ;;
     esac
   done
-  if [[ "$version_only" != true ]]; then
+  if [[ "$metadata_only" != true ]]; then
     break
   fi
 
@@ -69,10 +108,20 @@ while [[ "$rebase_status" -ne 0 ]]; do
     printf 'Skipping obsolete downstream version commit: %s\n' "$rebase_subject"
     git rebase --skip || rebase_status=$?
   else
-    printf 'Keeping upstream package versions while replaying: %s\n' "$rebase_subject"
-    git checkout --ours -- "${conflicted_files[@]}"
-    git add -- "${conflicted_files[@]}"
-    GIT_EDITOR=true git rebase --continue || rebase_status=$?
+    printf 'Keeping upstream package metadata while replaying: %s\n' "$rebase_subject"
+    for path in "${conflicted_files[@]}"; do
+      prefer_upstream_hunks "$path"
+      [[ "$path" == "package.json" ]] && restore_downstream_scripts "$path"
+      if grep -qE '^(<<<<<<< |>>>>>>> )' "$path"; then
+        printf 'could not auto-resolve markers in %s\n' "$path" >&2
+        rebase_status=1
+        break
+      fi
+      git add -- "$path"
+    done
+    if [[ "$rebase_status" -eq 0 ]]; then
+      GIT_EDITOR=true git rebase --continue || rebase_status=$?
+    fi
   fi
 done
 
