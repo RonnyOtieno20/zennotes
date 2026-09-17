@@ -39,6 +39,9 @@ const environment = {
 // Keep the process explicit: the local package always passes the same checks
 // as CI, and produces only the two Linux artifacts users can install.
 if (!verifyExisting) {
+  // Reinstall from the lockfile the rebase just adopted so unattended runs
+  // cannot build against node_modules left over from an older upstream.
+  run('npm', ['ci'], { env: environment })
   run('npm', ['run', 'build:prod'], { env: environment })
   run(
     'npm',
