@@ -43,7 +43,10 @@ stash_local_changes() {
   git diff --output="$recovery_dir/unstaged.patch"
   git ls-files --others --exclude-standard -z > "$recovery_dir/untracked.list"
   git stash push --include-untracked --message "zennotes grammar updater automatic snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
-  stash_ref="$(git rev-parse refs/stash)"
+  # Git's stash porcelain expects a stash selector, not the raw commit hash.
+  # No other stash operation runs during the update, so stash@{0} remains
+  # stable until this snapshot is reapplied and dropped.
+  stash_ref="stash@{0}"
   printf 'grammar update: local changes saved to %s\n' "$recovery_dir" >&2
 }
 
@@ -62,7 +65,11 @@ restore_local_changes() {
     printf 'grammar update: recovery snapshot is %s\n' "$recovery_dir" >&2
     return 1
   fi
-  git stash drop "$stash_ref" >/dev/null
+  if ! git stash drop "$stash_ref" >/dev/null; then
+    printf 'grammar update: restored local changes but could not drop %s; it was retained\n' \
+      "$stash_ref" >&2
+    return 1
+  fi
   printf 'grammar update: local changes restored on %s\n' "$restore_branch" >&2
 }
 
