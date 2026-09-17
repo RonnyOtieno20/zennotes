@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync, spawnSync } from 'node:child_process'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -31,9 +32,42 @@ function gitCommitTimestamp() {
 }
 
 const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH || gitCommitTimestamp()
-const environment = {
-  ...process.env,
-  ...(sourceDateEpoch ? { SOURCE_DATE_EPOCH: sourceDateEpoch } : {})
+
+// fpm proves GNU ar's deterministic mode by archiving an EMPTY member and
+// grepping `ar -tv` for "0/0 ... 1970". binutils 2.46 omits zero-length members
+// from that listing, so fpm aborts any SOURCE_DATE_EPOCH build on such hosts
+// even though `ar -D` itself works. Mirror fpm's exact probe and drop the
+// variable when the deb step could not honor it, instead of failing the update.
+function fpmCanHonorSourceDateEpoch() {
+  const dir = mkdtempSync(path.join(os.tmpdir(), 'grammar-ar-probe-'))
+  try {
+    const empty = path.join(dir, 'empty')
+    const archive = path.join(dir, 'probe.a')
+    writeFileSync(empty, '')
+    const create = spawnSync('ar', ['-qcD', archive, empty], { stdio: 'ignore' })
+    if (create.status !== 0) return false
+    const list = spawnSync('ar', ['-tv', archive], {
+      encoding: 'utf8',
+      env: { ...process.env, TZ: 'UTC', LANG: 'C', LC_TIME: 'C' }
+    })
+    return list.status === 0 && /0\/0.*1970/.test(list.stdout)
+  } catch {
+    return false
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+const environment = { ...process.env }
+if (sourceDateEpoch && fpmCanHonorSourceDateEpoch()) {
+  environment.SOURCE_DATE_EPOCH = sourceDateEpoch
+} else {
+  delete environment.SOURCE_DATE_EPOCH
+  if (sourceDateEpoch) {
+    console.warn(
+      'Grammar build: this host\'s ar/fpm cannot build deterministic debs; continuing without SOURCE_DATE_EPOCH.'
+    )
+  }
 }
 
 // Keep the process explicit: the local package always passes the same checks
