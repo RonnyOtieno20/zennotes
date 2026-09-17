@@ -22,6 +22,64 @@ if ! flock -n 9; then
   exit 0
 fi
 
+starting_branch="$(git branch --show-current)"
+recovery_dir=""
+stash_ref=""
+
+# Keep the one-command contract meaningful even when a developer left a local
+# edit in the checkout. The edit is captured in a dated recovery directory and
+# a temporary stash, then restored to the original branch after the update.
+# This avoids asking the user to make a manual stash/merge decision while still
+# preserving every staged, unstaged, and untracked file.
+stash_local_changes() {
+  if [[ -z "$(git status --porcelain)" ]]; then
+    return 0
+  fi
+
+  recovery_dir="$(dirname "$root")/recovery/zennotes-update-$(date -u +%Y%m%d%H%M%S)-$$"
+  mkdir -p "$recovery_dir"
+  git status --short > "$recovery_dir/status.txt"
+  git diff --cached --output="$recovery_dir/staged.patch"
+  git diff --output="$recovery_dir/unstaged.patch"
+  git ls-files --others --exclude-standard -z > "$recovery_dir/untracked.list"
+  git stash push --include-untracked --message "zennotes grammar updater automatic snapshot $(date -u +%Y-%m-%dT%H:%M:%SZ)" >/dev/null
+  stash_ref="$(git rev-parse refs/stash)"
+  printf 'grammar update: local changes saved to %s\n' "$recovery_dir" >&2
+}
+
+restore_local_changes() {
+  [[ -n "$stash_ref" ]] || return 0
+
+  restore_branch="$starting_branch"
+  if [[ -z "$restore_branch" ]] || \
+    ! git show-ref --verify --quiet "refs/heads/$restore_branch"; then
+    restore_branch="$downstream_branch"
+  fi
+  git switch --quiet "$restore_branch"
+  if ! git stash apply --index "$stash_ref"; then
+    printf 'grammar update: local changes could not be reapplied automatically; stash retained as %s\n' \
+      "$stash_ref" >&2
+    printf 'grammar update: recovery snapshot is %s\n' "$recovery_dir" >&2
+    return 1
+  fi
+  git stash drop "$stash_ref" >/dev/null
+  printf 'grammar update: local changes restored on %s\n' "$restore_branch" >&2
+}
+
+on_exit() {
+  local status=$?
+  if [[ "$status" -ne 0 ]]; then
+    git merge --abort >/dev/null 2>&1 || true
+    git rebase --abort >/dev/null 2>&1 || true
+    git switch --quiet "$downstream_branch" >/dev/null 2>&1 || true
+  fi
+  if ! restore_local_changes; then
+    status=1
+  fi
+  return "$status"
+}
+trap on_exit EXIT
+
 rebase_dir="$(git rev-parse --git-path rebase-merge)"
 apply_dir="$(git rev-parse --git-path rebase-apply)"
 if [[ -d "$rebase_dir" || -d "$apply_dir" ]]; then
@@ -53,17 +111,10 @@ if [[ -d "$rebase_dir" || -d "$apply_dir" ]]; then
   esac
 fi
 
-git diff --quiet || {
-  printf 'grammar update: commit or stash local changes first\n' >&2
-  exit 1
-}
-git diff --cached --quiet || {
-  printf 'grammar update: commit or stash staged changes first\n' >&2
-  exit 1
-}
+stash_local_changes
+git switch --quiet "$downstream_branch"
 
 git fetch --quiet origin "$downstream_branch"
-git switch --quiet "$downstream_branch"
 git pull --ff-only origin "$downstream_branch"
 
 if [[ -z "$upstream_tag" ]]; then
