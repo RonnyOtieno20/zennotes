@@ -66,10 +66,11 @@ describe('rc-file-only PATH entries (#634)', () => {
     tempHome = null
   })
 
-  function overrideEnv(overrides: Record<string, string>): void {
+  function overrideEnv(overrides: Record<string, string | undefined>): void {
     for (const [key, value] of Object.entries(overrides)) {
       if (!(key in savedEnv)) savedEnv[key] = process.env[key]
-      process.env[key] = value
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
     }
   }
 
@@ -90,7 +91,9 @@ describe('rc-file-only PATH entries (#634)', () => {
       await writeFile(path.join(tempHome, '.bashrc'), `echo "welcome banner"\n${pathLine}\n`)
       await writeFile(path.join(tempHome, '.bash_profile'), `. "$HOME/.bashrc"\n`)
 
-      overrideEnv({ HOME: tempHome, SHELL: interactiveShell as string })
+      // A ZDOTDIR exported by the host shell would redirect zsh to the real
+      // config instead of the temp HOME's rc files.
+      overrideEnv({ HOME: tempHome, SHELL: interactiveShell as string, ZDOTDIR: undefined })
       resetLoginShellResolutionForTests()
 
       expect(await resolveCommandViaLoginShell(tool)).toBe(path.join(binDir, tool))

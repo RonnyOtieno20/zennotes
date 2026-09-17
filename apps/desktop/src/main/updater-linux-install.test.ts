@@ -31,10 +31,18 @@ vi.mock('node:fs', async (importOriginal) => {
     ...real,
     existsSync: (file: string) =>
       file === '/opt/ZenNotes/resources/package-type' || real.existsSync(file),
-    readFileSync: (file: string, ...args: any[]) =>
-      file === '/etc/os-release'
-        ? 'ID=arch\n'
-        : (real.readFileSync as any)(file, ...args)
+    readFileSync: (file: string, ...args: any[]) => {
+      if (file === '/etc/os-release') return 'ID=arch\n'
+      // The build host may carry a downstream edition under /opt whose packaged
+      // metadata would disable the updater under test; keep this suite hermetic.
+      if (file.endsWith('downstream-edition.json')) {
+        throw Object.assign(
+          new Error(`ENOENT: no such file or directory, open '${file}'`),
+          { code: 'ENOENT' }
+        )
+      }
+      return (real.readFileSync as any)(file, ...args)
+    }
   }
 })
 
