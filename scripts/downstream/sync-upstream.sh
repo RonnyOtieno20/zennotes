@@ -94,8 +94,19 @@ if ! git merge-base --is-ancestor "$upstream_ref" "$sync_branch"; then
   fi
 fi
 
+# Some upstream structural edits can merge textually while dropping the
+# declarations that newer call sites depend on. Reconcile upstream-owned
+# panel/capability blocks after the merge, preserving the Grammar Edition's
+# state and provider capability.
+node scripts/downstream/reconcile-grammar-upstream.mjs "$upstream_ref"
+
 next_version="$(node scripts/downstream/set-grammar-version.mjs "$upstream_tag")"
-git add apps/desktop/package.json package-lock.json
+git add \
+  apps/desktop/package.json \
+  package-lock.json \
+  packages/app-core/src/components/EditorPane.tsx \
+  packages/bridge-contract/src/bridge.ts \
+  apps/desktop/src/preload/index.ts
 git diff --cached --quiet || \
   git commit -m "Prepare Grammar Edition ${next_version} for ${upstream_tag}"
 
