@@ -34,10 +34,8 @@ function gitCommitTimestamp() {
 const sourceDateEpoch = process.env.SOURCE_DATE_EPOCH || gitCommitTimestamp()
 
 // fpm proves GNU ar's deterministic mode by archiving an EMPTY member and
-// grepping `ar -tv` for "0/0 ... 1970". binutils 2.46 omits zero-length members
-// from that listing, so fpm aborts any SOURCE_DATE_EPOCH build on such hosts
-// even though `ar -D` itself works. Mirror fpm's exact probe and drop the
-// variable when the deb step could not honor it, instead of failing the update.
+// grepping `ar -tv` for "0/0 ... 1970". Probe the same behavior and drop the
+// variable when the deb step cannot honor it, instead of failing the update.
 function fpmCanHonorSourceDateEpoch() {
   const dir = mkdtempSync(path.join(os.tmpdir(), 'grammar-ar-probe-'))
   try {
@@ -77,22 +75,36 @@ if (!verifyExisting) {
   // cannot build against node_modules left over from an older upstream.
   run('npm', ['ci'], { env: environment })
   run('npm', ['run', 'build:prod'], { env: environment })
-  run(
-    'npm',
-    [
-      'exec',
-      '--workspace',
-      '@zennotes/desktop',
-      '--',
-      'electron-builder',
-      '--linux',
-      'AppImage',
-      'deb',
-      '--publish',
-      'never'
-    ],
-    { env: environment }
-  )
+  const builderArgs = (target) => [
+    'exec',
+    '--workspace',
+    '@zennotes/desktop',
+    '--',
+    'electron-builder',
+    '--linux',
+    target,
+    '--publish',
+    'never'
+  ]
+
+  run('npm', builderArgs('AppImage'), { env: environment })
+
+  try {
+    run('npm', builderArgs('deb'), { env: environment })
+  } catch (error) {
+    if (!environment.SOURCE_DATE_EPOCH || !Number.isInteger(error.status)) throw error
+
+    // FPM has its own ar capability check. If that check disagrees with our
+    // preflight, preserve the already-built AppImage and retry only the deb
+    // without the optional reproducible-build timestamp rather than aborting
+    // the one-command downstream update.
+    const fallbackEnvironment = { ...environment }
+    delete fallbackEnvironment.SOURCE_DATE_EPOCH
+    console.warn(
+      'Grammar build: Debian packaging rejected SOURCE_DATE_EPOCH; retrying without it.'
+    )
+    run('npm', builderArgs('deb'), { env: fallbackEnvironment })
+  }
 }
 
 const artifactPrefix = `ZenNotes-Grammar-${version}-linux-`
