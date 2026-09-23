@@ -183,6 +183,7 @@ export const IPC = {
   RAYCAST_GET_STATUS: 'raycast:get-status',
   RAYCAST_INSTALL: 'raycast:install',
   CONFIG_GET_SYNC: 'config:get-sync',
+  APP_INSTALL_INFO_SYNC: 'app:install-info-sync',
   CONFIG_SET: 'config:set',
   CONFIG_GET_PATH: 'config:get-path',
   CONFIG_REVEAL: 'config:reveal',
@@ -207,7 +208,12 @@ export const IPC = {
   // Per-vault workspace state (open tabs, layout, cursor) persisted to
   // <vault>/.zennotes/workspace.json so it syncs with the vault. (#292)
   WORKSPACE_STATE_READ: 'workspace-state:read',
-  WORKSPACE_STATE_WRITE: 'workspace-state:write'
+  WORKSPACE_STATE_WRITE: 'workspace-state:write',
+  // Per-note undo history kept between launches, in the app's own user-data
+  // folder and never in the vault (Vim's `undofile`). (#793)
+  UNDO_HISTORY_READ: 'undo-history:read',
+  UNDO_HISTORY_WRITE: 'undo-history:write',
+  UNDO_HISTORY_CLEAR: 'undo-history:clear'
 } as const
 
 export interface TikzRenderResponse {
@@ -225,6 +231,12 @@ export type AppUpdatePhase =
   | 'downloading'
   | 'downloaded'
   | 'installing'
+  /**
+   * The last check could not reach GitHub at all (no network, DNS down,
+   * connection refused). Not an error the user has to act on: the host keeps
+   * watching and checks again on its own once the connection is back.
+   */
+  | 'offline'
   | 'error'
 
 export interface CliInstallRequest {

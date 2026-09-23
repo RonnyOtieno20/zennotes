@@ -11,6 +11,11 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
 import { Vim, getCM } from "@replit/codemirror-vim";
 import { registerDisplayLineMotion } from "../lib/cm-vim-display-line";
+import {
+  HALF_PAGE_MOTION,
+  halfPageMotionArgs,
+  registerHalfPageMotion,
+} from "../lib/cm-vim-half-page-motion";
 import { registerHeadingMotion } from "../lib/cm-vim-heading-motion";
 import { registerReflowOperator } from "../lib/cm-vim-reflow";
 import {
@@ -54,6 +59,8 @@ import {
 import { promptApp } from "../lib/prompt-requests";
 import { offerCreateNoteFromLink } from "../lib/create-note-from-link";
 import { openWikilinkAttachment } from "../lib/open-wikilink-attachment";
+import { buildVersionReport } from "../lib/version-report";
+import { writeClipboardText } from "../lib/clipboard-text";
 import {
   externalFileLink,
   openExternalFileLink,
@@ -140,48 +147,22 @@ function paneMapBindings(
   return [...new Set(bindings)];
 }
 
-/**
- * Clamped half-page scroll for the editor, bound to Ctrl+D / Ctrl+U.
- *
- * Replaces CodeMirror-Vim's built-in `<C-d>`/`<C-u>` (`moveByScroll`), which
- * derives its scroll target from the cursor's pixel coordinates. With live-
- * preview decorations and folded headings shifting block heights, that math
- * can resolve to the top of the document, snapping the cursor and viewport
- * back to line 1 at the end of a note. Moving by display lines and scrolling
- * by a fixed half-viewport — both clamped to the document bounds — can never
- * wrap. Mirrors the clamped preview scroll (`scrollPreviewBy`) in VimNav.
- */
-function editorHalfPage(view: EditorView | undefined, forward: boolean): void {
-  if (!view) return;
-  const scroller = view.scrollDOM;
-  const half = Math.max(1, Math.round(scroller.clientHeight / 2));
-  const lineHeight = view.defaultLineHeight || 18;
-  const steps = Math.max(1, Math.round(half / lineHeight));
-  let range = view.state.selection.main;
-  for (let i = 0; i < steps; i++) {
-    const next = view.moveVertically(range, forward);
-    if (next.head === range.head) break; // reached the first/last line — stop, never wrap
-    range = next;
-  }
-  const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
-  const nextTop = Math.max(
-    0,
-    Math.min(maxTop, scroller.scrollTop + (forward ? half : -half)),
-  );
-  view.dispatch({ selection: { anchor: range.head } });
-  scroller.scrollTop = nextTop;
-}
+type VimKeymapMapping = {
+  id: KeymapId;
+  bindings: string[];
+  // VimNav's global fallback stands down while the editor has focus (#578),
+  // so anything that used to reach it from a standing selection has to be
+  // mapped in visual context here as well.
+  contexts?: Array<"normal" | "visual">;
+} & (
+  | { action: string }
+  // A motion moves Vim's own selection head, so it also extends a visual
+  // selection; an action cannot (#825).
+  | { motion: string; motionArgs: Record<string, unknown> }
+);
 
 function syncVimKeymaps(overrides: KeymapOverrides): void {
-  const mappings: Array<{
-    id: KeymapId;
-    action: string;
-    bindings: string[];
-    // VimNav's global fallback stands down while the editor has focus (#578),
-    // so anything that used to reach it from a standing selection has to be
-    // mapped in visual context here as well.
-    contexts?: Array<"normal" | "visual">;
-  }> = [
+  const mappings: VimKeymapMapping[] = [
       {
         id: "vim.harperNext",
         action: "zenHarperNext",
@@ -311,16 +292,25 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
           toVimSequence(getKeymapBinding(overrides, "vim.unfoldAll")),
         ].filter((binding): binding is string => !!binding),
       },
+      // Half-page keys are a motion in normal AND visual context, so `v` +
+      // Ctrl+D grows the selection as far as Ctrl+D moves the cursor (#825).
+      // Operator-pending (`d<C-d>`) is left to Vim's default motion, like
+      // j/k. The floating, Quick Note and external-file windows map the
+      // same motion to the default chords (`mapDefaultHalfPageKeys`).
       {
         id: "nav.halfPageDown",
-        action: "zenHalfPageDown",
+        contexts: ["normal", "visual"],
+        motion: HALF_PAGE_MOTION,
+        motionArgs: halfPageMotionArgs(true),
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "nav.halfPageDown")),
         ].filter((binding): binding is string => !!binding),
       },
       {
         id: "nav.halfPageUp",
-        action: "zenHalfPageUp",
+        contexts: ["normal", "visual"],
+        motion: HALF_PAGE_MOTION,
+        motionArgs: halfPageMotionArgs(false),
         bindings: [
           toVimSequence(getKeymapBinding(overrides, "nav.halfPageUp")),
         ].filter((binding): binding is string => !!binding),
@@ -340,7 +330,13 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
     }
     for (const binding of mapping.bindings) {
       for (const context of contexts) {
-        Vim.mapCommand(binding, "action", mapping.action, {}, { context });
+        if ("motion" in mapping) {
+          Vim.mapCommand(binding, "motion", mapping.motion, mapping.motionArgs, {
+            context,
+          });
+        } else {
+          Vim.mapCommand(binding, "action", mapping.action, {}, { context });
+        }
       }
     }
     syncedVimBindings[mapping.id] = mapping.bindings;
@@ -359,6 +355,20 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
  * unavailable. (#173)
  */
 function alertEditorError(message: string): void {
+  showEditorNotification(message, { color: "red", duration: 4000 });
+}
+
+/**
+ * Bottom-of-editor Vim notification. Errors are red like codemirror-vim's
+ * own; informational output (`:version`) inherits the editor color, since
+ * red would read as "something failed". Multi-line text keeps its line
+ * breaks. Falls back to an alert (then refocuses) if the editor notification
+ * is unavailable.
+ */
+function showEditorNotification(
+  message: string,
+  opts: { color?: string; duration: number },
+): void {
   const view = useStore.getState().editorViewRef;
   const cm = view ? getCM(view) : null;
   const openNotification = (
@@ -372,14 +382,46 @@ function alertEditorError(message: string): void {
   if (cm && typeof openNotification === "function") {
     const el = document.createElement("div");
     el.className = "cm-vim-message";
-    el.style.color = "red";
+    if (opts.color) el.style.color = opts.color;
     el.style.whiteSpace = "pre";
     el.textContent = message;
-    openNotification.call(cm, el, { bottom: true, duration: 4000 });
+    openNotification.call(cm, el, { bottom: true, duration: opts.duration });
     return;
   }
   window.alert(message);
   focusEditorNormalMode();
+}
+
+/**
+ * `:version` prints the details a bug report needs (ZenNotes version, OS,
+ * engine, install format, remote server) instead of the stock
+ * codemirror-vim line that only named the Vim library (#814). `:version copy`
+ * or `:version!` also puts the text on the clipboard.
+ */
+function runVersionEx(argString: string): void {
+  const state = useStore.getState();
+  const remote =
+    state.workspaceMode === "remote"
+      ? {
+          baseUrl: state.remoteWorkspaceInfo?.baseUrl ?? null,
+          version: state.remoteWorkspaceInfo?.capabilities?.version ?? null,
+        }
+      : null;
+  const lines = buildVersionReport({
+    app: window.zen.getAppInfo(),
+    remoteServer: remote,
+  });
+  const arg = argString.trim();
+  const copy = arg === "!" || arg.toLowerCase() === "copy";
+  const shown = [...lines];
+  if (copy) {
+    shown.push(
+      writeClipboardText(lines.join("\n"))
+        ? "Copied to the clipboard"
+        : "Could not reach the clipboard",
+    );
+  }
+  showEditorNotification(shown.join("\n"), { duration: 15000 });
 }
 
 // Minimal shape of the CodeMirror-Vim adapter + state the display-line motion
@@ -528,6 +570,7 @@ function registerVimCommands(): void {
     () => useStore.getState().vimWrappedLineMotions,
   );
   registerHeadingMotion();
+  registerHalfPageMotion();
   registerReflowOperator();
 
   Vim.defineEx("write", "w", () => {
@@ -560,6 +603,22 @@ function registerVimCommands(): void {
         return;
       }
       setImageWidthFromInput(view, arg);
+    },
+  );
+  // `:set undofile` / `:set noundofile` / `:set undofile?` (alias `udf`) is
+  // the ex twin of "Keep undo history after quitting", under the name Vim
+  // users already type. Only where the host can keep the files. (#793)
+  Vim.defineOption(
+    "undofile",
+    false,
+    "boolean",
+    ["udf"],
+    (value?: boolean) => {
+      const state = useStore.getState();
+      if (value === undefined) return state.persistUndoHistory;
+      if (!window.zen?.getCapabilities?.().supportsUndoFile) return undefined;
+      if (state.persistUndoHistory !== !!value) state.setPersistUndoHistory(!!value);
+      return undefined;
     },
   );
   // `:harper on|off` (or bare `:harper` to toggle) is the ex twin of the
@@ -709,6 +768,16 @@ function registerVimCommands(): void {
   };
   Vim.defineEx("template", "template", runTemplateEx);
   Vim.defineEx("tmpl", "tmpl", runTemplateEx);
+
+  // Replaces the library's own `:version`, which reported only the
+  // codemirror-vim version (#814).
+  Vim.defineEx(
+    "version",
+    "ve",
+    (_cm: unknown, params: { argString?: string } | undefined) => {
+      runVersionEx(params?.argString ?? "");
+    },
+  );
 
   Vim.defineEx("daily", "daily", () => {
     void useStore.getState().openTodayDailyNote();
@@ -1225,12 +1294,6 @@ function registerVimNoteCommands(): void {
   Vim.defineAction("unfoldHeadingAtCursor", () => runFold(unfoldCode as never));
   Vim.defineAction("foldAllHeadings", () => runFold(foldAll as never));
   Vim.defineAction("unfoldAllHeadings", () => runFold(unfoldAll as never));
-  Vim.defineAction("zenHalfPageDown", (cm: ReturnType<typeof getCM>) =>
-    editorHalfPage((cm as unknown as { cm6?: EditorView }).cm6, true),
-  );
-  Vim.defineAction("zenHalfPageUp", (cm: ReturnType<typeof getCM>) =>
-    editorHalfPage((cm as unknown as { cm6?: EditorView }).cm6, false),
-  );
   Vim.defineEx("fold", "fold", () => runFold(foldCode as never));
   Vim.defineEx("unfold", "unfold", () => runFold(unfoldCode as never));
   Vim.defineEx("foldall", "foldall", () => runFold(foldAll as never));

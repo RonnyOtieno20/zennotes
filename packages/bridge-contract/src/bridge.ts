@@ -131,6 +131,16 @@ export interface ZenAppInfo {
   /** Legacy renderer family. Use hostKind to distinguish native mobile shells. */
   runtime: 'desktop' | 'web'
   hostKind?: 'desktop' | 'browser' | 'ios' | 'android'
+  /** The details a bug report needs beside the version, read by `:version`
+   *  and Settings > About (#814). Each host fills in what it knows; a field
+   *  it cannot answer is left out of the report, never guessed. */
+  arch?: string
+  /** Operating system name and version, e.g. `macOS 26.0`, `Ubuntu 24.04.1 LTS (kernel 6.8.0)`. */
+  os?: string
+  /** What runs the renderer, e.g. `Electron 38.1.0 (Chromium 140.0.7339.133, Node 22.19.0)`. */
+  engine?: string
+  /** How this copy was installed, e.g. `AppImage`, `deb package`, `package manager or tarball`. */
+  install?: string
 }
 
 export interface ZenBridge {
@@ -228,6 +238,14 @@ export interface ZenBridge {
   readWorkspaceState(): Promise<string | null>
   /** Write the current vault's `.zennotes/workspace.json` (raw JSON string). (#292) */
   writeWorkspaceState(json: string): Promise<void>
+  /** Undo history saved for a note of the current vault, or null. Opaque JSON
+   *  the renderer wrote earlier; it lives with the app, not in the vault, and
+   *  never syncs. Only on hosts with `supportsUndoFile`. (#793) */
+  readNoteUndoHistory?(path: string): Promise<string | null>
+  /** Save a note's undo history, or forget it with `null`. (#793) */
+  writeNoteUndoHistory?(path: string, json: string | null): Promise<void>
+  /** Forget every saved undo history, in every vault. (#793) */
+  clearNoteUndoHistories?(): Promise<void>
   /** True when the vault is in `inbox` mode but its root holds notes that only
    *  `root` mode would surface (drives the "Switch to Vault root" banner). */
   rootContentHiddenByInboxMode(): Promise<boolean>

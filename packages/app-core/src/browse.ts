@@ -178,6 +178,7 @@ export {
   requestRenameBrowseDatabase,
   requestCreateBrowseFolder,
   requestRenameBrowseFolder,
+  requestMoveBrowseDirectory,
   requestDeleteBrowseDirectory,
   type BrowseActionHost,
   type BrowseActionResult

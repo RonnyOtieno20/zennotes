@@ -125,13 +125,25 @@ import {
   type SettingsSearchCategory,
 } from "../lib/settings-search";
 import { useAppUpdateState } from "../lib/app-update-state";
-import { getZenBridge } from "@zennotes/bridge-contract/bridge";
+import { buildVersionReport } from "../lib/version-report";
+import { writeClipboardText } from "../lib/clipboard-text";
+import {
+  getZenBridge,
+  type ZenAppInfo,
+} from "@zennotes/bridge-contract/bridge";
 import companyLogo from "../assets/lumary-labs-logo.svg";
 import { confirmApp } from "../lib/confirm-requests";
 import { promptApp } from "../lib/prompt-requests";
 import { isImeComposing } from "../lib/ime";
+import {
+  isSettingsFindKey,
+  settingsSearchFieldAction,
+  settingsSearchStep,
+} from "../lib/settings-search-keys";
 import { RemoteWorkspaceProfileModal } from "./RemoteWorkspaceProfileModal";
 import { Button } from "./ui/Button";
+import { trapDialogTab, useDialogFocus } from "./ui/Modal";
+import { isTouchPrimaryDevice } from "../lib/cm-vim-ime-guard";
 import {
   ignoredKeyTokenFromEvent,
   setIgnoredKeysRecorderActive,
@@ -364,6 +376,8 @@ function formatUpdatePhaseLabel(phase: AppUpdateState["phase"]): string {
       return "Ready to install";
     case "installing":
       return "Installing";
+    case "offline":
+      return "Waiting for network";
     case "error":
       return "Update error";
     case "idle":
@@ -383,6 +397,8 @@ function updatePhaseBadgeClass(phase: AppUpdateState["phase"]): string {
       return "border-paper-300/70 bg-paper-100/85 text-ink-700";
     case "error":
       return "border-red-400/25 bg-red-500/10 text-red-700";
+    case "offline":
+      return "border-amber-500/30 bg-amber-500/10 text-amber-700";
     case "not-available":
       return "border-emerald-400/25 bg-emerald-500/10 text-emerald-700";
     case "unsupported":
@@ -517,6 +533,10 @@ export function SettingsModal(): JSX.Element {
   const keepViewModeAcrossNotes = useStore((s) => s.keepViewModeAcrossNotes);
   const defaultPaneMode = useStore((s) => s.defaultPaneMode);
   const setDefaultPaneMode = useStore((s) => s.setDefaultPaneMode);
+  const keepPanelsAcrossNotes = useStore((s) => s.keepPanelsAcrossNotes);
+  const setKeepPanelsAcrossNotes = useStore((s) => s.setKeepPanelsAcrossNotes);
+  const persistUndoHistory = useStore((s) => s.persistUndoHistory);
+  const setPersistUndoHistory = useStore((s) => s.setPersistUndoHistory);
   const setKeepViewModeAcrossNotes = useStore(
     (s) => s.setKeepViewModeAcrossNotes,
   );
@@ -626,6 +646,9 @@ export function SettingsModal(): JSX.Element {
       : zenBridge.getCapabilities().supportsCustomTemplates === true;
   const supportsCustomCodeLanguages =
     !!zenBridge.getCapabilities().supportsCustomCodeLanguages;
+  // Undo history between launches needs somewhere machine-local that is not
+  // the vault, which only the desktop app has. (#793)
+  const supportsUndoFile = !!zenBridge.getCapabilities().supportsUndoFile;
   const [templateEditor, setTemplateEditor] = useState<{
     initialRaw?: string;
     sourcePath?: string;
@@ -802,7 +825,11 @@ export function SettingsModal(): JSX.Element {
           window.alert(state.message);
           return;
         }
-        if (state.phase === "unsupported" || state.phase === "error") {
+        if (
+          state.phase === "unsupported" ||
+          state.phase === "offline" ||
+          state.phase === "error"
+        ) {
           window.alert(state.message);
         }
       },
@@ -1200,6 +1227,14 @@ export function SettingsModal(): JSX.Element {
   };
 
   const ref = useRef<HTMLDivElement | null>(null);
+  const navSearchRef = useRef<HTMLInputElement | null>(null);
+  // Settings draws its own backdrop and panel, so it never got the focus
+  // handling the shared Modal shell gives every other dialog: the keyboard
+  // stayed on the editor underneath and typing edited the note behind the
+  // open window. Opening lands on the settings search, the first thing a
+  // keyboard user reaches for. On a touch device a focused input would raise
+  // the on-screen keyboard over the panel, so the panel takes focus instead.
+  useDialogFocus(ref, isTouchPrimaryDevice() ? ref : navSearchRef);
   const settingsSearchHighlightTimerRef = useRef<number | null>(null);
   const [initialSettingsTarget] = useState(consumeSettingsTarget);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>(
@@ -2040,6 +2075,50 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "keep-view-mode",
+          title: "Keep view mode when switching notes",
+          description:
+            "Stay in the current Edit / Split / Preview mode when you open another note.",
+          keywords: ["view mode", "edit", "split", "preview", "sticky", "switch", "per note"],
+        },
+        {
+          id: "keep-panels",
+          title: "Keep panels when switching notes",
+          description:
+            "Connections, Outline, Comments and Calendar stay as you set them, or each note remembers its own.",
+          keywords: [
+            "panels",
+            "connections",
+            "outline",
+            "comments",
+            "calendar",
+            "sticky",
+            "per note",
+            "remember",
+            "switch",
+          ],
+        },
+        ...(supportsUndoFile
+          ? [
+              {
+                id: "persist-undo-history",
+                title: "Keep undo history after quitting",
+                description:
+                  "Undo still works on a note after you quit and reopen ZenNotes, like Vim's undofile.",
+                keywords: [
+                  "undofile",
+                  "undo",
+                  "redo",
+                  "history",
+                  "persistent",
+                  "restart",
+                  "quit",
+                  "vim",
+                ],
+              },
+            ]
+          : []),
+        {
           id: "sync-title-heading-on-rename",
           title: "Sync title heading on rename",
           description:
@@ -2470,6 +2549,9 @@ export function SettingsModal(): JSX.Element {
             "render-tables",
             "harper-enabled",
             "harper-dialect",
+            "keep-view-mode",
+            "keep-panels",
+            "persist-undo-history",
             "sync-title-heading-on-rename",
             "markdown-overrides",
             "heading-level-labels",
@@ -2602,6 +2684,22 @@ export function SettingsModal(): JSX.Element {
                   settingId="keep-view-mode"
                   onChange={setKeepViewModeAcrossNotes}
                 />
+                <ToggleRow
+                  label="Keep panels when switching notes"
+                  description="Connections, Outline, Comments and Calendar stay as you set them while you move between notes. Turn off and each note remembers its own panels, across restarts too, so a note you have not opened yet starts with none."
+                  value={keepPanelsAcrossNotes}
+                  settingId="keep-panels"
+                  onChange={setKeepPanelsAcrossNotes}
+                />
+                {supportsUndoFile && (
+                  <ToggleRow
+                    label="Keep undo history after quitting"
+                    description="Each note already keeps its undo history while ZenNotes is open. Turn this on and it also survives quitting, like Vim's undofile: reopen a note tomorrow and u / Mod+Z still steps back through your edits, as long as the note was not changed elsewhere in the meantime. The history is stored with the app on this computer, never in your vault, and it contains text you deleted. Turning this off erases it."
+                    value={persistUndoHistory}
+                    settingId="persist-undo-history"
+                    onChange={setPersistUndoHistory}
+                  />
+                )}
                 <ToggleRow
                   label="Sync title heading on rename"
                   description="Renaming a note also rewrites its leading `# heading` to the new name, so the title line stops drifting from the filename. Only an existing top-level heading is rewritten — a note that opens with prose, a list, or a deeper heading is left alone, so deleting the `#` line opts that note out for good."
@@ -5026,8 +5124,18 @@ export function SettingsModal(): JSX.Element {
         {
           id: "zen-notes-version",
           title: "ZenNotes version",
-          description: "App identity, current version, and product details.",
-          keywords: ["about", "version", "identity"],
+          description:
+            "App identity, current version, and the details to paste into a bug report.",
+          keywords: [
+            "about",
+            "version",
+            "identity",
+            "bug report",
+            "electron",
+            "os",
+            "install",
+            "copy details",
+          ],
         },
         {
           id: "updates",
@@ -5070,6 +5178,7 @@ export function SettingsModal(): JSX.Element {
                     v{appInfo.version}
                   </span>
                 </div>
+                <VersionDetails appInfo={appInfo} />
                 <div
                   className="mx-auto mt-5 max-w-[44rem] rounded-2xl border border-paper-300/65 bg-paper-50/65 p-4 text-left shadow-[0_10px_30px_rgba(15,23,42,0.04)]"
                   {...settingsSearchTargetProps("updates")}
@@ -5255,6 +5364,40 @@ export function SettingsModal(): JSX.Element {
     null;
   const visibleCategory = visibleSearchResult?.category ?? null;
 
+  // What a click on a search result does, shared with the keyboard. (#108)
+  const openSearchResult = (result: (typeof searchResults)[number]): void => {
+    setActiveCategory(result.category.id);
+    setActiveSearchResultId(result.id);
+    if (result.type === "setting") {
+      // If the target lives on a sub-tab, open that sub-tab first
+      // so the element is mounted before we scroll to it.
+      const subTabId = result.category.subTabs?.find(
+        (tab) => tab.searchIds?.includes(result.targetId),
+      )?.id;
+      if (subTabId) {
+        setActiveSubTabByCategory((prev) => ({
+          ...prev,
+          [result.category.id]: subTabId,
+        }));
+      }
+      jumpToSettingsSearchTarget(result.targetId);
+    }
+  };
+  const onSearchFieldKeyDown = (
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ): void => {
+    if (isImeComposing(e)) return;
+    const action = settingsSearchFieldAction(e);
+    if (!action) return;
+    const current = searchResults.findIndex(
+      (result) => result.id === visibleSearchResult?.id,
+    );
+    const target = searchResults[settingsSearchStep(action, current, searchResults.length)];
+    if (!target) return;
+    e.preventDefault();
+    openSearchResult(target);
+  };
+
   // When the visible search result is a setting that lives on a sub-tab, open
   // that sub-tab so the matched control is actually shown — not only when the
   // result is clicked, but also when search auto-selects it. Mirrors the
@@ -5277,6 +5420,14 @@ export function SettingsModal(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visibleSettingResultId]);
 
+  // Walking the results from the search field can pick a row the list has
+  // scrolled away from; keep the picked row on screen.
+  const selectedResultRef = useRef<HTMLButtonElement>(null);
+  const selectedResultId = visibleSearchResult?.id ?? null;
+  useEffect(() => {
+    selectedResultRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [selectedResultId]);
+
   // Header summary follows the active sub-tab so it describes what's actually on
   // screen, instead of always showing the category's first-sub-tab blurb.
   const activeSubTabForHeader = visibleCategory?.subTabs?.find(
@@ -5298,8 +5449,29 @@ export function SettingsModal(): JSX.Element {
       >
         <div
           ref={ref}
-          className="grid h-[min(92vh,980px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-100 shadow-float"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Settings"
+          tabIndex={-1}
+          className="grid h-[min(92vh,980px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-100 shadow-float outline-none"
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            trapDialogTab(e, ref.current);
+            // Handled here, not on the window: the shortcut recorders capture
+            // keys at the window and must win while they are recording.
+            const target = e.target as HTMLElement;
+            const typing =
+              target.isContentEditable ||
+              /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName);
+            if (
+              !isSettingsFindKey(e, { vimMode, mac: isMacPlatform(), typing })
+            )
+              return;
+            e.preventDefault();
+            e.stopPropagation();
+            navSearchRef.current?.focus();
+            navSearchRef.current?.select();
+          }}
         >
           <aside className="flex min-h-0 flex-col border-r border-paper-300/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))]">
             <div className="border-b border-paper-300/55 px-4 py-4">
@@ -5309,8 +5481,10 @@ export function SettingsModal(): JSX.Element {
               <div className="mt-3">
                 <label className="relative block">
                   <input
+                    ref={navSearchRef}
                     value={navQuery}
                     onChange={(e) => setNavQuery(e.target.value)}
+                    onKeyDown={onSearchFieldKeyDown}
                     placeholder="Search settings…"
                     className="w-full rounded-xl border border-paper-300/70 bg-paper-50/75 px-3 py-2.5 pl-9 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent/45"
                   />
@@ -5386,25 +5560,9 @@ export function SettingsModal(): JSX.Element {
                     return (
                       <button
                         key={result.id}
+                        ref={selected ? selectedResultRef : undefined}
                         type="button"
-                        onClick={() => {
-                          setActiveCategory(result.category.id);
-                          setActiveSearchResultId(result.id);
-                          if (result.type === "setting") {
-                            // If the target lives on a sub-tab, open that sub-tab first
-                            // so the element is mounted before we scroll to it.
-                            const subTabId = result.category.subTabs?.find(
-                              (tab) => tab.searchIds?.includes(result.targetId),
-                            )?.id;
-                            if (subTabId) {
-                              setActiveSubTabByCategory((prev) => ({
-                                ...prev,
-                                [result.category.id]: subTabId,
-                              }));
-                            }
-                            jumpToSettingsSearchTarget(result.targetId);
-                          }
-                        }}
+                        onClick={() => openSearchResult(result)}
                         className={[
                           "w-full rounded-xl px-3 py-2.5 text-left transition-colors",
                           selected
@@ -6092,6 +6250,53 @@ function CategorySubTabs({
 function InlineNote({ children }: { children: React.ReactNode }): JSX.Element {
   return (
     <div className="px-5 py-4 text-xs leading-5 text-ink-500">{children}</div>
+  );
+}
+
+/** The lines a bug report needs (OS, engine, install format, remote server),
+ *  the same ones `:version` prints in Vim mode, with a one-click copy (#814). */
+function VersionDetails({ appInfo }: { appInfo: ZenAppInfo }): JSX.Element {
+  const workspaceMode = useStore((s) => s.workspaceMode);
+  const remoteWorkspaceInfo = useStore((s) => s.remoteWorkspaceInfo);
+  const [copied, setCopied] = useState(false);
+  const lines = buildVersionReport({
+    app: appInfo,
+    remoteServer:
+      workspaceMode === "remote"
+        ? {
+            baseUrl: remoteWorkspaceInfo?.baseUrl ?? null,
+            version: remoteWorkspaceInfo?.capabilities?.version ?? null,
+          }
+        : null,
+  });
+  const text = lines.join("\n");
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+  return (
+    <div className="mx-auto mt-4 max-w-[44rem] text-left">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
+          Version details
+        </div>
+        <Button
+          variant="ghost"
+          aria-label="Copy version details"
+          onClick={() => setCopied(writeClipboardText(text))}
+        >
+          {copied ? "Copied" : "Copy details"}
+        </Button>
+      </div>
+      <pre className="mt-2 whitespace-pre-wrap break-words rounded-lg border border-paper-300/70 bg-paper-100/70 px-3 py-2 font-mono text-xs leading-5 text-ink-600">
+        {text}
+      </pre>
+      <p className="mt-2 text-xs leading-5 text-ink-500">
+        Paste these into a bug report. In Vim mode, <code>:version</code>{" "}
+        prints the same lines and <code>:version copy</code> copies them.
+      </p>
+    </div>
   );
 }
 

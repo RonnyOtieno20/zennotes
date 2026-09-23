@@ -111,7 +111,15 @@ function dotsFor(stats: NoteStats | undefined): { count: number; faint: boolean 
   return { count: Math.min(MAX_DOTS, Math.ceil(stats.words / WORDS_PER_DOT)), faint: false }
 }
 
-export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
+export function CalendarPanel({
+  note,
+  fitWidth
+}: {
+  note: NoteContent
+  /** Width to render at when the pane has less room than the width the user
+   *  chose; see lib/side-panel-fit. (#805) */
+  fitWidth?: number
+}): JSX.Element {
   const notes = useStore((s) => s.notes)
   const vaultSettings = useStore((s) => s.vaultSettings)
   const openDailyNoteForDate = useStore((s) => s.openDailyNoteForDate)
@@ -130,7 +138,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
   const setPanelWidth = useStore((s) => s.setPanelWidth)
   const weekStart = useStore((s) => s.calendarWeekStart)
   const showWeekNumbers = useStore((s) => s.calendarShowWeekNumbers)
-  const { startResize } = usePanelResize(width, (px) => setPanelWidth('calendar', px))
+  const { startResize } = usePanelResize(fitWidth ?? width, (px) => setPanelWidth('calendar', px))
 
   const settings = useMemo(() => normalizeVaultSettings(vaultSettings), [vaultSettings])
   const dailyEnabled = settings.dailyNotes.enabled
@@ -860,7 +868,7 @@ export function CalendarPanel({ note }: { note: NoteContent }): JSX.Element {
       data-calendar-panel
       aria-label="Calendar"
       tabIndex={0}
-      style={{ width }}
+      style={{ width: fitWidth ?? width }}
       className="relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18 outline-none"
     >
       <PanelResizeHandle onStart={startResize} />

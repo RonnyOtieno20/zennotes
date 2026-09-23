@@ -24,6 +24,7 @@ import { ConfirmHost } from './components/ConfirmHost'
 import { DatePickerHost } from './components/DatePickerHost'
 import { PublishNoteHost } from './components/PublishNoteHost'
 import { CloudConflictReviewHost } from './components/CloudConflictReviewHost'
+import { CloudSettingsConflictHost } from './components/CloudSettingsConflictHost'
 import { ServerDirectoryPickerHost } from './components/ServerDirectoryPickerHost'
 import { IconButton, ToastHost } from './components/ui'
 import { CloseIcon } from './components/icons'
@@ -583,6 +584,20 @@ function App(): JSX.Element {
     window.addEventListener('beforeunload', flush)
     return () => window.removeEventListener('beforeunload', flush)
   }, [flushDirtyNotes])
+
+  // "Keep undo history after quitting" off means the saved histories go too:
+  // they hold text the user deleted, so they do not outlive the setting that
+  // asked for them. Watched here rather than in the setter, because the
+  // preference can also be turned off from config.toml. (#793)
+  const persistUndoHistory = useStore((s) => s.persistUndoHistory)
+  const persistedUndoHistoryRef = useRef(persistUndoHistory)
+  useEffect(() => {
+    const was = persistedUndoHistoryRef.current
+    persistedUndoHistoryRef.current = persistUndoHistory
+    if (was && !persistUndoHistory) {
+      void window.zen?.clearNoteUndoHistories?.()?.catch(() => undefined)
+    }
+  }, [persistUndoHistory])
 
   // Apply theme: set html[data-theme=...] + html[data-theme-mode=...] based on
   // mode/family/id. Custom themes keep one id (`custom-<slug>`) and express
@@ -1264,6 +1279,7 @@ function App(): JSX.Element {
       <DatePickerHost />
       <PublishNoteHost />
       <CloudConflictReviewHost />
+      <CloudSettingsConflictHost />
       <ToastHost />
       <ExcalidrawEmbedMenuHost />
       <ServerDirectoryPickerHost />

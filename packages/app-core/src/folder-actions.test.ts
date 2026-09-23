@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { databaseTabPath } from '@shared/databases'
 import { parseTasksFromBody } from '@shared/tasks'
 import { makeLeaf, allLeaves } from './lib/pane-layout'
+import { PANE_PANELS_CLOSED } from './lib/pane-panels'
 
 beforeEach(() => {
   vi.resetModules()
@@ -441,6 +442,7 @@ describe('folder mutation state', () => {
       s.useStore.setState({
         view: { kind: 'folder', folder: 'inbox', subpath: 'Work' },
         paneModes: { [state.activePaneId]: { [s.path]: 'preview' } },
+        panePanels: { [state.activePaneId]: { [s.path]: { ...PANE_PANELS_CLOSED, outline: true } } },
         noteRefs: { [s.path]: { path: asset.path, kind: 'asset', fragment: 'page=2' } },
         manualNoteOrder: { Work: ['Work/Z.md', s.path] },
         vaultSettings: {
@@ -514,6 +516,7 @@ describe('folder mutation state', () => {
       expect(next.notes.some((n) => n.path.startsWith('Work/'))).toBe(false)
       expect(next.folders.some((f) => f.subpath === 'Work')).toBe(false)
       expect(next.paneModes[state.activePaneId][s.path]).toBeUndefined()
+      expect(next.panePanels[state.activePaneId][s.path]).toBeUndefined()
       expect(next.noteRefs[s.path]).toBeUndefined()
       expect(next.manualNoteOrder.Work).toBeUndefined()
       expect(JSON.parse(localStorage.getItem('zen.notes.manualOrder./test')!)).toEqual(
@@ -522,6 +525,8 @@ describe('folder mutation state', () => {
       if (action === 'rename') {
         expect(next.view).toEqual({ kind: 'folder', folder: 'inbox', subpath: 'Renamed' })
         expect(next.paneModes[state.activePaneId]['Renamed/Note.md']).toBe('preview')
+        // A note's remembered panels follow it through a rename too. (#794)
+        expect(next.panePanels[state.activePaneId]['Renamed/Note.md']?.outline).toBe(true)
         expect(next.noteRefs['Renamed/Note.md']).toEqual({
           path: 'Renamed/image.png',
           kind: 'asset',

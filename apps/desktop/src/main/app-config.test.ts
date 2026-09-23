@@ -28,7 +28,7 @@ import {
   ensureConfigFile,
   stopAppConfigWatcher
 } from './app-config'
-import { CONFIG_VERSION, type AppConfigPortable } from '@shared/app-config'
+import { CONFIG_VERSION, PORTABLE_PREF_KEYS, type AppConfigPortable } from '@shared/app-config'
 
 const tempDirs: string[] = []
 async function tmp(prefix: string): Promise<string> {
@@ -198,6 +198,23 @@ describe('TOML serialization', () => {
     expect(portable.themeMode).toBe('dark')
     expect(portable.editorFontSize).toBe(16)
     expect(portable.ripgrepBinaryPath).toBeNull()
+  })
+
+  // `keepViewModeAcrossNotes` sat in PORTABLE_PREF_KEYS for months with no
+  // field mapping, so it was "portable" in name only and never reached the
+  // file. Every portable key has to come back out of a freshly written config.
+  it('maps every portable preference into the file, so none stays on one machine', () => {
+    const { portable } = deserializeConfig(serializeConfig({}))
+    expect(PORTABLE_PREF_KEYS.filter((key) => !(key in portable))).toEqual([])
+  })
+
+  it('carries both keep-across-notes preferences', () => {
+    const text = serializeConfig({ keepPanelsAcrossNotes: false, keepViewModeAcrossNotes: true })
+    expect(text).toContain('keep_panels_across_notes = false')
+    expect(text).toContain('keep_view_mode_across_notes = true')
+    const { portable } = deserializeConfig(text)
+    expect(portable.keepPanelsAcrossNotes).toBe(false)
+    expect(portable.keepViewModeAcrossNotes).toBe(true)
   })
 
   it('round-trips visual tweaks (colors + sliders) through the [tweaks] table', () => {

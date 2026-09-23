@@ -33,7 +33,15 @@ interface MissingLinkItem {
   suggestedPath: string
 }
 
-export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
+export function ConnectionsPanel({
+  note,
+  fitWidth
+}: {
+  note: NoteContent
+  /** Width to render at when the pane has less room than the width the user
+   *  chose; see lib/side-panel-fit. (#805) */
+  fitWidth?: number
+}): JSX.Element {
   const notes = useStore((s) => s.notes)
   const selectNote = useStore((s) => s.selectNote)
   const createAndOpen = useStore((s) => s.createAndOpen)
@@ -41,7 +49,9 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
   const assetFiles = useStore((s) => s.assetFiles)
   const panelWidth = useStore((s) => s.panelWidths.connections)
   const setPanelWidth = useStore((s) => s.setPanelWidth)
-  const { startResize } = usePanelResize(panelWidth, (px) => setPanelWidth('connections', px))
+  const { startResize } = usePanelResize(fitWidth ?? panelWidth, (px) =>
+    setPanelWidth('connections', px)
+  )
   const focusedPanel = useStore((s) => s.focusedPanel)
   const connectionsCursorIndex = useStore((s) => s.connectionsCursorIndex)
   const connectionPreview = useStore((s) => s.connectionPreview)
@@ -242,7 +252,7 @@ export function ConnectionsPanel({ note }: { note: NoteContent }): JSX.Element {
           cancelScheduledClose()
           setFocusedPanel('connections')
         }}
-        style={{ width: panelWidth }}
+        style={{ width: fitWidth ?? panelWidth }}
         className="relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18"
       >
         <PanelResizeHandle onStart={startResize} />

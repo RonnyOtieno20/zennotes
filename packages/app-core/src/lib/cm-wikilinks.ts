@@ -7,6 +7,7 @@ import { resolveWikilinkTarget } from './wikilinks'
 import { parseBlockAnchors } from './block-anchors'
 import { parseOutline } from './outline'
 import { linkCandidates, type LinkCandidate } from './link-candidates'
+import { closedLinkTail } from './cm-wikilink-tail'
 
 // Matching, scoring, and target derivation live in `link-candidates.ts` (pure,
 // store-free) so non-CodeMirror surfaces rank identically; this file owns only
@@ -33,21 +34,6 @@ function isInsideCode(state: EditorState, pos: number): boolean {
     node = node.parent
   }
   return false
-}
-
-/**
- * The rest of the wikilink the caret sits in, when that link is already closed
- * on this line: the text between the caret and its `]]`. Null while the link is
- * still being typed (no `]]` ahead, or another `[[` opens before it), which is
- * the case the completion has to close itself.
- */
-function closedLinkTail(state: EditorState, pos: number): string | null {
-  const line = state.doc.lineAt(pos)
-  const after = state.doc.sliceString(pos, line.to)
-  const close = after.indexOf(']]')
-  if (close < 0) return null
-  const tail = after.slice(0, close)
-  return tail.includes('[[') ? null : tail
 }
 
 /**

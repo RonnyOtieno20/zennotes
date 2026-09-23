@@ -132,7 +132,27 @@ const DESKTOP_APP_INFO: ZenAppInfo = {
   description: appPackage.description,
   homepage: appPackage.homepage,
   runtime: 'desktop',
-  hostKind: 'desktop'
+  hostKind: 'desktop',
+  arch: process.arch,
+  engine: `Electron ${process.versions.electron} (Chromium ${process.versions.chrome}, Node ${process.versions.node})`
+}
+
+// The OS version and install format live in main (os-release, resourcesPath,
+// app.isPackaged). Fetched once, on the first getAppInfo() call, so the many
+// `getAppInfo().runtime` checks at boot do not each pay for a sync IPC (#814).
+let installInfo: Pick<ZenAppInfo, 'os' | 'install'> | null = null
+function getInstallInfo(): Pick<ZenAppInfo, 'os' | 'install'> {
+  if (installInfo) return installInfo
+  try {
+    const result = ipcRenderer.sendSync(IPC.APP_INSTALL_INFO_SYNC) as {
+      os: string
+      install: string
+    } | null
+    installInfo = result ? { os: result.os, install: result.install } : {}
+  } catch {
+    installInfo = {}
+  }
+  return installInfo
 }
 
 let remoteWorkspaceInfo: RemoteWorkspaceInfo | null = null
@@ -220,7 +240,7 @@ function remoteAssetUrl(assetPath: string): string | null {
 
 const api: ZenBridge = {
   getCapabilities: (): ZenCapabilities => DESKTOP_CAPABILITIES,
-  getAppInfo: (): ZenAppInfo => DESKTOP_APP_INFO,
+  getAppInfo: (): ZenAppInfo => ({ ...DESKTOP_APP_INFO, ...getInstallInfo() }),
   platform: (): Promise<NodeJS.Platform> => ipcRenderer.invoke(IPC.APP_PLATFORM),
   platformSync: (): NodeJS.Platform => process.platform,
   listSystemFonts: (): Promise<string[]> => ipcRenderer.invoke(IPC.APP_LIST_FONTS),
@@ -429,6 +449,11 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.WORKSPACE_STATE_READ),
   writeWorkspaceState: (json: string): Promise<void> =>
     ipcRenderer.invoke(IPC.WORKSPACE_STATE_WRITE, json),
+  readNoteUndoHistory: (path: string): Promise<string | null> =>
+    ipcRenderer.invoke(IPC.UNDO_HISTORY_READ, path),
+  writeNoteUndoHistory: (path: string, json: string | null): Promise<void> =>
+    ipcRenderer.invoke(IPC.UNDO_HISTORY_WRITE, path, json),
+  clearNoteUndoHistories: (): Promise<void> => ipcRenderer.invoke(IPC.UNDO_HISTORY_CLEAR),
   rootContentHiddenByInboxMode: (): Promise<boolean> =>
     ipcRenderer.invoke(IPC.VAULT_ROOT_CONTENT_HIDDEN),
 

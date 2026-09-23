@@ -61,17 +61,17 @@ export const HELP_QUICK_START: HelpCard[] = [
   {
     title: 'Switch between write and read modes',
     body:
-      'Use Edit when you want raw markdown control, Split when you want source and rendered output together, and Preview when you want a clean reading surface with keyboard navigation. Your editor cursor stays where you left it when you return from Preview, and switching into Preview opens the reading view at the line you were editing instead of the top of the note. Each note remembers its own last mode; pick what notes open in before that with Settings → Editor → Default view mode (Edit, Split, or Preview), which travels with your portable config.'
+      'Use Edit when you want raw markdown control, Split when you want source and rendered output together, and Preview when you want a clean reading surface with keyboard navigation. Switching into Preview opens the reading view at the line you were editing instead of the top of the note. Coming back follows where you read: if you only peeked and your cursor line is still in view, the cursor stays put; if you scrolled on to another part of the note, Edit or Split opens with the cursor on the section you were reading (Split also re-aligns the reading view beside it). To edit a specific passage, double-click it in Preview and the editor opens right there; the “Edit this block” button on an image embed does the same. Each note remembers its own last mode; pick what notes open in before that with Settings → Editor → Default view mode (Edit, Split, or Preview), which travels with your portable config.'
   },
   {
     title: 'Find things in the right place',
     body:
-      'Use note search when you know the note title or path, vault text search when you know a phrase inside the note, and the command palette when you know the action you want but not where it lives.'
+      'Use note search when you know the note title or path, vault text search when you know a phrase inside the note, and the command palette when you know the action you want but not where it lives. When note search turns up nothing, Shift+Enter opens a small New note form with your search as the name; pick a folder and tags if you like, press Enter, and the note opens in the editor. A search that comes up empty is two keystrokes from becoming the note.'
   },
   {
     title: 'Keep supporting material nearby',
     body:
-      'Tabs, splits, floating windows, the reference pane, and the connections panel are all there to help you keep related material visible while you write instead of forcing constant back-and-forth navigation.'
+      'Tabs, splits, floating windows, the reference pane, and the connections panel are all there to help you keep related material visible while you write instead of forcing constant back-and-forth navigation. The Connections, Outline, Comments and Calendar panels stay as you set them while you move between notes. If you would rather each note kept its own, turn off Settings → Editor → Keep panels when switching notes (or run Remember Panels per Note from the command palette): a note then comes back with the panels you left it with, after a restart too (the memory is saved with your tabs and layout, never in the note), and a note you have not opened yet starts with none. With the automatic calendar on, a daily or weekly note whose calendar you closed stays closed when you return to it. The setting travels with your portable config as `keep_panels_across_notes` under `[view]`. The note always keeps a readable width: in a narrow pane (a split, a small window) the panels first shrink, and if they still do not fit, the ones you opened longest ago are tucked into a slim rail at the pane\'s right edge. They stay open; click one in the rail, or press its usual shortcut, to bring it forward.'
   },
   {
     title: 'Use files without leaving ZenNotes',
@@ -159,7 +159,7 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
   {
     title: 'Check for updates and install them',
     body:
-      'Use Check for Updates from the app menu, the command palette, or Settings → About. When a release is available, ZenNotes can download it in the background and then prompt you to install and relaunch. A copy installed by a package manager (the AUR package, or a tarball unpacked by hand) is only told that a newer version exists; install it the way you installed ZenNotes, since the package manager owns those files. On Arch, a `.pacman` build installs through a graphical polkit prompt; dismissing it keeps the download ready to retry, and if no graphical agent can run, Details in Settings → About shows the manual install command.'
+      'Use Check for Updates from the app menu, the command palette, or Settings → About. ZenNotes also checks on its own shortly after launch. If that check finds no network (Settings → About then says "Waiting for network"), nothing needs doing: it checks again by itself once the connection is back, and keeps trying at growing intervals if GitHub stays out of reach. When a release is available, ZenNotes can download it in the background and then prompt you to install and relaunch. A copy installed by a package manager (the AUR package, or a tarball unpacked by hand) is only told that a newer version exists; install it the way you installed ZenNotes, since the package manager owns those files. On Arch, a `.pacman` build installs through a graphical polkit prompt; dismissing it keeps the download ready to retry, and if no graphical agent can run, Details in Settings → About shows the manual install command.'
   },
   {
     title: 'Run the self-hosted web version with Docker',
@@ -222,7 +222,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'Tabs and splits are first-class',
     body:
-      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with pane motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher shortcut or `:buffers`. The active tab also has a full keyboard context menu, so actions like Close Others, Close Tabs to the Right, Pin Tab, Pin as Reference, Open in Floating Window, and Reveal in Finder stay accessible without the mouse. If you disable Vim mode, use the command palette instead.'
+      'Each editor pane can hold multiple tabs. Split the current tab right or down, move between panes with pane motions, switch the active note between Edit, Split, and Preview from commands, and, if you hide tabs, use the buffer switcher shortcut or `:buffers`. The active tab also has a full keyboard context menu, so actions like Close Others, Close Tabs to the Right, Pin Tab, Pin as Reference, Open in Floating Window, and Reveal in Finder stay accessible without the mouse. If you disable Vim mode, use the command palette instead. Each note keeps its own undo history while the app is open: switch tabs, or close a note and open it again, and `u` / Mod+Z (and redo) still walk through the edits you made to it. Renaming or moving the note you are editing keeps its caret, scroll position and undo history too. If the note was changed somewhere else in the meantime (another pane, sync, an external editor), it starts a clean history, because the old undo steps would no longer fit the text. On the desktop app you can also keep undo history after quitting, the way Vim\'s `undofile` does: turn on Settings → Editor → Keep undo history after quitting (or `:set undofile` in Vim mode, or the command palette). It is off by default because the history contains text you deleted; it is stored with the app on this computer, never in your vault, histories nobody returns to expire after 90 days, and turning the setting off erases them all. It travels in `config.toml` as `persist_undo_history` under `[editor]`.'
   },
   {
     title: 'Context menus are part of the keyboard model',
@@ -237,7 +237,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: 'The home view is where you land',
     body:
-      'When no note is open (outside Zen mode), ZenNotes shows a light home view instead of a blank pane: a greeting, quick-create actions (new note, database, drawing — plus daily and weekly notes when those are enabled in Settings), your most recently edited notes, and today’s open tasks with an overdue count. Click a note or task to open it, tick a checkbox to complete a task in place, and use ↑/↓ — or j/k in Vim mode — then Enter to move and open from the keyboard.'
+      'When no note is open (outside Zen mode), ZenNotes shows a light home view instead of a blank pane: a greeting, quick-create actions (new note, database, drawing, plus daily and weekly notes when those are enabled in Settings), your most recently edited notes, your Favorites, and today’s open tasks with an overdue count. The Favorites section sits right after Recent and mirrors the sidebar’s list in the same order: a favorited note opens in place, a favorited folder opens that folder in the note list (bringing the sidebar back if it was hidden), and the section stays out of the way until you favorite something. Favorite a note from the sidebar row’s context menu, `Space l s`, or the command palette’s “Add Note to Favorites” (on the phones, the same entry sits in the ••• sheet and in the long-press note menu). Click a note or task to open it, tick a checkbox to complete a task in place, and use ↑/↓ (or j/k in Vim mode) then Enter to move and open from the keyboard.'
   },
   {
     title: 'Sessions restore on relaunch',
@@ -377,7 +377,7 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
   {
     title: '[[ opens the wikilink picker',
     body:
-      'Type `[[` and the wikilink picker lists matching notes, images, PDFs, SVGs, and CSV databases; keep typing to narrow it. ↑/↓ or Ctrl+J/K (Ctrl+N/P) move through the suggestions, Enter inserts the link, Tab inserts it and keeps the caret inside the brackets so you can add a `#heading`, and Esc closes the picker. Type `|` after the target to set the display text, or `/path/to/note` for an exact link; picking a database drops a `[[Database]]` link that opens its grid.'
+      'Type `[[` and the wikilink picker lists matching notes, images, PDFs, SVGs, and CSV databases; keep typing to narrow it. ↑/↓ or Ctrl+J/K (Ctrl+N/P) move through the suggestions, Enter inserts the link, Tab inserts it and keeps the caret inside the brackets so you can add a `#heading`, and Esc closes the picker. Press `|` to take the highlighted suggestion and start its display text: you get `[[Note|]]` with the caret behind the `|` (to give display text to a name that is not in the list, press Esc first). Type `/path/to/note` for an exact link; picking a database drops a `[[Database]]` link that opens its grid.'
   },
   {
     title: 'Templates scaffold new notes',
@@ -484,13 +484,14 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
     items: [
       { keys: 'Mod+P', action: 'Search notes', detail: 'Open the note search palette, from the editor too: on Linux and Windows this wins over Vim\u2019s Ctrl+P (cursor up).' },
       { keys: 'Ctrl+D (in Search notes)', action: 'Move the highlighted note to Trash', detail: 'Trash a note straight from the search results, with the usual confirmation; the palette stays open, so a clean-up pass is search, Ctrl+D, search, Ctrl+D.' },
+      { keys: 'Shift+Enter (in Search notes)', action: 'Create a note named after your search', detail: 'The last row of the results offers to create the note you typed: Shift+Enter (or Enter on that row) opens a New note form with three fields. Name starts as your search text, selected so you can retype it. Folder starts empty (your Inbox) or as the path you typed, like projects/roadmap; landing in it lists every folder, typing narrows the list, Enter picks the highlighted one and ArrowUp keeps a folder that does not exist yet. Tags starts with any #tag words from your search; type to pick an existing tag or add a new one, Space or comma commits, Backspace on an empty field removes the last one. The line under the fields tells you what will happen. A note with the same name in that folder blocks Create until you change the name, and Shift+↵ opens the existing note instead; the same name elsewhere only warns. Enter in Name, or Ctrl/Cmd+Enter anywhere, creates the note and opens it; Escape goes back to the results.' },
       { keys: 'Mod+F', action: 'Search notes (non-Vim mode)', detail: 'Open the note search palette directly when Vim mode is off.' },
       { keys: 'Mod+F (in the editor)', action: 'Find and replace in the note', detail: 'With Vim mode on, Linux and Windows keep Ctrl+F as Vim\u2019s page-forward (search with / instead); on macOS and with Vim off the bar opens as usual. In Edit and Split, open the editor’s find-and-replace bar: Tab moves between the Find and Replace fields, with match-case, whole-word, and regex toggles. Esc closes it.' },
       { keys: 'Shift+Mod+P', action: 'Open commands', detail: 'Open the command palette.' },
       { keys: 'Mod+N', action: 'New note in current folder', detail: 'Create a note in the active note\u2019s folder (or the browsed folder when no note is open) and focus its title. On Linux and Windows this wins over Vim\u2019s Ctrl+N (cursor down). Rebindable under Settings \u2192 Keymaps.' },
       { keys: 'Shift+Mod+N', action: 'New Quick Note', detail: 'Create a quick capture note in the main window and focus its title.' },
       { keys: 'Shift+Mod+Space', action: 'Open quick capture window', detail: 'Open the floating, always-on-top capture window. Bound system-wide (CommandOrControl+Shift+Space by default) so it works over any app; change it under Settings → Editor.' },
-      { keys: 'Mod+,', action: 'Open Settings', detail: 'Open settings for appearance, editor behavior, fonts, vault controls, and app details.' },
+      { keys: 'Mod+,', action: 'Open Settings', detail: 'Open settings for appearance, editor behavior, fonts, vault controls, and app details. Settings opens on its search: type to filter, move through the results with ↑/↓ (or Ctrl+J / Ctrl+K), and press Enter to jump to the picked setting. From anywhere in Settings, Mod+F (or / in Vim mode) returns to the search.' },
       { keys: 'Mod+1', action: 'Toggle sidebar', detail: 'Hide or show the left sidebar.' },
       { keys: 'Mod+2', action: 'Toggle connections', detail: 'Toggle the connections panel for the active editor pane.' },
       { keys: 'Mod+Shift+C', action: 'Toggle comments panel', detail: 'Show or hide the Comments panel for the active pane.' },
@@ -504,7 +505,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Alt+1 … Alt+9', action: 'Go to tab 1 through 9', detail: 'Jump straight to a tab by position, browser-style (Ctrl+1 … Ctrl+9 on macOS, where Option types characters and the ⌘ digits are taken). Tab numbers count across panes in the same order gt cycles; rebindable under Settings → Keymaps. Vim users get the same jump as {count}gt. Heads-up for macOS with multiple Spaces: Mission Control claims Ctrl+digit for Switch to Desktop, so rebind here or free the key under System Settings → Keyboard Shortcuts.' },
       { keys: 'Shift+Mod+T', action: 'Reopen closed tab', detail: 'Reopen the most recently closed tab, restoring its position and pinned state. Repeat to walk back through your close history.' },
       { keys: 'Mod+O', action: 'Open file', detail: 'Desktop only: pick a Markdown file with the native dialog. A file inside a known vault opens against that vault; anything else opens in a standalone external-file window. Links in that window follow from the file\'s own folder: a relative link such as `../README.md` opens the file it names, and a `[[wikilink]]` finds a page of that name in the folder or below it, each in its own window (or in its vault, when the target lives in one).' },
-      { keys: 'Mod+4 / Mod+5 / Mod+6', action: 'Edit / Split / Preview mode', detail: 'Switch the active note between the raw editor, side-by-side split, and rendered preview.' },
+      { keys: 'Mod+4 / Mod+5 / Mod+6', action: 'Edit / Split / Preview mode', detail: 'Switch the active note between the raw editor, side-by-side split, and rendered preview. Preview opens at the line you were editing; Edit and Split open on the section you were reading when you scrolled away from the cursor in Preview, and keep the cursor where it was when you only peeked.' },
       { keys: 'Mod+L', action: 'Toggle checkbox', detail: 'Turn the current line into a checkbox and toggle it on repeat. See the “Any line becomes a checkbox” card in Core concepts for the full state rules.' },
       { keys: 'Alt+Q (macOS: Ctrl+Q)', action: 'Reflow paragraph', detail: 'Join the hard-wrapped lines of the paragraph under the cursor (or every paragraph in the selection) into one line, so the editor wraps it to the pane. Headings, lists, tables, code, and explicit line breaks are untouched. See the “Reflow a hard-wrapped paragraph” card. Remappable as editor.reflowParagraph.' },
       { keys: 'Shift+Mod+E', action: 'Export note as PDF', detail: 'Export the active note as a PDF file.' },
@@ -537,7 +538,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Ctrl-w s', action: 'Split down', detail: 'Clone the current tab into a pane below.' },
       { keys: '[b / ]b', action: 'Previous / next buffer', detail: 'Move across open buffers, falling back to recent notes when only one buffer is open. Both take a count: `3]b` jumps three buffers forward, wrapping around the ring.' },
       { keys: 'Space o', action: 'Open buffers', detail: 'Show a searchable list of every open buffer across every pane. Press Ctrl+D to close the highlighted buffer without leaving the list.' },
-      { keys: 'Space f', action: 'Search notes', detail: 'Open the vault-wide note search palette.' },
+      { keys: 'Space f', action: 'Search notes', detail: 'Open the vault-wide note search palette. Inside it, Shift+Enter opens a New note form named after your search, with a folder picker and tags; Enter creates the note and opens it.' },
       { keys: 'Space s t', action: 'Search vault text', detail: 'Fuzzy-search matching text lines across notes in Inbox, Quick Notes, and Archive.' },
       { keys: 'Space e', action: 'Toggle left sidebar', detail: 'Show or hide the folder/tag sidebar without touching the mouse.' },
       { keys: ']] / [[', action: 'Next / previous heading', detail: 'Jump the cursor to the next or previous markdown heading in the note, the way Vim’s section motions move between sections. It is a motion, so it composes: `d]]` deletes to the next heading, `v]]` selects to it, `3]]` skips three, and `Ctrl+O` jumps back. Headings inside code fences and frontmatter are skipped, matching the outline. With no heading left that way, the cursor goes to the end or start of the note.' },
@@ -546,12 +547,12 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Space p', action: 'Note outline', detail: 'Jump to any heading in the active note via a searchable overlay.' },
       { keys: 'Space v', action: 'Switch vault', detail: 'Open the command palette directly to the local vault switcher.' },
       { keys: 'Space a', action: 'Open workflows', detail: 'Open the Workflows view, where saved pipelines over your notes are built and run. Workflows are off by default; turn them on under Settings → Workflows first.' },
-      { keys: 'Space r', action: 'Review Cloud conflicts', detail: 'Open the Cloud sync conflict queue: the files two devices changed at once, one decision at a time. The binding and the command palette entry appear only while files are waiting, and open the same queue as Review now in the status bar.' },
+      { keys: 'Space r', action: 'Review Cloud conflicts', detail: 'Open whatever Cloud sync is waiting on: the queue of files two devices changed at once, one decision at a time, or the vault settings question, which lists each setting that differs with this device’s value beside the cloud’s and lets you pick a side per setting. The binding and the command palette entry appear only while something is waiting, and open the same dialog as Review in the status bar.' },
       { keys: 'Space g', action: 'Open atlas', detail: 'Open the Atlas view: the whole vault drawn as a map of notes and links.' },
       { keys: 'Space q', action: 'Quick capture window', detail: 'Open the floating, always-on-top capture window, same as the global hotkey.' },
       { keys: 'Space i', action: 'Insert template into note', detail: 'Pick a template and insert it at the cursor of the active note, instead of creating a new note from it.' },
       { keys: 'Space c', action: 'Toggle calendar', detail: 'Show or hide the calendar panel for the active pane.' },
-      { keys: 'Space l s', action: 'Toggle favorite', detail: 'Add or remove the active note from the sidebar’s Favorites section. Folders join it from their context menu.' },
+      { keys: 'Space l s', action: 'Toggle favorite', detail: 'Add or remove the active note from the Favorites section shown in the sidebar and on the home view. Folders join it from their context menu.' },
       { keys: 'Space, then pause', action: 'Show leader hints', detail: 'If enabled in Settings, open a which-key style guide for the next available leader actions. Sticky mode keeps it open until `Space` or `Esc`.' },
       { keys: 'Mod+3', action: 'Toggle outline panel', detail: 'Show or hide the persistent outline in the active pane. Once focused (Ctrl+W l or Alt+L from the editor), j / k — or the arrows — walk the headings, gg / G jump to the first and last, Enter jumps the editor to the heading under the cursor, and Esc hands focus back.' },
       { keys: 'zc / zo', action: 'Fold / unfold heading', detail: 'Collapse or expand the section below the heading at the cursor.' },
@@ -803,6 +804,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     detail: 'Open the template picker. With an argument like `:template ADR` it skips the picker and creates from the best-matching template directly.'
   },
   {
+    command: ':version / :ve',
+    summary: 'Show version details for a bug report',
+    detail: 'Print the ZenNotes version, operating system and architecture, the Electron or browser engine, how this copy was installed (AppImage, deb, package manager, macOS app bundle, and so on), and the remote server version when connected to one. `:version copy` (or `:version!`) also puts the lines on the clipboard. The same details, with a Copy button, sit in Settings → About.'
+  },
+  {
     command: ':daily',
     summary: "Open today's daily note",
     detail: 'Open or create today’s daily note (requires daily notes enabled in Settings → Vault → Periodic notes). Uses the assigned daily template if one is set.'
@@ -990,7 +996,7 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
   {
     command: '<Space> l s',
     summary: 'Leader toggle favorite',
-    detail: 'Add or remove the active note from the sidebar’s Favorites section.'
+    detail: 'Add or remove the active note from the Favorites section shown in the sidebar and on the home view.'
   },
   {
     command: '<Space> d',
@@ -1175,6 +1181,7 @@ export const HELP_SETTINGS: HelpSettingsSection[] = [
     title: 'About',
     items: [
       { label: 'App identity', detail: 'See the ZenNotes app icon, current version, and a short description of the app as a keyboard-first markdown workflow with Vim motions and plain local files.' },
+      { label: 'Version details', detail: 'Under the version, a Version details block lists what a bug report needs: operating system and architecture, the Electron or browser engine, how this copy was installed, and the remote server version when connected to one. Copy details puts the block on the clipboard. In Vim mode, `:version` prints the same lines and `:version copy` copies them.' },
       { label: 'Updates and releases', detail: 'Check for updates, download a newer build, install and relaunch, or jump straight to the latest GitHub release from inside the app. AUR and tarball installs get the check and the notice only; the package manager does the install.' },
       { label: 'Website, community, and issue links', detail: 'The app now exposes direct links to the ZenNotes website, Discord, GitHub repository, and issue tracker so support paths stay discoverable.' },
       { label: 'Configuration file', detail: 'Your preferences (theme, editor, Vim, keymaps, fonts, search backend, and more) are mirrored to a plain-text `config.toml` so you can sync them across machines with git, stow, or chezmoi. It lives at `$XDG_CONFIG_HOME/zennotes/config.toml` (`~/.config/zennotes/config.toml` on macOS and Linux, `%APPDATA%\\zennotes\\config.toml` on Windows), or wherever `$ZENNOTES_CONFIG_DIR` points. The file is self-documenting: every available setting is listed with its allowed values, and every keymap action is listed with its default binding (commented out: uncomment a line and edit it to remap, or set it to `""` to remove the key entirely), so you can discover and change anything without opening the app. Settings → About has Reveal and Copy-path buttons. Existing setups are written out automatically the first time you launch this version, and edits to the file, by hand or via a synced dotfile, apply live without a restart. Machine-specific layout (window size, pane widths, collapsed folders) stays local so the file does not churn.' },
@@ -1220,6 +1227,11 @@ export const HELP_CLI: HelpCard[] = [
       'Use `zn list` to see recent notes, `zn list --tag work --limit 5` to filter, `zn read inbox/Project.md` to print a body, and `zn search "deadline"` for full-text matches with file:line previews. Quote paths with spaces, like `zn read "hellointerview/system design.md"`, or use `--path`. Add `--json` to any command to get structured output you can pipe into `jq`.'
   },
   {
+    title: 'Open notes, folders, and a second window',
+    body:
+      '`zn open inbox/Today.md` brings the ZenNotes window to the front with that note loaded, and `zn open ~/code/project/docs` opens a folder as a focused session without turning it into a vault. When a window already shows the vault or folder, `zn open` raises that window. Add `-n` (or `--new-window`) for a second window on the same notes instead, with its own tabs, leaving the first window where it was: `zn open -n ~/notes`. A markdown file outside every vault always reuses its editor window, since nothing keeps two standalone editors of one file in sync.'
+  },
+  {
     title: 'Raycast uses the same CLI',
     body:
       'On macOS, install the Raycast extension locally from Settings → CLI after `zn` is installed. ZenNotes copies the bundled extension into app data, runs the local build, and imports it into Raycast, so you do not need the Raycast Store version. The Search Notes command reads from `zn list --json`, then uses `zennotes://open` to open notes in the main app or `zennotes://open-window` to open a floating window. Cmd+K actions also archive, unarchive, move to Trash, reveal in Finder, copy the path, and copy a wikilink.'
@@ -1242,6 +1254,6 @@ export const HELP_CLI: HelpCard[] = [
   {
     title: 'MCP for AI agents',
     body:
-      '`zn mcp` starts the ZenNotes MCP server in stdio mode, the same one Claude Code, Claude Desktop, and Codex use under the hood. Once `zn` is installed, Settings → MCP installs configure the clients to launch `zn mcp` directly, so the install path is one stable absolute path that survives app moves. The server works on the vault the app has open: a folder on this machine, or a self-hosted ZenNotes server you connected from Settings → Vault. `vault_info` says which. A server that requires a token needs it in the MCP client\'s environment as `ZENNOTES_REMOTE_TOKEN` (the app keeps its own copy in the OS secret store, which `zn` cannot read); `ZENNOTES_SERVER` or `ZENNOTES_VAULT` in that environment point the MCP at another vault instead. Beyond reading and writing notes, the server can hold a review with you through comments: ask the assistant to read a note\'s comments and answer them, and its replies land in the Comments panel under yours, signed with its name (`list_comments`, `add_comment`, `reply_to_comment`, `resolve_comment`).'
+      '`zn mcp` starts the ZenNotes MCP server in stdio mode, the same one Claude Code, Claude Desktop, and Codex use under the hood. Once `zn` is installed, Settings → MCP installs configure the clients to launch `zn mcp` directly, so the install path is one stable absolute path that survives app moves. The server works on the vault the app has open: a folder on this machine, or a self-hosted ZenNotes server you connected from Settings → Vault. `vault_info` says which. A server that requires a token needs it in the MCP client\'s environment as `ZENNOTES_REMOTE_TOKEN` (the app keeps its own copy in the OS secret store, which `zn` cannot read). To point an agent somewhere else, give the command the same flags every other `zn` command takes: `zn mcp --vault work` or `zn mcp --server home --token <token>` in the client\'s config, or `ZENNOTES_SERVER` / `ZENNOTES_VAULT` in its environment. Beyond reading and writing notes, the server can hold a review with you through comments: ask the assistant to read a note\'s comments and answer them, and its replies land in the Comments panel under yours, signed with its name (`list_comments`, `add_comment`, `reply_to_comment`, `resolve_comment`).'
   }
 ]

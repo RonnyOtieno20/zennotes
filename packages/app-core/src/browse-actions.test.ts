@@ -287,4 +287,150 @@ describe('public Browse actions', () => {
     expect(await s.createBrowseDatabase(s.host, 'People.base')).toBe('unavailable')
   })
 
+  it('moves a folder to the top level and keeps its name', async () => {
+    const s = await setup()
+    const result = s.requestMoveBrowseDirectory(s.host, 'Work/Nested')
+    const options = s.getPromptRequest()?.options
+    expect(options?.title).toBe('Move "Nested" to…')
+    // Empty on purpose: a prefilled path would filter the touch list down to
+    // the folder it is already in.
+    expect(options?.initialValue).toBeUndefined()
+    s.answer(' inbox ')
+    expect(await result).toBe('completed')
+    expect(s.rename).toHaveBeenCalledWith('inbox', 'Work/Nested', 'Nested', expect.any(Function))
+  })
+
+  it('moves a database into a folder and keeps its .base suffix', async () => {
+    const s = await setup()
+    const result = s.requestMoveBrowseDirectory(s.host, 'People.base')
+    expect(s.getPromptRequest()?.options.title).toBe('Move "People" to…')
+    s.answer('inbox/Work/Nested')
+    expect(await result).toBe('completed')
+    expect(s.rename).toHaveBeenCalledWith(
+      'inbox',
+      'People.base',
+      'Work/Nested/People.base',
+      expect.any(Function)
+    )
+  })
+
+  it('offers only real destinations: not itself, its children, databases, or archive', async () => {
+    const s = await setup()
+    s.useStore.setState({
+      folders: [
+        ...s.useStore.getState().folders,
+        { folder: 'inbox', subpath: 'Home', siblingOrder: 0 },
+        { folder: 'inbox', subpath: 'People.base/pages', siblingOrder: 0 },
+        { folder: 'archive', subpath: 'Old', siblingOrder: 0 }
+      ]
+    })
+    const result = s.requestMoveBrowseDirectory(s.host, 'Work')
+    expect(s.getPromptRequest()?.options.suggestions?.map((row) => row.value)).toEqual([
+      'inbox',
+      'inbox/Home'
+    ])
+    s.answer(null)
+    expect(await result).toBe('cancelled')
+  })
+
+  it('refuses impossible destinations at submission and never writes', async () => {
+    const s = await setup()
+    for (const value of [
+      null,
+      '',
+      '   ',
+      'Work',
+      'archive',
+      'inbox/Work/Nested',
+      'inbox/Work/Nested/Deeper',
+      'inbox/People.base',
+      'inbox/People.base/pages',
+      'inbox/Missing',
+      'inbox/../Elsewhere',
+      'inbox/.hidden',
+      'inbox/bad\0name'
+    ]) {
+      const result = s.requestMoveBrowseDirectory(s.host, 'Work/Nested')
+      if (value?.trim()) expect(s.getPromptRequest()?.options.validate?.(value)).toBeTruthy()
+      s.answer(value)
+      expect(await result).toBe('cancelled')
+    }
+    // Its current parent is a valid answer that changes nothing.
+    const same = s.requestMoveBrowseDirectory(s.host, 'Work/Nested')
+    expect(s.getPromptRequest()?.options.validate?.('inbox/Work')).toBeNull()
+    s.answer('inbox/Work')
+    expect(await same).toBe('cancelled')
+    expect(s.rename).not.toHaveBeenCalled()
+  })
+
+  it('blocks a move onto an existing folder or database of the same name', async () => {
+    const s = await setup()
+    s.useStore.setState({
+      folders: [
+        ...s.useStore.getState().folders,
+        { folder: 'inbox', subpath: 'Nested', siblingOrder: 0 },
+        { folder: 'inbox', subpath: 'Work/People.base', siblingOrder: 0 }
+      ]
+    })
+    const folder = s.requestMoveBrowseDirectory(s.host, 'Work/Nested')
+    expect(s.getPromptRequest()?.options.validate?.('inbox')).toBe(
+      '"Nested" already exists in that folder.'
+    )
+    s.answer('inbox')
+    expect(await folder).toBe('cancelled')
+    const database = s.requestMoveBrowseDirectory(s.host, 'People.base')
+    expect(s.getPromptRequest()?.options.validate?.('inbox/Work')).toBe(
+      '"People" already exists in that folder.'
+    )
+    s.answer('inbox/Work')
+    expect(await database).toBe('cancelled')
+    expect(s.rename).not.toHaveBeenCalled()
+  })
+
+  it('validates a move against the folders that exist at submission', async () => {
+    const s = await setup()
+    const result = s.requestMoveBrowseDirectory(s.host, 'People.base')
+    s.useStore.setState({
+      folders: s.useStore.getState().folders.filter((row) => row.subpath !== 'Work/Nested')
+    })
+    s.answer('inbox/Work/Nested')
+    expect(await result).toBe('cancelled')
+    expect(s.rename).not.toHaveBeenCalled()
+  })
+
+  it('cannot move the root, missing folders, or database internals', async () => {
+    const s = await setup()
+    for (const directory of ['', 'Missing', 'People.base/pages'])
+      expect(await s.requestMoveBrowseDirectory(s.host, directory)).toBe('unavailable')
+    expect(s.getPromptRequest()).toBeNull()
+  })
+
+  it.each(['host', 'missing'] as const)(
+    'stops a move after a %s change during the prompt',
+    async (kind) => {
+      const s = await setup()
+      let current = true
+      const result = s.requestMoveBrowseDirectory({ isCurrent: () => current }, 'People.base')
+      if (kind === 'host') current = false
+      if (kind === 'missing')
+        s.useStore.setState({
+          folders: s.useStore.getState().folders.filter((row) => row.subpath !== 'People.base')
+        })
+      s.answer('inbox/Work')
+      expect(await result).toBe('stale')
+      expect(s.rename).not.toHaveBeenCalled()
+    }
+  )
+
+  it('rejects a host refusal to move and releases the pending action', async () => {
+    const s = await setup()
+    s.rename.mockRejectedValueOnce(new Error('A folder already exists at "Work/People.base"'))
+    const failed = s.requestMoveBrowseDirectory(s.host, 'People.base')
+    s.answer('inbox/Work')
+    await expect(failed).rejects.toThrow('already exists')
+    const next = s.requestMoveBrowseDirectory(s.host, 'People.base')
+    s.answer(null)
+    expect(await next).toBe('cancelled')
+  })
+
 })

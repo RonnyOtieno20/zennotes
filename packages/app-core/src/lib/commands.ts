@@ -38,8 +38,8 @@ import { isCalendarToggleAvailable, noteFolderSubpath } from './vault-layout'
 import { runWorkflowById } from './workflow-trigger'
 import { requestPublishNote } from './publish-note-requests'
 import {
-  hasResolvableCloudConflicts,
-  openCloudConflictReview
+  hasPendingCloudReview,
+  openPendingCloudReview
 } from './cloud-auto-sync'
 import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
 
@@ -98,6 +98,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   }
   const openExternal = (url: string): void => {
     window.open(url, '_blank')
+  }
+  const isActiveNoteFavorite = (): boolean => {
+    const state = getState()
+    return !!state.activeNote && state.vaultSettings.favorites.includes(state.activeNote.path)
   }
   const cmds: Command[] = []
 
@@ -326,6 +330,21 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         if (next && next !== active.title && isCurrent() && getState().selectedPath === active.path)
           await getState().renameActive(next)
       }
+    },
+    {
+      id: 'note.favorite',
+      // The sidebar row's context menu was the only mouse route and the
+      // leader chord the only keyboard one; the palette gives every host,
+      // phones included, a way to fill the Favorites section on Home. (#810)
+      title: isActiveNoteFavorite() ? 'Remove Note from Favorites' : 'Add Note to Favorites',
+      category: 'Note',
+      keywords: 'favourite star bookmark home sidebar',
+      shortcut: chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderToggleFavorite'),
+      when: () => {
+        const active = getState().activeNote
+        return !!active && active.folder !== 'trash'
+      },
+      run: () => getState().toggleFavoriteActiveNote()
     },
     {
       id: 'note.archive',
@@ -1507,6 +1526,25 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().setTabsEnabled(!getState().tabsEnabled)
     },
     {
+      id: 'editor.keep-panels.toggle',
+      title: getState().keepPanelsAcrossNotes
+        ? 'Remember Panels per Note'
+        : 'Keep Panels When Switching Notes',
+      category: 'Editor',
+      keywords: 'panels connections outline comments calendar sticky per note remember switch',
+      run: () => getState().setKeepPanelsAcrossNotes(!getState().keepPanelsAcrossNotes)
+    },
+    {
+      id: 'editor.persist-undo-history.toggle',
+      title: getState().persistUndoHistory
+        ? 'Stop Keeping Undo History After Quitting'
+        : 'Keep Undo History After Quitting',
+      category: 'Editor',
+      keywords: 'undofile undo redo history persistent restart quit vim',
+      when: () => !!window.zen?.getCapabilities?.().supportsUndoFile,
+      run: () => getState().setPersistUndoHistory(!getState().persistUndoHistory)
+    },
+    {
       id: 'editor.word-wrap.toggle',
       title: getState().wordWrap ? 'Disable Word Wrap' : 'Enable Word Wrap',
       category: 'Editor',
@@ -1805,12 +1843,13 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       id: 'app.cloud.reviewConflicts',
       title: 'Review Cloud Sync Conflicts',
       category: 'Vault',
-      keywords: 'cloud sync conflict merge review resolve queue two devices differ',
+      keywords: 'cloud sync conflict merge review resolve queue two devices differ settings',
       shortcut: leaderShortcut('vim.leaderCloudConflicts'),
-      // Hidden with an empty queue: the same dialog the status bar's Review
-      // now opens, and there is nothing to review without it.
-      when: () => hasResolvableCloudConflicts(),
-      run: () => openCloudConflictReview()
+      // Hidden while nothing waits: the same dialogs the status bar's Review
+      // opens (the file queue first, then the vault settings question), and
+      // there is nothing to review without one of them.
+      when: () => hasPendingCloudReview(),
+      run: () => openPendingCloudReview()
     },
     {
       id: 'app.vault.switch',

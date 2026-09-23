@@ -38,6 +38,10 @@ import { isExcalidrawPath, isObsidianExcalidrawPath } from "@shared/excalidraw";
 import { resolveExcalidrawEmbedPath } from "../lib/excalidraw-preview";
 import { LazyExcalidrawPreview } from "./LazyExcalidrawPreview";
 import { enhancePreviewHeadingFolds } from "../lib/preview-heading-fold";
+import {
+  previewEditRequestForTarget,
+  type PreviewEditRequest,
+} from "../lib/preview-outline-jump";
 import { renderDiagrams } from "../lib/diagram-renderers";
 import { renderEmbeds, renderBookmarks } from "../lib/embed-renderers";
 import { renderTypstMath } from "../lib/typst-math-render";
@@ -186,7 +190,7 @@ export const Preview = memo(function Preview({
 }: {
   markdown: string;
   notePath: string;
-  onRequestEdit?: (() => void) | null;
+  onRequestEdit?: ((request?: PreviewEditRequest | null) => void) | null;
   onRendered?: (() => void) | null;
 }): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null);
@@ -478,6 +482,12 @@ export const Preview = memo(function Preview({
       }
       const anchor = target.closest("a") as HTMLAnchorElement | null;
       if (!anchor) return;
+      // Following a link ends its hover. A tap on a touch screen arrives as
+      // synthetic mouseover, mousemove and click with no mouseleave ever, so
+      // the target the mousemove put in the status bar would otherwise sit
+      // there until the next tap. A real pointer that is still over a link
+      // puts it back on its next move. (#820)
+      setHoveredLink(null);
       if (anchor.classList.contains("wikilink")) {
         e.preventDefault();
         const path = anchor.dataset.resolvedPath;
@@ -692,7 +702,22 @@ export const Preview = memo(function Preview({
 
     const onMouseLeave = (): void => setHoveredLink(null);
 
+    // Double-click on a rendered block edits it right there, the way the VS
+    // Code markdown preview does; the block's source line and screen position
+    // travel with the request so the editor opens on it at the same height.
+    // Links, controls, embeds and diagrams keep their own double-click. (#822)
+    const onDoubleClick = (e: MouseEvent): void => {
+      if (e.button !== 0) return;
+      const requestEdit = onRequestEditRef.current;
+      if (!requestEdit) return;
+      const request = previewEditRequestForTarget(e.target);
+      if (!request) return;
+      e.preventDefault();
+      requestEdit(request);
+    };
+
     root.addEventListener("click", onClick);
+    root.addEventListener("dblclick", onDoubleClick);
     root.addEventListener("mouseover", onMouseOver);
     root.addEventListener("mousemove", onMouseMove);
     root.addEventListener("mouseout", onMouseOut);
@@ -702,6 +727,7 @@ export const Preview = memo(function Preview({
 
     return () => {
       root.removeEventListener("click", onClick);
+      root.removeEventListener("dblclick", onDoubleClick);
       root.removeEventListener("mouseover", onMouseOver);
       root.removeEventListener("mousemove", onMouseMove);
       root.removeEventListener("mouseout", onMouseOut);
@@ -860,6 +886,11 @@ export const Preview = memo(function Preview({
       // not found" and zero-size boards (#68). Mermaid renders to inline SVG, so
       // it is safe to render in the detached buffer above.
       root.replaceChildren(...Array.from(stage.childNodes));
+      // Which note these blocks belong to. Until this swap the article still
+      // shows the previous note, and a jump that lands while a render is in
+      // flight must wait for `onRendered` instead of scrolling against the
+      // wrong blocks (see previewShowsNote).
+      root.dataset.notePath = notePath;
       await renderDiagrams(root, { themeKey: diagramTheme.key, expanded: false });
       if (cancelled) return;
       // Typst math (a no-op when the KaTeX renderer is active, since it emits no

@@ -131,6 +131,7 @@ import {
   buildTemplateDestinationPrompt,
   parseTemplateDestination
 } from './lib/move-note'
+import { composeNewNoteBody } from './lib/search-create'
 import type { KeymapId, KeymapOverrides } from './lib/keymaps'
 import { normalizeKeymapOverrides } from './lib/keymaps'
 import {
@@ -234,6 +235,17 @@ import {
   type PaneMode,
   type PaneModesByPath
 } from './lib/pane-mode'
+import { appendPathRewrite, pathInScope, type PathRewrite } from './lib/path-rewrites'
+import {
+  panePanelsForPath,
+  panePanelsForSnapshot,
+  panePanelsFromSnapshot,
+  panePanelsWithPath,
+  prunePanePanels,
+  type PanePanelsByPath,
+  type PanePanelsSnapshot,
+  type PanePanelsState
+} from './lib/pane-panels'
 import {
   normalizeTextReplacements,
   type TextReplacements
@@ -576,6 +588,14 @@ interface Prefs {
   /** Keep the current view mode (Edit / Split / Preview) when switching notes
    *  instead of resolving each note's own last mode. Off = per-note (default). */
   keepViewModeAcrossNotes: boolean
+  /** Keep the right-hand panels (Connections, Outline, Comments, Calendar) as
+   *  they are when switching notes. On (default) = one sticky set per pane,
+   *  as always; off = each note remembers its own for the session. (#794) */
+  keepPanelsAcrossNotes: boolean
+  /** Keep each note's undo history between launches (Vim's `undofile`). Off by
+   *  default: the history holds fragments of deleted text and is written to
+   *  disk, in the app's own data folder. Desktop only. (#793) */
+  persistUndoHistory: boolean
   /** The mode a note opens in before the user has picked one for it: Edit
    *  (default), Split, or Preview for read-first workflows. (#543) */
   defaultPaneMode: PaneMode
@@ -1064,6 +1084,8 @@ export const DEFAULT_PREFS: Prefs = {
   harperLintConfig: {},
   looseMathDelimiters: false,
   keepViewModeAcrossNotes: false,
+  keepPanelsAcrossNotes: true,
+  persistUndoHistory: false,
   defaultPaneMode: 'edit',
   syncTitleHeadingOnRename: true,
   markdownSnippets: true,
@@ -1252,6 +1274,14 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.keepViewModeAcrossNotes === 'boolean'
         ? p.keepViewModeAcrossNotes
         : DEFAULT_PREFS.keepViewModeAcrossNotes,
+    keepPanelsAcrossNotes:
+      typeof p.keepPanelsAcrossNotes === 'boolean'
+        ? p.keepPanelsAcrossNotes
+        : DEFAULT_PREFS.keepPanelsAcrossNotes,
+    persistUndoHistory:
+      typeof p.persistUndoHistory === 'boolean'
+        ? p.persistUndoHistory
+        : DEFAULT_PREFS.persistUndoHistory,
     defaultPaneMode: isPaneMode(p.defaultPaneMode) ? p.defaultPaneMode : DEFAULT_PREFS.defaultPaneMode,
     syncTitleHeadingOnRename:
       typeof p.syncTitleHeadingOnRename === 'boolean'
@@ -1816,25 +1846,46 @@ function parseIsoDateLocal(iso: string): Date | null {
   return Number.isNaN(d.getTime()) ? null : d
 }
 
-// Per-vault "we already rolled over today" marker, persisted in localStorage so
-// opening today's daily note across sessions doesn't re-scan past notes once
-// it's done for the day. Keyed by vault root so multiple vaults don't collide.
-function rolloverMarkerKey(root: string): string {
-  return `zen.tasks.rollover.${root || 'default'}`
+// Per-vault record of the past daily notes the rollover already read and found
+// free of open tasks, persisted in localStorage so opening today's note does
+// not re-read years of daily notes every time. Each entry is keyed by note
+// path and holds the `updatedAt:size` signature of the listing that was
+// scanned, so a note edited since (a task typed into yesterday's note later
+// today, a file changed by sync) stops matching and is read again. Its
+// predecessor was a once-per-day marker written even when nothing had moved,
+// which meant a task added to a past daily note after today's note had been
+// opened once never rolled over until the next day (#817). Keyed by vault
+// root so multiple vaults don't collide.
+type RolloverCleanRecord = Record<string, string>
+
+function rolloverCleanKey(root: string): string {
+  return `zen.tasks.rolloverClean.${root || 'default'}`
 }
-function readRolloverMarker(root: string): string | null {
+function rolloverNoteSignature(note: NoteMeta): string {
+  return `${note.updatedAt}:${note.size}`
+}
+function readRolloverClean(root: string): RolloverCleanRecord {
   try {
-    return typeof localStorage !== 'undefined'
-      ? localStorage.getItem(rolloverMarkerKey(root))
-      : null
+    const raw =
+      typeof localStorage !== 'undefined' ? localStorage.getItem(rolloverCleanKey(root)) : null
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
+    const record: RolloverCleanRecord = {}
+    for (const [path, signature] of Object.entries(parsed)) {
+      if (typeof signature === 'string') record[path] = signature
+    }
+    return record
   } catch {
-    return null
+    return {}
   }
 }
-function writeRolloverMarker(root: string, iso: string): void {
+function writeRolloverClean(root: string, record: RolloverCleanRecord): void {
   try {
     if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(rolloverMarkerKey(root), iso)
+      localStorage.setItem(rolloverCleanKey(root), JSON.stringify(record))
+      // The once-per-day marker this record replaces; nothing reads it any more.
+      localStorage.removeItem(`zen.tasks.rollover.${root || 'default'}`)
     }
   } catch {
     // localStorage may be unavailable (private mode); the in-session flow still works.
@@ -2283,6 +2334,8 @@ function collectPrefs(s: {
   harperLintConfig: HarperLintConfig
   looseMathDelimiters: boolean
   keepViewModeAcrossNotes: boolean
+  keepPanelsAcrossNotes: boolean
+  persistUndoHistory: boolean
   defaultPaneMode: PaneMode
   syncTitleHeadingOnRename: boolean
   markdownSnippets: boolean
@@ -2389,6 +2442,8 @@ function collectPrefs(s: {
     harperLintConfig: s.harperLintConfig,
     looseMathDelimiters: s.looseMathDelimiters,
     keepViewModeAcrossNotes: s.keepViewModeAcrossNotes,
+    keepPanelsAcrossNotes: s.keepPanelsAcrossNotes,
+    persistUndoHistory: s.persistUndoHistory,
     defaultPaneMode: s.defaultPaneMode,
     syncTitleHeadingOnRename: s.syncTitleHeadingOnRename,
     markdownSnippets: s.markdownSnippets,
@@ -2487,6 +2542,10 @@ interface WorkspaceSnapshot {
   sidebarOpen: boolean
   noteListOpen: boolean
   selectedTags: string[]
+  /** Per-note panels, by pane id then note path, so a note comes back after a
+   *  restart with the panels it was left with. Optional: snapshots written
+   *  before 2.52 do not have it. (#794) */
+  panePanels?: PanePanelsSnapshot
   /** Epoch ms of the last write — drives newest-wins when the synced file and
    *  the local cache disagree (e.g. after working in this vault on another
    *  machine). (#292) */
@@ -2906,6 +2965,12 @@ interface Store {
   harperLintConfig: HarperLintConfig
   looseMathDelimiters: boolean
   keepViewModeAcrossNotes: boolean
+  /** One sticky set of right-hand panels per pane (on, the default) or one per
+   *  note (off). Persisted. (#794) */
+  keepPanelsAcrossNotes: boolean
+  /** Undo history is also kept between launches (Vim's `undofile`). Off by
+   *  default, desktop only. Persisted. (#793) */
+  persistUndoHistory: boolean
   /** The mode a note opens in before it has a remembered one. Persisted. (#543) */
   defaultPaneMode: PaneMode
   /** Renaming a note rewrites its leading `# Heading` to match. Persisted. (#455) */
@@ -3130,6 +3195,16 @@ interface Store {
    *  `keepViewModeAcrossNotes` is on, so every note in the pane follows the
    *  pane's current mode instead of its own. Ephemeral, like `paneModes`. */
   paneStickyModes: Record<string, PaneMode>
+  /** Right-hand panels per pane, per note path, read only while
+   *  `keepPanelsAcrossNotes` is off. In the store for the same reasons as
+   *  `paneModes`: it survives EditorPane remounts, follows a rename, and a
+   *  split inherits it. Unlike `paneModes` it is also written to the workspace
+   *  snapshot, so it outlives a restart. (#794) */
+  panePanels: Record<string, PanePanelsByPath>
+  /** The latest renames, moves and deletes, appended in the same update that
+   *  rewrites the paths. An editor reads it to tell "my note has a new path"
+   *  from "I am being shown a different note". See lib/path-rewrites. */
+  recentPathRewrites: PathRewrite[]
   noteListCursorIndex: number
   connectionsCursorIndex: number
   /** Row cursor for the Outline panel, mirroring the connections cursor so
@@ -3161,7 +3236,11 @@ interface Store {
   closedTabStack: ClosedTabEntry[]
 
   setVault: (v: VaultInfo | null) => void
-  setVaultSettings: (next: VaultSettings) => Promise<void>
+  /** Resolves true once the settings are on disk. A failed write is logged,
+   *  not thrown, because most callers fire and forget; the Cloud settings
+   *  prompt reads the flag so it does not discard the cloud's copy after a
+   *  save that never happened. */
+  setVaultSettings: (next: VaultSettings) => Promise<boolean>
   /**
    * Toggle a favorite (a note path or a `folder:subpath` key) and persist it.
    * Favorites pin to the top of the sidebar.
@@ -3347,10 +3426,12 @@ interface Store {
   formatActiveNote: () => Promise<void>
   renameNote: (oldPath: string, nextTitle: string, hostIsCurrent?: () => boolean) => Promise<void>
   renameActive: (nextTitle: string) => Promise<void>
+  /** Create a note and open it. `tags` seeds the body with one line of
+   *  `#tags` under the heading, the way `zn capture --tag` does. */
   createAndOpen: (
     folder: NoteFolder,
     subpath?: string,
-    options?: { focusTitle?: boolean; title?: string }
+    options?: { focusTitle?: boolean; title?: string; tags?: readonly string[] }
   ) => Promise<void>
   createDrawingAndOpen: (folder: NoteFolder, subpath?: string) => Promise<void>
   /** Quick-add a whole-note task file (`#task`-tagged, TaskNotes-style). Prompts
@@ -3443,6 +3524,8 @@ interface Store {
   saveHarperVaultState: (next: HarperVaultState) => Promise<void>
   setLooseMathDelimiters: (on: boolean) => void
   setKeepViewModeAcrossNotes: (on: boolean) => void
+  setKeepPanelsAcrossNotes: (on: boolean) => void
+  setPersistUndoHistory: (on: boolean) => void
   setDefaultPaneMode: (mode: PaneMode) => void
   setSyncTitleHeadingOnRename: (on: boolean) => void
   setMarkdownSnippets: (on: boolean) => void
@@ -3607,7 +3690,8 @@ interface Store {
   addTaskForDate: (dateIso: string, text: string) => Promise<void>
   /** Move unfinished tasks from past daily notes into today's note. Returns the
    *  number of task lines moved. Without `force`, it is gated by the
-   *  `rolloverUnfinishedTasks` setting and a once-per-day marker. */
+   *  `rolloverUnfinishedTasks` setting and skips past notes it already found
+   *  clean and that have not changed on disk since; `force` re-reads them all. */
   rolloverUnfinishedTasksIntoToday: (opts?: {
     force?: boolean
     open?: boolean
@@ -3661,6 +3745,11 @@ interface Store {
   /** Update sizes on a split node (for divider drag). */
   resizeSplit: (splitId: string, sizes: number[]) => void
   setPaneModeForPath: (paneId: string, path: string | null, mode: PaneMode) => void
+  updatePanePanelsForPath: (
+    paneId: string,
+    path: string | null,
+    update: (panels: PanePanelsState) => PanePanelsState
+  ) => void
   /** Pin a tab within a specific pane — sticks it to the left of the
    *  strip and protects it from "Close Others" / "Close Tabs to Right". */
   pinTabInPane: (paneId: string, path: string) => void
@@ -3738,6 +3827,15 @@ const pathSaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
  *  older one to the final rename. */
 const pathSaveQueues = new Map<string, Promise<void>>()
 const PATH_SAVE_DEBOUNCE_MS = 350
+/** The on-disk body of every dirty note, taken from the buffer the moment it
+ *  first drifted from disk (a clean buffer equals disk) and moved forward by
+ *  each completed write. An edit that brings the buffer back to these bytes
+ *  is not a change: a custom Vim insert-mode escape such as `jk` types and
+ *  removes its `j`, and saving the identical text only moved the file's mtime
+ *  and the {{modified_*}} tokens with it (#828). Entries are consulted only
+ *  while `noteDirty[path]` is true and are replaced by the note's next edit
+ *  once it is clean again, so a leftover for a clean note is never read. */
+const savedBodies = new Map<string, string>()
 // Only the latest watcher read may apply, and a newer local save invalidates
 // older reads even if it finishes or returns to the same starting body.
 const noteContentVersions = new Map<string, number>()
@@ -3838,8 +3936,7 @@ function trackNoteWrite<Args extends unknown[], Result>(
 }
 
 const folderReadVersions = new Map<string, number>()
-const mutationContains = (scope: string, path: string): boolean =>
-  scope === '' || scope.endsWith('/') ? path.startsWith(scope) : path === scope
+const mutationContains = pathInScope
 const folderReadVersion = (path: string): number =>
   [...folderReadVersions].reduce(
     (version, [prefix, value]) => (mutationContains(prefix, path) ? version + value : version),
@@ -4290,6 +4387,15 @@ function rewriteFolderWorkspace(
     ),
     paneModes: Object.fromEntries(
       Object.entries(s.paneModes).map(([pane, modes]) => [pane, remap(modes, (mode) => mode)])
+    ),
+    panePanels: Object.fromEntries(
+      Object.entries(s.panePanels).map(([pane, panels]) => [pane, remap(panels, (open) => open)])
+    ),
+    recentPathRewrites: appendPathRewrite(
+      s.recentPathRewrites,
+      s.vault?.root ?? '',
+      prefix,
+      nextPrefix
     ),
     noteRefs: Object.fromEntries(
       Object.entries(s.noteRefs).flatMap(([owner, ref]) => {
@@ -5176,6 +5282,12 @@ export const useStore = create<Store>((set, get) => {
           ? snapshot.noteListOpen
           : get().noteListOpen,
       selectedTags: normalizeWorkspaceTags(snapshot.selectedTags),
+      // Replaced, not merged: whatever the store held belonged to the panes of
+      // the vault that was open before this one.
+      panePanels: panePanelsFromSnapshot(
+        snapshot.panePanels,
+        new Set(allLeaves(ensured.layout).map((leaf) => leaf.id))
+      ),
       collapsedFolders,
       workspaceRestored: true,
       ...active
@@ -5224,6 +5336,15 @@ export const useStore = create<Store>((set, get) => {
         activePaneId: ensured.activePaneId,
         ...activeFieldsFrom(ensured.layout, ensured.activePaneId, s.noteContents, s.noteDirty)
       }
+    })
+    // The same listing retires panel memory for notes that are gone (deleted on
+    // another machine, or outside the app), so the synced snapshot cannot
+    // collect dead paths forever. Same empty-listing guard as above. (#794)
+    set((s) => {
+      if (s.notes.length === 0) return {}
+      const existing = new Set(s.notes.map((note) => note.path))
+      const pruned = prunePanePanels(s.panePanels, (path) => existing.has(path))
+      return pruned === s.panePanels ? {} : { panePanels: pruned }
     })
     const s = get()
     // Folder rows did not exist while the workspace painted, so collapse the
@@ -5558,6 +5679,8 @@ export const useStore = create<Store>((set, get) => {
   harperLintConfig: loadPrefs().harperLintConfig,
   looseMathDelimiters: loadPrefs().looseMathDelimiters,
   keepViewModeAcrossNotes: loadPrefs().keepViewModeAcrossNotes,
+  keepPanelsAcrossNotes: loadPrefs().keepPanelsAcrossNotes,
+  persistUndoHistory: loadPrefs().persistUndoHistory,
   defaultPaneMode: loadPrefs().defaultPaneMode,
   syncTitleHeadingOnRename: loadPrefs().syncTitleHeadingOnRename,
   markdownSnippets: loadPrefs().markdownSnippets,
@@ -5656,6 +5779,8 @@ export const useStore = create<Store>((set, get) => {
   sidebarCursorIndex: 0,
   dateNavExpanded: [],
   paneModes: {},
+  panePanels: {},
+  recentPathRewrites: [],
   paneStickyModes: {},
   noteListCursorIndex: 0,
   connectionsCursorIndex: 0,
@@ -5688,11 +5813,19 @@ export const useStore = create<Store>((set, get) => {
       set({
         vaultSettings: settings
       })
+    } catch (err) {
+      console.error('setVaultSettings failed', err)
+      return false
+    }
+    // The settings are saved at this point; a failed listing refresh is not a
+    // failed save.
+    try {
       await get().refreshNotes()
       await get().refreshRootContentHidden()
     } catch (err) {
       console.error('setVaultSettings failed', err)
     }
+    return true
   },
   applyFavorites: async (nextFavorites) => {
     const isCurrent = captureFolderActionContext(get)
@@ -7586,12 +7719,18 @@ export const useStore = create<Store>((set, get) => {
 
   updateNoteBody: (path, body) => {
     if (isNoteEditingLocked(get().vault, path)) return
+    let backOnDisk = false
     set((s) => {
       const existing = s.noteContents[path]
       if (existing) body = rewriteRenamingBody(path, body, existing.folder)
       if (!existing || existing.body === body) return s
+      if (!s.noteDirty[path]) savedBodies.set(path, existing.body)
+      // While a write is in flight the bytes on disk are changing under us,
+      // so only a settled note can be declared back on them; the completion
+      // below records what actually landed for the next comparison.
+      backOnDisk = !pathSaveQueues.has(path) && savedBodies.get(path) === body
       const contents = { ...s.noteContents, [path]: { ...existing, body } }
-      const dirty = { ...s.noteDirty, [path]: true }
+      const dirty = { ...s.noteDirty, [path]: !backOnDisk }
       // Editing a preview tab promotes it to a permanent tab (VS Code
       // behavior) so the edit can't be displaced by the next preview.
       // Cheap guard first: this runs on every keystroke.
@@ -7606,6 +7745,15 @@ export const useStore = create<Store>((set, get) => {
         ...activeFieldsFrom(layout, s.activePaneId, contents, dirty)
       }
     })
+    if (backOnDisk) {
+      savedBodies.delete(path)
+      const pending = pathSaveTimers.get(path)
+      if (pending) {
+        clearTimeout(pending)
+        pathSaveTimers.delete(path)
+      }
+      return
+    }
     if (folderMutationBlocks(path)) return
     // Debounced disk write.
     const existing = pathSaveTimers.get(path)
@@ -7658,8 +7806,11 @@ export const useStore = create<Store>((set, get) => {
         }
         set((cur) => {
           // Keystrokes that landed while the write was in flight leave the
-          // buffer ahead of disk. The queued caller will persist them next.
+          // buffer ahead of disk. The queued caller will persist them next,
+          // unless they take the buffer back to the bytes just written.
           const stillCurrent = cur.noteContents[path]?.body === writtenBody
+          if (stillCurrent || !cur.noteContents[path]) savedBodies.delete(path)
+          else savedBodies.set(path, writtenBody)
           const dirty = stillCurrent ? { ...cur.noteDirty, [path]: false } : cur.noteDirty
           return {
             noteDirty: dirty,
@@ -7828,6 +7979,11 @@ export const useStore = create<Store>((set, get) => {
     try {
       const meta = await window.zen.createNote(folder, options?.title, subpath)
       rememberEditModeForCreatedNote(meta.path)
+      // The heading uses the title the vault settled on, which may carry a
+      // " 2" suffix the requested one did not.
+      if (options?.tags && options.tags.length > 0) {
+        await window.zen.writeNote(meta.path, composeNewNoteBody(meta.title, options.tags))
+      }
       await get().refreshNotes()
       set({
         view: { kind: 'folder', folder, subpath },
@@ -8455,6 +8611,14 @@ export const useStore = create<Store>((set, get) => {
     set({ keepViewModeAcrossNotes: on })
     savePrefs(collectPrefs(get()))
   },
+  setKeepPanelsAcrossNotes: (on) => {
+    set({ keepPanelsAcrossNotes: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setPersistUndoHistory: (on) => {
+    set({ persistUndoHistory: on })
+    savePrefs(collectPrefs(get()))
+  },
   setDefaultPaneMode: (mode) => {
     set({ defaultPaneMode: mode })
     savePrefs(collectPrefs(get()))
@@ -9062,10 +9226,7 @@ export const useStore = create<Store>((set, get) => {
     const today = new Date()
     const todayIso = noteTitleForDate(today)
     const vaultRoot = get().vault?.root ?? ''
-    if (!force) {
-      if (!settings.dailyNotes.rolloverUnfinishedTasks) return 0
-      if (readRolloverMarker(vaultRoot) === todayIso) return 0
-    }
+    if (!force && !settings.dailyNotes.rolloverUnfinishedTasks) return 0
     const todayNote = await get().ensureDailyNoteForDate(today)
     if (!todayNote) return 0
     if (opts?.open) {
@@ -9085,9 +9246,20 @@ export const useStore = create<Store>((set, get) => {
     }
     pastNotes.sort((a, b) => (a.iso < b.iso ? -1 : a.iso > b.iso ? 1 : 0))
 
+    // The explicit command is the escape hatch: it re-reads every past note
+    // instead of trusting the record. Notes that vanished from the listing
+    // drop out of the record because only notes seen this run are carried.
+    const clean = force ? {} : readRolloverClean(vaultRoot)
+    const nextClean: RolloverCleanRecord = {}
     const movedLines: string[] = []
+    const trimmed: Array<{ path: string; rest: string; buffered: boolean }> = []
     for (const { note } of pastNotes) {
+      const signature = rolloverNoteSignature(note)
       const buffer = get().noteContents[note.path]
+      if (!buffer && clean[note.path] === signature) {
+        nextClean[note.path] = signature
+        continue
+      }
       let body: string
       try {
         body = buffer?.body ?? (await window.zen.readNote(note.path)).body
@@ -9096,29 +9268,24 @@ export const useStore = create<Store>((set, get) => {
         continue
       }
       const { moved, rest } = extractOpenTaskBlocks(body)
-      if (moved.length === 0) continue
-      movedLines.push(...moved)
-      if (buffer) {
-        // Open buffer: route through the normal edit pipeline (marks dirty,
-        // autosaves, watcher rescans tasks) — same as toggleTaskFromList. A disk
-        // rescan here would read the not-yet-flushed file and go stale.
-        get().updateNoteBody(note.path, rest)
-      } else {
-        try {
-          await window.zen.writeNote(note.path, rest)
-          await get().rescanTasksForPath(note.path)
-        } catch (err) {
-          console.error('rollover writeNote (source) failed', note.path, err)
-          // Don't drop the lines we already pulled — they'll still land in today.
-        }
+      if (moved.length === 0) {
+        // The signature describes the file on disk, so only a disk read may
+        // vouch for it: an open buffer can be ahead of the listing, and it
+        // costs nothing to read again.
+        if (!buffer) nextClean[note.path] = signature
+        continue
       }
+      movedLines.push(...moved)
+      trimmed.push({ path: note.path, rest, buffered: Boolean(buffer) })
     }
 
     if (movedLines.length === 0) {
-      writeRolloverMarker(vaultRoot, todayIso)
+      writeRolloverClean(vaultRoot, nextClean)
       return 0
     }
 
+    // Today's note takes the tasks first and the sources give them up after,
+    // so a failure midway leaves a task in two notes rather than in none.
     const todayBuffer = get().noteContents[todayNote.path]
     let todayBody: string
     try {
@@ -9143,7 +9310,27 @@ export const useStore = create<Store>((set, get) => {
         return 0
       }
     }
-    writeRolloverMarker(vaultRoot, todayIso)
+
+    for (const { path, rest, buffered } of trimmed) {
+      if (buffered) {
+        // Open buffer: route through the normal edit pipeline (marks dirty,
+        // autosaves, watcher rescans tasks), same as toggleTaskFromList. A disk
+        // rescan here would read the not-yet-flushed file and go stale.
+        get().updateNoteBody(path, rest)
+      } else {
+        try {
+          await window.zen.writeNote(path, rest)
+          await get().rescanTasksForPath(path)
+        } catch (err) {
+          console.error('rollover writeNote (source) failed', path, err)
+          // The task already landed in today; the copy left here rolls again
+          // next time and the user sees a duplicate, not a lost task.
+        }
+      }
+    }
+    // Trimmed notes are left out on purpose: their signature changes with the
+    // write, and the next run reads them once more before vouching for them.
+    writeRolloverClean(vaultRoot, nextClean)
     return movedLines.length
   }),
 
@@ -9918,6 +10105,11 @@ export const useStore = create<Store>((set, get) => {
           ...cur.paneModes,
           [newLeaf.id]: cur.paneModes[sourcePaneId ?? targetPaneId] ?? {}
         },
+        // Same for per-note panels: the note keeps its panels in the new pane.
+        panePanels: {
+          ...cur.panePanels,
+          [newLeaf.id]: cur.panePanels[sourcePaneId ?? targetPaneId] ?? {}
+        },
         ...activeFieldsFrom(layout, newLeaf.id, nextContents, nextDirty)
       }
     })
@@ -9933,6 +10125,19 @@ export const useStore = create<Store>((set, get) => {
       // every note in this pane follow it.
       paneStickyModes: { ...s.paneStickyModes, [paneId]: mode }
     })),
+
+  updatePanePanelsForPath: (paneId, path, update) => {
+    // `update` runs out here, not inside `set`: the panel toggles do store
+    // writes of their own in it (closing a preview, moving focus), and a
+    // write nested in a `set` callback is clobbered when that callback returns.
+    const current = get().panePanels[paneId] ?? {}
+    const next = panePanelsWithPath(current, path, update(panePanelsForPath(current, path)))
+    if (next === current) return
+    set((s) => ({ panePanels: { ...s.panePanels, [paneId]: next } }))
+    // Panels are part of the workspace snapshot, and nothing else about the
+    // workspace changes when one is toggled, so the save is asked for here.
+    get().persistWorkspace()
+  },
 
   resizeSplit: (splitId, sizes) => {
     set((s) => {
@@ -10734,7 +10939,11 @@ export const useStore = create<Store>((set, get) => {
       view: state.view,
       sidebarOpen,
       noteListOpen,
-      selectedTags: state.selectedTags
+      selectedTags: state.selectedTags,
+      panePanels: panePanelsForSnapshot(
+        state.panePanels,
+        new Set(allLeaves(state.paneLayout).map((leaf) => leaf.id))
+      )
     })
   },
 

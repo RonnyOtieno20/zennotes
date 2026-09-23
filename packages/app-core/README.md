@@ -214,6 +214,7 @@ keyed by the native host's stable vault token.
 - `requestRenameBrowseDatabase(host, directory)` prompts for a database title and preserves host collision numbering. Names starting with a dot are rejected because vault scanners hide those directories. Case-only renames retain existing host behavior and can receive a numbered suffix on case-insensitive filesystems.
 - `requestCreateBrowseFolder(host, directory = '')` prompts for a child folder.
 - `requestRenameBrowseFolder(host, directory)` prompts for an ordinary folder's leaf name.
+- `requestMoveBrowseDirectory(host, directory)` prompts for a new parent for an ordinary folder or an entire database, using the move-note prompt's `inbox[/path]` values. Only existing notes-area folders are offered, never the directory itself, its descendants, or a database. The leaf name, and so a database's `.base` suffix, is kept. A destination that already holds that name is blocked in the prompt, and the host still refuses to overwrite. The store carries open tabs (database tabs included), folder icons and colors, favorites, and manual order to the new path. Pins are host-owned: a host that pins folders re-keys them after `completed`.
 - `requestDeleteBrowseDirectory(host, directory)` confirms permanent deletion of an ordinary folder or an entire database, with the appropriate warning.
 
 All directories are relative to the primary notes area. Root deletion, missing

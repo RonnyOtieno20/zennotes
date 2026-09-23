@@ -357,6 +357,74 @@ describe('daily task rollover', () => {
     expect(files.get(sourcePath)).toBe('## Tasks\n\n- [ ]\n- [x] Done\n')
     expect(await useStore.getState().rolloverUnfinishedTasksIntoToday({ force: true, open })).toBe(0)
   })
+
+  // The reported flow (#817): today's note is opened once with nothing to
+  // roll, then a task is typed into yesterday's note, then today's note is
+  // opened again. The once-per-day marker used to make the second open a
+  // no-op until the next day.
+  it('rolls a task added to a past daily note after today was already opened', async () => {
+    const iso = (date: Date) => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'),
+      String(date.getDate()).padStart(2, '0')].join('-')
+    const now = new Date()
+    const yesterday = new Date(now)
+    yesterday.setDate(yesterday.getDate() - 1)
+    const sourcePath = `inbox/Daily Notes/${iso(yesterday)}.md`
+    const targetPath = `inbox/Daily Notes/${iso(now)}.md`
+    const files = new Map([[sourcePath, `# ${iso(yesterday)}\n\n`]])
+    const stamps = new Map([[sourcePath, 1]])
+    const notes = () =>
+      [...files].map(([path, body]) => ({ ...makeNote(body, path), updatedAt: stamps.get(path) ?? 1 }))
+    const readNote = vi.fn(async (path: string) => makeNote(files.get(path)!, path))
+    installZen({
+      createNote: vi.fn(async () => {
+        files.set(targetPath, `# ${iso(now)}\n\n`)
+        return makeNote(files.get(targetPath)!, targetPath)
+      }),
+      listNotes: vi.fn(async () => notes()),
+      readNote,
+      writeNote: vi.fn(async (path: string, body: string) => {
+        files.set(path, body)
+        return makeNote(body, path)
+      })
+    })
+    const { useStore } = await loadStore()
+    useStore.setState({
+      notes: notes(),
+      vaultSettings: {
+        ...useStore.getState().vaultSettings,
+        dailyNotes: { enabled: true, directory: 'Daily Notes', rolloverUnfinishedTasks: true }
+      }
+    })
+
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday()).toBe(0)
+    const readsAfterFirstRun = readNote.mock.calls.length
+    expect(readNote).toHaveBeenCalledWith(sourcePath)
+
+    // Opening today again with nothing changed must not re-read the past
+    // note the record already vouches for.
+    useStore.setState({ notes: notes() })
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday()).toBe(0)
+    expect(readNote.mock.calls.length).toBe(readsAfterFirstRun)
+
+    // The user types a task into yesterday's note; the autosave lands on disk
+    // and the watcher re-lists the vault with a fresh mtime and size.
+    files.set(sourcePath, `# ${iso(yesterday)}\n\n- [ ] Call the bank\n`)
+    stamps.set(sourcePath, 2)
+    useStore.setState({ notes: notes() })
+
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday()).toBe(1)
+    expect(files.get(targetPath)).toBe(`# ${iso(now)}\n- [ ] Call the bank\n`)
+    expect(files.get(sourcePath)).toBe(`# ${iso(yesterday)}\n\n`)
+
+    // A note the rollover just trimmed is read once more before it is
+    // trusted again, so the trim itself can never hide a task.
+    const readsAfterMove = readNote.mock.calls.length
+    stamps.set(sourcePath, 3)
+    useStore.setState({ notes: notes() })
+    expect(await useStore.getState().rolloverUnfinishedTasksIntoToday()).toBe(0)
+    expect(readNote.mock.calls.length).toBe(readsAfterMove + 1)
+    expect(readNote).toHaveBeenLastCalledWith(sourcePath)
+  })
 })
 
 describe('weekly note patterns', () => {
@@ -735,6 +803,88 @@ describe('local vault shortcuts', () => {
     expect(useStore.getState().localVaults).toEqual([
       { root: nextVault.root, name: nextVault.name, lastOpenedAt: 2 }
     ])
+  })
+})
+
+describe('per-note panels survive a restart (#794)', () => {
+  const vault = { root: '/Users/test/Notes', name: 'Notes' }
+  const WORKSPACE_KEY = 'zen:workspace:v1'
+
+  function installVault(paths: string[]): void {
+    installZen({
+      openLocalVault: vi.fn().mockResolvedValue(vault),
+      listNotes: vi.fn().mockResolvedValue(paths.map((path) => makeNote(path, path))),
+      readNote: vi.fn().mockImplementation((path: string) => Promise.resolve(makeNote(path, path)))
+    })
+  }
+
+  /** A fresh store module over the SAME localStorage: what a relaunch is. */
+  async function relaunch() {
+    vi.resetModules()
+    const mod = await import('./store')
+    lastLoadedStore = mod as unknown as typeof lastLoadedStore
+    return mod
+  }
+
+  function savedSnapshot(): { panePanels?: Record<string, Record<string, { outline?: boolean }>> } {
+    return JSON.parse(localStorage.getItem(WORKSPACE_KEY) ?? '{}')[vault.root] ?? {}
+  }
+
+  it('saves them with the workspace and brings them back on the next launch', async () => {
+    installVault(['inbox/A.md', 'inbox/B.md'])
+    const first = await loadStore()
+    await first.useStore.getState().openLocalVault(vault.root)
+    await first.useStore.getState().selectNote('inbox/A.md')
+    const paneId = first.useStore.getState().activePaneId
+
+    // Toggling a panel is the only thing that changed, so it has to ask for
+    // the save itself: no tab or layout change is coming to do it.
+    first.useStore
+      .getState()
+      .updatePanePanelsForPath(paneId, 'inbox/A.md', (panels) => ({ ...panels, outline: true }))
+    expect(savedSnapshot().panePanels?.[paneId]?.['inbox/A.md']?.outline).toBe(true)
+
+    const second = await relaunch()
+    await second.useStore.getState().openLocalVault(vault.root)
+    const restored = second.useStore.getState()
+    expect(restored.activePaneId).toBe(paneId)
+    expect(restored.panePanels[paneId]['inbox/A.md'].outline).toBe(true)
+    expect(restored.panePanels[paneId]['inbox/B.md']).toBeUndefined()
+  })
+
+  it('forgets a note that was deleted while the app was closed', async () => {
+    installVault(['inbox/A.md', 'inbox/B.md'])
+    const first = await loadStore()
+    await first.useStore.getState().openLocalVault(vault.root)
+    await first.useStore.getState().selectNote('inbox/A.md')
+    const paneId = first.useStore.getState().activePaneId
+    for (const path of ['inbox/A.md', 'inbox/B.md']) {
+      first.useStore
+        .getState()
+        .updatePanePanelsForPath(paneId, path, (panels) => ({ ...panels, outline: true }))
+    }
+
+    installVault(['inbox/A.md'])
+    const second = await relaunch()
+    await second.useStore.getState().openLocalVault(vault.root)
+    expect(Object.keys(second.useStore.getState().panePanels[paneId])).toEqual(['inbox/A.md'])
+  })
+
+  it('opens a snapshot written before 2.52, which has no panels in it', async () => {
+    installVault(['inbox/A.md'])
+    const first = await loadStore()
+    await first.useStore.getState().openLocalVault(vault.root)
+    await first.useStore.getState().selectNote('inbox/A.md')
+    // In the app the workspace effect asks for this save after a tab change.
+    first.useStore.getState().persistWorkspace()
+    const all = JSON.parse(localStorage.getItem(WORKSPACE_KEY) ?? '{}')
+    delete all[vault.root].panePanels
+    localStorage.setItem(WORKSPACE_KEY, JSON.stringify(all))
+
+    const second = await relaunch()
+    await second.useStore.getState().openLocalVault(vault.root)
+    expect(second.useStore.getState().panePanels).toEqual({})
+    expect(second.useStore.getState().selectedPath).toBe('inbox/A.md')
   })
 })
 
@@ -1872,6 +2022,36 @@ describe('renameNote heading sync (#455)', () => {
     return { renameNote, writeNote, readNote }
   }
 
+  // The editor reads this to tell "my note has a new path" from "I am being
+  // shown another note", so it has to land with the path change itself.
+  it('logs the rename in the same update that rewrites the path', async () => {
+    installRename()
+    const { useStore } = await loadStore()
+    useStore.setState({ vault: { root: '/Users/test/Notes', name: 'Notes' } })
+    const seen: Array<{ tabHasNewPath: boolean; logged: boolean }> = []
+    const unsubscribe = useStore.subscribe((state) => {
+      const logged = state.recentPathRewrites.some(
+        (entry) => entry.from === 'inbox/Untitled.md' && entry.to === 'inbox/Groceries.md'
+      )
+      const tabHasNewPath = 'inbox/Groceries.md' in state.noteContents
+      if (logged || tabHasNewPath) seen.push({ tabHasNewPath, logged })
+    })
+    useStore.setState({
+      noteContents: { 'inbox/Untitled.md': { ...metaOf('inbox/Untitled.md', 'Untitled'), body: BODY } }
+    })
+
+    await useStore.getState().renameNote('inbox/Untitled.md', 'Groceries')
+    unsubscribe()
+
+    expect(seen.length).toBeGreaterThan(0)
+    expect(seen.every((update) => update.logged)).toBe(true)
+    expect(useStore.getState().recentPathRewrites.at(-1)).toMatchObject({
+      root: '/Users/test/Notes',
+      from: 'inbox/Untitled.md',
+      to: 'inbox/Groceries.md'
+    })
+  })
+
   it('retitles the heading of a note that is not open, straight on disk', async () => {
     const { writeNote, readNote } = installRename()
     const { useStore } = await loadStore()
@@ -2557,5 +2737,42 @@ describe('file-task lifecycle coordination', () => {
     await deleting
     expect(moveToTrash).toHaveBeenCalledTimes(2)
     expect(useStore.getState().noteContents[source.path]).toBeUndefined()
+  })
+})
+
+describe('createAndOpen with tags (#826 follow-up)', () => {
+  it('writes a tag line under the heading, using the title the vault settled on', async () => {
+    const createNote = vi.fn().mockResolvedValue(makeNote('# Runbook 2\n\n', 'inbox/Runbook 2.md'))
+    const writeNote = vi.fn().mockResolvedValue(undefined)
+    installZen({
+      createNote,
+      writeNote,
+      listNotes: vi.fn().mockResolvedValue([makeNote('# Runbook 2\n\n', 'inbox/Runbook 2.md')]),
+      readNote: vi.fn().mockResolvedValue(makeNote('# Runbook 2\n\n#ops #prod\n\n', 'inbox/Runbook 2.md'))
+    })
+    const { useStore } = await loadStore()
+
+    await useStore.getState().createAndOpen('inbox', '', { title: 'Runbook', tags: ['ops', 'prod'] })
+
+    expect(createNote).toHaveBeenCalledWith('inbox', 'Runbook', '')
+    expect(writeNote).toHaveBeenCalledTimes(1)
+    expect(writeNote).toHaveBeenCalledWith('inbox/Runbook 2.md', '# Runbook 2\n\n#ops #prod\n\n')
+    expect(useStore.getState().selectedPath).toBe('inbox/Runbook 2.md')
+  })
+
+  it('leaves the body the vault wrote when there are no tags', async () => {
+    const writeNote = vi.fn().mockResolvedValue(undefined)
+    installZen({
+      createNote: vi.fn().mockResolvedValue(makeNote('# T\n\n', 'inbox/T.md')),
+      writeNote,
+      listNotes: vi.fn().mockResolvedValue([makeNote('# T\n\n', 'inbox/T.md')]),
+      readNote: vi.fn().mockResolvedValue(makeNote('# T\n\n', 'inbox/T.md'))
+    })
+    const { useStore } = await loadStore()
+
+    await useStore.getState().createAndOpen('inbox', '', { title: 'T', tags: [] })
+    await useStore.getState().createAndOpen('inbox', '', { title: 'T' })
+
+    expect(writeNote).not.toHaveBeenCalled()
   })
 })

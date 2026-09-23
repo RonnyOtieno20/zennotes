@@ -1,14 +1,32 @@
 // @vitest-environment jsdom
 
+import { autocompletion, completionStatus } from '@codemirror/autocomplete'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap } from '@codemirror/view'
 import { getCM, Vim, vim } from '@replit/codemirror-vim'
 import { afterEach, describe, expect, it } from 'vitest'
+import { completionKeymapExtension } from './cm-completion-nav'
 import { registerDisplayLineMotion } from './cm-vim-display-line'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from './cm-vim-default-keymap'
 import { vimVisualHighlightExtension } from './cm-vim-visual-highlight'
 import { vimClipboardPasteExtension } from './cm-vim-clipboard'
+
+// jsdom has no layout. The #803 tests wait on the completion debounce, which
+// lets CodeMirror's next-frame measurement run, and without these two methods
+// it throws from a deferred callback that Vitest reports as an unhandled error
+// (the same trap cm-vim-ime-guard.test.ts documents). Empty geometry is enough.
+const rangeProto = Range.prototype as Range & {
+  getClientRects?: () => DOMRectList
+  getBoundingClientRect?: () => DOMRect
+}
+if (typeof rangeProto.getClientRects !== 'function') {
+  rangeProto.getClientRects = () =>
+    ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList
+}
+if (typeof rangeProto.getBoundingClientRect !== 'function') {
+  rangeProto.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0)
+}
 
 const views: EditorView[] = []
 
@@ -24,7 +42,15 @@ function mount(doc: string, anchor = 0): EditorView {
       doc,
       selection: { anchor },
       extensions: [
+        // CM6 runs every keymap from one DOM handler, placed at the FIRST
+        // keymap provider. The app mounts one (markdown snippets) ahead of
+        // vim(), so all bindings see a key before Vim does. Mounting vim()
+        // first here once hid #803: Vim got Escape before `simplifySelection`.
+        keymap.of([]),
         vim(),
+        // Typed text puts every source into "pending", as in the app.
+        autocompletion({ defaultKeymap: false, override: [() => null] }),
+        completionKeymapExtension,
         vimVisualHighlightExtension,
         vimClipboardPasteExtension,
         markdown({ base: markdownLanguage, addKeymap: false }),
@@ -143,6 +169,77 @@ describe('Vim visual-block editing (#792)', () => {
     press(view, 'd')
 
     expect(view.state.doc.toString()).toBe('abd\nx\nwxz')
+  })
+})
+
+describe('Escape ends a Vim block operation in normal mode (#803)', () => {
+  const vimState = (view: EditorView) => getCM(view)?.state.vim
+
+  async function completionIdle(view: EditorView): Promise<void> {
+    const deadline = Date.now() + 5_000
+    while (completionStatus(view.state) !== null) {
+      if (Date.now() > deadline) throw new Error('completion never settled')
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  }
+
+  it.each([
+    ['I', '- ', '- one\n- two\n- three'],
+    ['A', '!', 'o!ne\nt!wo\nt!hree'],
+    ['c', 'X', 'Xne\nXwo\nXhree']
+  ])('leaves insert mode with one cursor after block %s', async (key, text, expected) => {
+    const view = mount('one\ntwo\nthree')
+    selectFirstColumn(view)
+
+    press(view, key)
+    expect(view.state.selection.ranges.length).toBe(3)
+    view.dispatch({ ...view.state.replaceSelection(text), userEvent: 'input.type' })
+    // Settled, so only `simplifySelection` stands between Escape and Vim; the
+    // pending-query case has its own test below.
+    await completionIdle(view)
+    press(view, 'Escape')
+
+    expect(view.state.doc.toString()).toBe(expected)
+    expect(vimState(view)?.insertMode).toBe(false)
+    expect(vimState(view)?.visualMode).toBe(false)
+    expect(view.state.selection.ranges.length).toBe(1)
+  })
+
+  it('is not swallowed by a completion query that is only pending', () => {
+    const view = mount('one\ntwo\nthree')
+    selectFirstColumn(view)
+    press(view, 'I')
+    view.dispatch({ ...view.state.replaceSelection('- '), userEvent: 'input.type' })
+    // No popup exists yet: the sources are inside the activateOnTyping debounce.
+    expect(completionStatus(view.state)).toBe('pending')
+
+    press(view, 'Escape')
+
+    expect(vimState(view)?.insertMode).toBe(false)
+    expect(completionStatus(view.state)).toBe(null)
+  })
+
+  it('leaves visual block in a single press', () => {
+    const view = mount('one\ntwo\nthree')
+    selectFirstColumn(view)
+
+    press(view, 'Escape')
+
+    expect(vimState(view)?.visualMode).toBe(false)
+    expect(view.state.selection.ranges.length).toBe(1)
+    expect(view.state.selection.main.empty).toBe(true)
+  })
+
+  it('leaves a characterwise selection with the cursor on the last selected character', () => {
+    const view = mount('one\ntwo\nthree')
+    press(view, 'v')
+    press(view, 'l')
+
+    press(view, 'Escape')
+
+    expect(vimState(view)?.visualMode).toBe(false)
+    // Vim keeps the cursor on `n`; CodeMirror's own collapse would land past it.
+    expect(view.state.selection.main.head).toBe(1)
   })
 })
 

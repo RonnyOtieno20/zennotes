@@ -10,6 +10,11 @@ import { useStore } from '../store'
 import { getConfirmRequest, confirmApp } from './confirm-requests'
 import { getPromptRequest, promptApp } from './prompt-requests'
 import { parentDirOf } from './manual-order'
+import {
+  buildMoveDirectoryPrompt,
+  parseMoveNoteTarget,
+  validateMoveDirectoryTarget
+} from './move-note'
 import { resolveCreateLocation } from './vault-layout'
 
 export interface BrowseActionHost {
@@ -124,6 +129,41 @@ export async function requestRenameBrowseFolder(
     await useStore
       .getState()
       .renameFolder('inbox', directory, parent ? `${parent}/${name}` : name, isCurrent)
+    return isCurrent() ? 'completed' : 'stale'
+  } finally {
+    pending = false
+  }
+}
+
+/**
+ * Prompt for a new parent for an ordinary folder or a whole database
+ * directory. The leaf name, and so a database's .base suffix, is kept. The
+ * store action is the one desktop's sidebar drag uses: it carries open tabs
+ * (database tabs included), folder icons and colors, favorites, and manual
+ * order to the new path, and the host refuses to overwrite an existing folder.
+ */
+export async function requestMoveBrowseDirectory(
+  host: BrowseActionHost,
+  directory: string
+): Promise<BrowseActionResult> {
+  const context = start(host, directory)
+  if (!context) return 'unavailable'
+  const { isCurrent, targetExists } = context
+  try {
+    const validate = (value: string): string | null =>
+      validateMoveDirectoryTarget(directory, value, useStore.getState().folders)
+    const target = await promptApp({
+      ...buildMoveDirectoryPrompt(directory, useStore.getState().folders),
+      validate
+    })
+    if (!target || validate(target)) return 'cancelled'
+    const parent = parseMoveNoteTarget(target).subpath
+    if (parent === parentDirOf(directory)) return 'cancelled'
+    if (!isCurrent() || !targetExists()) return 'stale'
+    const leaf = directory.split('/').pop()!
+    await useStore
+      .getState()
+      .renameFolder('inbox', directory, parent ? `${parent}/${leaf}` : leaf, isCurrent)
     return isCurrent() ? 'completed' : 'stale'
   } finally {
     pending = false
