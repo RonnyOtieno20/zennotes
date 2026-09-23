@@ -1000,8 +1000,60 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     keepViewModeAcrossNotes && paneStickyMode
       ? paneStickyMode
       : paneModeForPath(modesByPath, activeTab, defaultPaneMode)
-  const [connectionsOpen, setConnectionsOpen] = useState(false)
-  const [outlineOpen, setOutlineOpen] = useState(false)
+  // One sticky set per pane, or one per note when "Keep panels when switching
+  // notes" is off (#794). Same names and setter shape as the four `useState`s
+  // this replaced, so every toggle and auto-open below is unchanged.
+  const {
+    connections: connectionsOpen,
+    outline: outlineOpen,
+    comments: commentsOpen,
+    calendar: calendarPanel,
+    calendarAutoOpenAllowed,
+    setConnectionsOpen: setConnectionsOpenRaw,
+    setOutlineOpen: setOutlineOpenRaw,
+    setCommentsOpen: setCommentsOpenRaw,
+    setCalendarPanel: setCalendarPanelRaw
+  } = usePanePanels(paneId, activeTab)
+  // Which panel was asked for last, most recent first. In a pane too narrow
+  // for all the open panels the most recent ones are shown and the rest are
+  // tucked into a rail, see lib/side-panel-fit. (#805)
+  const [sidePanelRecency, setSidePanelRecency] = useState<SidePanelId[]>([])
+  const tuckedSidePanelsRef = useRef<readonly SidePanelId[]>([])
+  const revealSidePanel = useCallback((id: SidePanelId) => {
+    setSidePanelRecency((recency) => bumpSidePanel(recency, id))
+  }, [])
+  // Opening a panel that is already open has to bring it forward, or code that
+  // asks for a tucked panel (jumping to a comment opens Comments) would get
+  // nothing. A panel that goes from closed to open is picked up by the effect
+  // that keeps the recency in line with what is open.
+  const setConnectionsOpen = useCallback(
+    (next: SetStateAction<boolean>) => {
+      if (next === true) revealSidePanel('connections')
+      setConnectionsOpenRaw(next)
+    },
+    [revealSidePanel, setConnectionsOpenRaw]
+  )
+  const setOutlineOpen = useCallback(
+    (next: SetStateAction<boolean>) => {
+      if (next === true) revealSidePanel('outline')
+      setOutlineOpenRaw(next)
+    },
+    [revealSidePanel, setOutlineOpenRaw]
+  )
+  const setCommentsOpen = useCallback(
+    (next: SetStateAction<boolean>) => {
+      if (next === true) revealSidePanel('comments')
+      setCommentsOpenRaw(next)
+    },
+    [revealSidePanel, setCommentsOpenRaw]
+  )
+  const setCalendarPanel = useCallback(
+    (next: SetStateAction<CalendarPanelState>) => {
+      if (typeof next !== 'function' && next.open) revealSidePanel('calendar')
+      setCalendarPanelRaw(next)
+    },
+    [revealSidePanel, setCalendarPanelRaw]
+  )
   const [grammarReviewOpen, setGrammarReviewOpen] = useState(false)
   const [grammarSessionState, setGrammarSessionState] =
     useState<GrammarDocumentSessionState | null>(null)

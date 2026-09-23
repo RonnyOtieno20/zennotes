@@ -118,6 +118,10 @@ export interface ZenCapabilities {
    *  Harper's worker and ships it. Absent on hosts that have not verified
    *  that yet (the mobile shells), which hides the setting there. */
   supportsHarper?: boolean
+  /** The host can keep per-note undo history between launches, somewhere
+   *  machine-local that is not the vault (`readNoteUndoHistory` and friends).
+   *  Absent everywhere but the desktop app, which hides the setting. (#793) */
+  supportsUndoFile?: boolean
   /** Host-mediated provider transport; false/absent on the web runtime. */
   supportsGrammarProviderTransport?: boolean
 }

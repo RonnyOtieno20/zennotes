@@ -122,6 +122,7 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsCustomTemplates: true,
   supportsCustomCodeLanguages: true,
   supportsWorkflows: true,
+  supportsUndoFile: true,
   supportsGrammarProviderTransport: true
 }
 
