@@ -10,7 +10,7 @@ import { isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from
 import { confirmApp } from './confirm-requests'
 import { promptApp } from './prompt-requests'
 import { captureNavigationContext } from './navigation-context'
-import { buildMoveNotePrompt, parseMoveNoteTarget } from './move-note'
+import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from './move-note'
 import { focusPaneInDirection } from './pane-nav'
 import { focusSidebarPanel } from './sidebar-focus'
 import { findLeaf } from './pane-layout'
@@ -550,9 +550,11 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const state = getState()
         const active = state.activeNote
         if (!active) return
-        const target = await promptApp(buildMoveNotePrompt(active, state.folders))
-        if (!target || !isCurrent()) return
-        const dest = parseMoveNoteTarget(target)
+        const vocabulary = moveNoteVocabulary(state.vaultSettings, state.systemFolderLabels, state.folders)
+        const target = await promptApp(buildMoveNotePrompt(active, state.folders, vocabulary))
+        // Empty is an answer (the notes root); only null is the Cancel.
+        if (target === null || !isCurrent()) return
+        const dest = parseMoveNoteTarget(target, vocabulary)
         await state.moveNote(active.path, dest.folder, dest.subpath, isCurrent)
       }
     }

@@ -183,9 +183,17 @@ describe('Workflow run entries', () => {
       name: 'Reading log',
       description: 'Keep the table in sync',
       status: 'active' as const,
+      trigger: { type: 'manual' as const },
       mutates: true
     },
-    { id: 'half-idea', name: 'Half idea', description: '', status: 'draft' as const, mutates: false }
+    {
+      id: 'half-idea',
+      name: 'Half idea',
+      description: '',
+      status: 'draft' as const,
+      trigger: { type: 'manual' as const },
+      mutates: false
+    }
   ]
 
   it('lists one Run entry per active workflow and none for drafts', async () => {

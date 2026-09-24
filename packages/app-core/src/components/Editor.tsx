@@ -52,6 +52,7 @@ import {
 } from "../lib/internal-links";
 import {
   buildMoveNotePrompt,
+  moveNoteVocabulary,
   parseMoveNoteTarget,
   parseTemplateDestination,
   validateMoveNoteTarget,
@@ -1114,20 +1115,26 @@ function registerVimNoteCommands(): void {
     const active = state.activeNote;
     if (!active) return;
 
-    const value = raw.trim();
-    let target = value;
+    const vocabulary = moveNoteVocabulary(
+      state.vaultSettings,
+      state.systemFolderLabels,
+      state.folders,
+    );
+    let target: string | null = raw.trim();
     if (!target) {
-      target =
-        (await promptApp(buildMoveNotePrompt(active, state.folders))) ?? "";
-      if (!target) return;
+      // Empty is an answer (the notes root); only null is the Cancel.
+      target = await promptApp(
+        buildMoveNotePrompt(active, state.folders, vocabulary),
+      );
+      if (target === null) return;
     }
 
-    const error = validateMoveNoteTarget(target);
+    const error = validateMoveNoteTarget(target, vocabulary);
     if (error) {
       alertEditorError(error);
       return;
     }
-    const dest = parseMoveNoteTarget(target);
+    const dest = parseMoveNoteTarget(target, vocabulary);
     await state.moveNote(active.path, dest.folder, dest.subpath);
   };
 

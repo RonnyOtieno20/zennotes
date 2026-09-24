@@ -568,6 +568,8 @@ export function SettingsModal(): JSX.Element {
   const setTabsEnabled = useStore((s) => s.setTabsEnabled);
   const workflowsEnabled = useStore((s) => s.workflowsEnabled);
   const setWorkflowsEnabled = useStore((s) => s.setWorkflowsEnabled);
+  const workflowEventTriggers = useStore((s) => s.workflowEventTriggers);
+  const setWorkflowEventTriggers = useStore((s) => s.setWorkflowEventTriggers);
   const atlasEnabled = useStore((s) => s.atlasEnabled);
   const setAtlasEnabled = useStore((s) => s.setAtlasEnabled);
   const hiddenWorkflowPresets = useStore((s) => s.hiddenWorkflowPresets);
@@ -2923,6 +2925,7 @@ export function SettingsModal(): JSX.Element {
             "The Workflows canvas, and whether it appears in the app at all.",
           searchIds: [
             "workflows-enabled",
+            "workflow-event-triggers",
             "workflow-hidden-recipes",
             "workflow-tutorial",
           ],
@@ -2938,6 +2941,13 @@ export function SettingsModal(): JSX.Element {
                   value={workflowsEnabled}
                   settingId="workflows-enabled"
                   onChange={setWorkflowsEnabled}
+                />
+                <ToggleRow
+                  label="Event triggers"
+                  description="Let an active workflow whose trigger is on note-created, note-saved, note-moved or tag-added run on its own when you make that change in this app. Each run sees only the note that changed, applies without a confirmation, and leaves a receipt with Undo. Off silences every event trigger on this device; a workflow of its own is silenced by trigger: manual or status: draft."
+                  value={workflowEventTriggers}
+                  settingId="workflow-event-triggers"
+                  onChange={setWorkflowEventTriggers}
                 />
                 <div
                   className="flex items-center justify-between gap-5 px-5 py-4"

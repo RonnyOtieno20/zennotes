@@ -200,6 +200,7 @@ import {
 } from '@shared/template-files'
 import { buildWorkflowIndex } from './lib/workflow-index'
 import type { WorkflowIndexEntry } from './lib/workflow-index'
+import { emitNoteEvent } from './lib/note-events'
 import {
   INITIAL_VISIBLE_NOTE_PREFETCH_BATCH_SIZE,
   selectInitialVisibleNotePrefetchPaths
@@ -463,6 +464,13 @@ async function refreshVaultIndexes(): Promise<void> {
     .catch(() => {
       /* a message that cannot be raised is not a vault that failed to open */
     })
+  // The event triggers listen from here on: installed once (the module keeps
+  // its own listener across vaults), lazily for the same reason as above.
+  void import('./lib/workflow-events')
+    .then((mod) => mod.installWorkflowEventTriggers())
+    .catch(() => {
+      /* nothing about opening a vault waits on the triggers either */
+    })
 }
 
 /** Find a template (built-in or custom) by id, or undefined if it's gone. */
@@ -722,6 +730,10 @@ interface Prefs {
    *  closes any tab already showing it. OFF by default, deliberately: it can
    *  rewrite notes in bulk, so it is a one-time opt-in under Settings. */
   workflowsEnabled: boolean
+  /** Whether active workflows whose `trigger:` names an event run on their
+   *  own for the edits made in this app. Kept apart from the master switch so
+   *  the canvas and manual runs can stay while nothing fires by itself. */
+  workflowEventTriggers: boolean
   atlasEnabled: boolean
   /** Built-in workflow recipes hidden from the gallery, by preset id. Unknown
    *  ids are kept rather than pruned, so hiding a preset survives the preset
@@ -927,6 +939,10 @@ export interface WorkflowRunRecord {
   undone: WorkflowUndoResult | null
   /** An undo that failed must not read as one that worked. */
   undoError: string | null
+  /** Where the run promised to move each note it moved, so an undo can carry
+   *  an open editor back the way the run carried it forward. Absent on a
+   *  record written before this existed and on an interrupted run. */
+  moves?: readonly { from: string; to: string }[]
 }
 
 /** Hidden gallery preset ids: strings, trimmed, deduped, order kept. Unknown
@@ -1154,6 +1170,7 @@ export const DEFAULT_PREFS: Prefs = {
   // graph editor asks more of a new user than any other view. The feature is
   // opted into once in Settings -> Workflows, not stumbled into.
   workflowsEnabled: false,
+  workflowEventTriggers: true,
   atlasEnabled: true,
   hiddenWorkflowPresets: [],
   collapsedTagNodes: [],
@@ -1486,6 +1503,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.workflowsEnabled === 'boolean'
         ? p.workflowsEnabled
         : DEFAULT_PREFS.workflowsEnabled,
+    workflowEventTriggers:
+      typeof p.workflowEventTriggers === 'boolean'
+        ? p.workflowEventTriggers
+        : DEFAULT_PREFS.workflowEventTriggers,
     atlasEnabled:
       typeof p.atlasEnabled === 'boolean' ? p.atlasEnabled : DEFAULT_PREFS.atlasEnabled,
     hiddenWorkflowPresets: normalizeHiddenWorkflowPresets(p.hiddenWorkflowPresets),
@@ -2396,6 +2417,10 @@ function collectPrefs(s: {
   grammarEnabled: boolean
   grammarPreferences: GrammarPreferences
   workflowsEnabled: boolean
+  /** Whether active workflows whose `trigger:` names an event run on their
+   *  own for the edits made in this app. Kept apart from the master switch so
+   *  the canvas and manual runs can stay while nothing fires by itself. */
+  workflowEventTriggers: boolean
   atlasEnabled: boolean
   hiddenWorkflowPresets: string[]
   collapsedTagNodes: string[]
@@ -2504,6 +2529,7 @@ function collectPrefs(s: {
     grammarEnabled: s.grammarEnabled,
     grammarPreferences: s.grammarPreferences,
     workflowsEnabled: s.workflowsEnabled,
+    workflowEventTriggers: s.workflowEventTriggers,
     atlasEnabled: s.atlasEnabled,
     hiddenWorkflowPresets: s.hiddenWorkflowPresets,
     collapsedTagNodes: s.collapsedTagNodes,
@@ -3105,6 +3131,10 @@ interface Store {
    *  row, the `view.workflows` command, and the leader binding, so the canvas
    *  has no way in at all. */
   workflowsEnabled: boolean
+  /** Whether active workflows whose `trigger:` names an event run on their
+   *  own for the edits made in this app. Kept apart from the master switch so
+   *  the canvas and manual runs can stay while nothing fires by itself. */
+  workflowEventTriggers: boolean
   atlasEnabled: boolean
   /** Built-in recipes hidden from the New-workflow gallery, by preset id.
    *  Persisted (portable). Hiding is per taste, not per vault. */
@@ -3474,6 +3504,22 @@ interface Store {
   deleteNotePermanently: (path: string) => Promise<boolean>
   emptyTrash: (hostIsCurrent?: () => boolean) => Promise<void>
   changeNoteLifecycle: (path: string, action: 'archive' | 'trash' | 'restore' | 'delete', hostIsCurrent?: () => boolean) => Promise<NoteMeta | null>
+  /**
+   * Keep the open editors on notes a workflow run is about to move.
+   *
+   * The host moves the file and the watcher reports an unlink of the old path,
+   * which closes its tab (`applyChange`); a move the app makes itself shields
+   * the path in `renamesInFlight` and carries the tab, the buffer and the undo
+   * history to the new path when the host answers (`mutateNoteImpl`). A run is
+   * applied by the host in one transaction, so the shield goes up for every
+   * promised move before the run and the carry happens after it, for the notes
+   * that landed where the plan promised, byte for byte. Returns the function
+   * that ends it, to call once the run is over, landed or not.
+   */
+  followWorkflowMoves: (
+    moves: readonly { from: string; to: string }[],
+    options?: { reverting?: boolean }
+  ) => () => Promise<void>
   restoreActive: () => Promise<void>
   archiveActive: () => Promise<void>
   unarchiveActive: () => Promise<void>
@@ -3546,6 +3592,7 @@ interface Store {
   /** Turn the whole Workflows feature on or off. Switching it off also closes
    *  any pane still showing the canvas. */
   setWorkflowsEnabled: (on: boolean) => void
+  setWorkflowEventTriggers: (on: boolean) => void
   setAtlasEnabled: (on: boolean) => void
   hideWorkflowPreset: (id: string) => void
   restoreWorkflowPreset: (id: string) => void
@@ -5745,6 +5792,7 @@ export const useStore = create<Store>((set, get) => {
   grammarEnabled: loadPrefs().grammarEnabled,
   grammarPreferences: loadPrefs().grammarPreferences,
   workflowsEnabled: loadPrefs().workflowsEnabled,
+  workflowEventTriggers: loadPrefs().workflowEventTriggers,
   atlasEnabled: loadPrefs().atlasEnabled,
   hiddenWorkflowPresets: loadPrefs().hiddenWorkflowPresets,
   collapsedTagNodes: loadPrefs().collapsedTagNodes,
@@ -6176,6 +6224,7 @@ export const useStore = create<Store>((set, get) => {
     try {
       const meta = await window.zen.createNote(folder, title, subpath)
       rememberEditModeForCreatedNote(meta.path)
+      emitNoteEvent('note-created', meta.path)
       // Overwrite the default `# title` body with the TaskNotes-style frontmatter
       // so the note is recognized as a task and shows up in the Tasks view.
       await window.zen.writeNote(
@@ -7790,6 +7839,7 @@ export const useStore = create<Store>((set, get) => {
         // Snapshot only after earlier writes finish. A second caller sees the
         // newest buffer here, then becomes the last writer by construction.
         const writtenBody = content.body
+        const tagsBefore = s.notes.find((note) => note.path === path)?.tags
         noteContentVersions.set(path, (noteContentVersions.get(path) ?? 0) + 1)
         const meta = await window.zen.writeNote(path, writtenBody)
         if (!isCurrent()) return
@@ -7818,6 +7868,12 @@ export const useStore = create<Store>((set, get) => {
             ...activeFieldsFrom(cur.paneLayout, cur.activePaneId, cur.noteContents, dirty)
           }
         })
+        // This app saved the note, which is what the workflow event triggers
+        // listen for. A tag the note did not carry before is its own event.
+        emitNoteEvent('note-saved', path)
+        if (tagsBefore !== undefined && meta.tags.some((tag) => !tagsBefore.includes(tag))) {
+          emitNoteEvent('tag-added', path)
+        }
       } catch (err) {
         console.error('writeNote failed', err)
       }
@@ -7962,10 +8018,21 @@ export const useStore = create<Store>((set, get) => {
   renameNote: async (oldPath, nextTitle, hostIsCurrent) => {
     if (!oldPath) return
     try {
-      await mutateNoteImpl(oldPath, () => window.zen.renameNote(oldPath, nextTitle), hostIsCurrent, true)
+      const moved = await mutateNoteImpl(oldPath, () => window.zen.renameNote(oldPath, nextTitle), hostIsCurrent, true)
+      if (moved && moved.path !== oldPath) emitNoteEvent('note-moved', moved.path)
     } catch (err) {
       if (hostIsCurrent) throw err
       console.error('renameNote failed', err)
+      // Every rename in the UI (title field, sidebar, note list, :rename)
+      // lands here, and a refusal used to leave the old name in place with
+      // nothing said about why (#839).
+      const title =
+        get().notes.find((note) => note.path === oldPath)?.title ??
+        oldPath.split('/').pop()?.replace(/\.(md|excalidraw)$/i, '') ??
+        oldPath
+      useToastStore
+        .getState()
+        .addToast(`Could not rename “${title}”: ${humanIpcError(err, 'the rename failed.')}`, 'error')
     }
   },
 
@@ -7979,6 +8046,7 @@ export const useStore = create<Store>((set, get) => {
     try {
       const meta = await window.zen.createNote(folder, options?.title, subpath)
       rememberEditModeForCreatedNote(meta.path)
+      emitNoteEvent('note-created', meta.path)
       // The heading uses the title the vault settled on, which may carry a
       // " 2" suffix the requested one did not.
       if (options?.tags && options.tags.length > 0) {
@@ -8092,6 +8160,7 @@ export const useStore = create<Store>((set, get) => {
         const title = file.name.replace(/\.(md|markdown)$/i, '').trim()
         const meta = await window.zen.createNote('inbox', title || undefined)
         if (content) await window.zen.writeNote(meta.path, content)
+        emitNoteEvent('note-created', meta.path)
         createdPaths.push(meta.path)
       } catch (err) {
         console.error('importDroppedMarkdownFiles failed', file.name, err)
@@ -8228,12 +8297,59 @@ export const useStore = create<Store>((set, get) => {
       if (action === 'trash') return bridge.moveToTrash(path)
       return source.folder === 'archive' ? bridge.unarchiveNote(path) : bridge.restoreFromTrash(path)
     }, isCurrent)
+    if (meta && meta.path !== path) emitNoteEvent('note-moved', meta.path)
     if (meta && canReconcile() && (action === 'archive' || action === 'trash')) {
       if (get().noteDirty[meta.path]) throw new Error('The moved note still has unsaved changes.')
       set(s => withoutNoteInWorkspace(s, meta.path))
       savePrefs(collectPrefs(get()))
     }
     return meta
+  },
+
+  followWorkflowMoves: (moves, options) => {
+    const openTabs = new Set(allLeaves(get().paneLayout).flatMap((leaf) => leaf.tabs))
+    const open = moves.filter(({ from, to }) => from !== to && (openTabs.has(from) || from in get().noteContents))
+    for (const { from } of open) renamesInFlight.add(from)
+    return async () => {
+      try {
+        if (open.length === 0) return
+        await get().refreshNotes()
+        const notes = get().notes
+        for (const { from, to } of open) {
+          // Asked of the disk, not of the list: a refresh that was already in
+          // flight when the run landed answers with the vault as it was.
+          const landed = await window.zen.readNote(to).then((content) => content.body, () => null)
+          if (landed === null) continue
+          if (await window.zen.readNote(from).then(() => true, () => false)) continue
+          // The promised path can be taken by another note, in which case the
+          // applier suffixed ours and this file is someone else's: only a file
+          // that reads exactly as the buffer did is the note that moved. An undo
+          // carries the note back to a path the ledger restored for it, so there
+          // the bytes may differ (the run edited the note after moving it) and
+          // a clean buffer takes the restored text instead.
+          const buffer = get().noteContents[from]
+          let restored: string | null = null
+          if (buffer && landed !== buffer.body) {
+            if (!options?.reverting || get().noteDirty[from]) continue
+            restored = landed
+          }
+          const meta = notes.find((note) => note.path === to)
+          set((s) => {
+            const rewritten = rewriteFolderWorkspace(s, from, to)
+            const contents = rewritten.noteContents!
+            if (meta && contents[to]) contents[to] = { ...contents[to], ...meta }
+            if (restored !== null && contents[to]) contents[to] = { ...contents[to], body: restored }
+            return {
+              ...rewritten,
+              ...activeFieldsFrom(rewritten.paneLayout!, rewritten.activePaneId!, contents, rewritten.noteDirty!)
+            }
+          })
+        }
+        savePrefs(collectPrefs(get()))
+      } finally {
+        for (const { from } of open) renamesInFlight.delete(from)
+      }
+    }
   },
 
   restoreActive: async () => {
@@ -8713,6 +8829,10 @@ export const useStore = create<Store>((set, get) => {
     savePrefs(collectPrefs(get()))
     if (!on) closeWorkflowsTabsEverywhere()
   },
+  setWorkflowEventTriggers: (on) => {
+    set({ workflowEventTriggers: on })
+    savePrefs(collectPrefs(get()))
+  },
   setAtlasEnabled: (on) => {
     set({ atlasEnabled: on })
     savePrefs(collectPrefs(get()))
@@ -9168,6 +9288,7 @@ export const useStore = create<Store>((set, get) => {
       const meta = await window.zen.createNote('inbox', title, subpath)
       rememberEditModeForCreatedNote(meta.path)
       if (body) await window.zen.writeNote(meta.path, body)
+      emitNoteEvent('note-created', meta.path)
       await get().refreshNotes()
       return get().notes.find((n) => n.path === meta.path) ?? meta
     } catch (err) {
@@ -9499,6 +9620,7 @@ export const useStore = create<Store>((set, get) => {
       const { body, cursorOffset } = renderTemplate(template.body, { title, now: opts?.date })
       const meta = await window.zen.createNote(folder, title, subpath)
       rememberEditModeForCreatedNote(meta.path)
+      emitNoteEvent('note-created', meta.path)
       // Write the rendered body before opening so the editor never flashes the
       // default `# Title` scaffold (mirrors importDroppedMarkdownFiles).
       await window.zen.writeNote(meta.path, body)
@@ -10314,7 +10436,8 @@ export const useStore = create<Store>((set, get) => {
 
   moveNote: async (relPath, targetFolder, targetSubpath, hostIsCurrent) => {
     try {
-      await mutateNoteImpl(relPath, () => window.zen.moveNote(relPath, targetFolder, targetSubpath), hostIsCurrent)
+      const moved = await mutateNoteImpl(relPath, () => window.zen.moveNote(relPath, targetFolder, targetSubpath), hostIsCurrent)
+      if (moved && moved.path !== relPath) emitNoteEvent('note-moved', moved.path)
     } catch (err) {
       if (hostIsCurrent) throw err
       console.error('moveNote failed', err)

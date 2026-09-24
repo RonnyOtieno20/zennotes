@@ -402,7 +402,10 @@ export function SearchCreateForm({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onOpenExisting(collision.note)}
               >
-                Open it <kbd className="rounded bg-paper-200 px-1 text-ink-500">Shift+↵</kbd>
+                Open it{' '}
+                <kbd data-keyboard-hints="" className="rounded bg-paper-200 px-1 text-ink-500">
+                  Shift+↵
+                </kbd>
               </Button>
             </>
           ) : (
@@ -476,7 +479,12 @@ export function SearchCreateForm({
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-t border-paper-300/70 bg-paper-100 px-4 py-2 text-xs text-ink-500">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+        {/* `data-keyboard-hints` marks the hardware-keyboard hints here and on
+            the Open it chip above: the phone shells hide them by that hook,
+            because this footer also holds Back and Create, so the rule that
+            hides every other palette footer cannot be allowed to match it
+            (#842). A tablet with a keyboard keeps them. */}
+        <div data-keyboard-hints="" className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <span>
             <kbd className="rounded bg-paper-200 px-1">↑↓</kbd> pick
           </span>

@@ -727,6 +727,7 @@ export function QuickCaptureApp(): JSX.Element {
           <CommandOverlay
             modKey={modKey}
             mode={mode}
+            vimMode={prefs.vimMode}
             onCancel={() => {
               setOverlay('none')
               requestAnimationFrame(() => editorRef.current?.focus())
@@ -883,11 +884,14 @@ type CommandAction = 'save' | 'save-no-close' | 'new' | 'open'
 interface CommandOverlayProps {
   modKey: string
   mode: EditingMode
+  /** Whether the capture editor runs Vim: its ex line is the only way to
+   *  `:w`, so that hint exists only then. */
+  vimMode: boolean
   onAction: (action: CommandAction) => void
   onCancel: () => void
 }
 
-function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProps): JSX.Element {
+function CommandOverlay({ modKey, mode, vimMode, onAction, onCancel }: CommandOverlayProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -907,7 +911,7 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
       {
         id: 'save-no-close' as CommandAction,
         label: 'Save without hiding',
-        hint: ':w',
+        hint: vimMode ? ':w' : '',
         keywords: 'save write keep open'
       },
       {
@@ -923,7 +927,7 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
         keywords: 'open switch picker find search note'
       }
     ],
-    [mode.kind, modKey]
+    [mode.kind, modKey, vimMode]
   )
 
   const results = useMemo(() => {
@@ -988,9 +992,11 @@ function CommandOverlay({ modKey, mode, onAction, onCancel }: CommandOverlayProp
                 ].join(' ')}
               >
                 <span className="truncate">{cmd.label}</span>
-                <kbd className="ml-auto rounded bg-paper-200 px-1.5 py-0.5 text-2xs text-ink-500">
-                  {cmd.hint}
-                </kbd>
+                {cmd.hint && (
+                  <kbd className="ml-auto rounded bg-paper-200 px-1.5 py-0.5 text-2xs text-ink-500">
+                    {cmd.hint}
+                  </kbd>
+                )}
               </button>
             )
           })

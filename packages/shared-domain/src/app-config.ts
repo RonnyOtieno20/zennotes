@@ -139,6 +139,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   textFont: null,
   monoFont: null,
   workflowsEnabled: false,
+  workflowEventTriggers: true,
   hiddenWorkflowPresets: [],
   atlasEnabled: true,
   systemFolderLabels: {},

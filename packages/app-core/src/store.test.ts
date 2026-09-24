@@ -2091,6 +2091,41 @@ describe('renameNote heading sync (#455)', () => {
     expect(order.slice(0, 2)).toEqual(['save', 'rename'])
   })
 
+  // Every rename in the UI comes through here without a host, so a refusal
+  // has to say why instead of leaving the old name in place silently (#839).
+  it('tells the user why a rename was refused', async () => {
+    installRename({
+      renameNote: vi
+        .fn()
+        .mockRejectedValue(
+          new Error(
+            "Error invoking remote method 'vault:rename-note': Error: A note named “Groceries” already exists in this folder"
+          )
+        )
+    })
+    const { useStore } = await loadStore()
+    const { useToastStore } = await import('./lib/toast')
+    useStore.setState({ notes: [metaOf('inbox/Untitled.md', 'Untitled')] })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await useStore.getState().renameNote('inbox/Untitled.md', 'Groceries')
+
+    expect(useToastStore.getState().toasts.map((toast) => [toast.type, toast.message])).toEqual([
+      ['error', 'Could not rename “Untitled”: A note named “Groceries” already exists in this folder']
+    ])
+  })
+
+  it('leaves a refused rename to a host that asked to handle it', async () => {
+    installRename({ renameNote: vi.fn().mockRejectedValue(new Error('refused')) })
+    const { useStore } = await loadStore()
+    const { useToastStore } = await import('./lib/toast')
+
+    await expect(
+      useStore.getState().renameNote('inbox/Untitled.md', 'Groceries', () => true)
+    ).rejects.toThrow('refused')
+    expect(useToastStore.getState().toasts).toEqual([])
+  })
+
   it('does not rename when a dirty linked note could not be saved', async () => {
     const dirtyNote = makeNote('See [[Untitled]]\n', 'inbox/Daily.md')
     const renameNote = vi.fn().mockResolvedValue(renamedMeta)

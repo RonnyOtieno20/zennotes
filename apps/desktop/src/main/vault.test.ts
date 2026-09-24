@@ -1566,6 +1566,29 @@ describe('note rename transaction', () => {
     expect((await readNoteComments(root,'inbox/Renamed.md'))[0].body).toBe('Keep destination')
     if (withComments) expect((await readNoteComments(root,'inbox/One.md'))[0].body).toBe('Source discussion')
   })
+
+  // The app shows these reasons in a toast now, so they have to read plainly (#839).
+  it('names the leftover comments file that blocks a rename', async () => {
+    const root = await makeTempDir('zennotes-note-rename-reason-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/One.md', 'Original.\n')
+    await writeNoteComments(root, 'inbox/Renamed.md', [{notePath:'inbox/Renamed.md',anchorStart:0,anchorEnd:0,anchorText:'',id:'destination', body:'Keep destination', createdAt:1, updatedAt:1}])
+    await expect(renameNote(root, 'inbox/One.md', 'Renamed')).rejects.toThrow(
+      'Comments from an earlier note named “Renamed” are still in .zennotes/comments/inbox/Renamed.md.comments.json'
+    )
+  })
+
+  it('says when another note already has the name', async () => {
+    const root = await makeTempDir('zennotes-note-rename-taken-')
+    await ensureVaultLayout(root)
+    await writeNote(root, 'inbox/One.md', 'Original.\n')
+    await writeNote(root, 'inbox/Two.md', 'Other note.\n')
+    await expect(renameNote(root, 'inbox/One.md', 'Two')).rejects.toThrow(
+      'A note named “Two” already exists in this folder'
+    )
+    expect(await readFile(path.join(root, 'inbox/One.md'), 'utf8')).toBe('Original.\n')
+    expect(await readFile(path.join(root, 'inbox/Two.md'), 'utf8')).toBe('Other note.\n')
+  })
 })
 
 
