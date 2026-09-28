@@ -92,6 +92,7 @@ import {
   type SystemFolderPaths
 } from '@shared/system-folder-paths'
 import { normalizeTasksExcludedFolders } from '@shared/tasks-excluded-folders'
+import { normalizeVaultDisplayName, resolveVaultName } from '@shared/vault-display-name'
 import {
   isTypstPreamblePath,
   normalizeTypstPreambleSettings,
@@ -489,6 +490,22 @@ export function forgetLocalVault(
   return entries.filter((entry) => path.resolve(entry.root) !== target)
 }
 
+/**
+ * The remembered list with one vault's name replaced, in place: order and
+ * `lastOpenedAt` are untouched, because a rename is not a visit (#692). A
+ * vault the list does not hold is left for the next open to add.
+ */
+export function renameLocalVault(
+  entries: PersistedLocalVault[],
+  root: string,
+  name: string
+): PersistedLocalVault[] {
+  const target = path.resolve(root)
+  return entries.map((entry) =>
+    path.resolve(entry.root) === target ? { ...entry, name } : entry
+  )
+}
+
 function configBackupPath(): string {
   return `${configPath()}.bak`
 }
@@ -799,6 +816,7 @@ export function databaseSidecarPath(root: string, rel: string): string {
 
 function cloneVaultSettings(settings: VaultSettings): VaultSettings {
   return {
+    ...(settings.displayName ? { displayName: settings.displayName } : {}),
     primaryNotesLocation: settings.primaryNotesLocation,
     dailyNotes: {
       enabled: settings.dailyNotes.enabled,
@@ -1066,6 +1084,7 @@ function normalizeVaultSettings(
     }
   }
   const candidate = value as {
+    displayName?: unknown
     primaryNotesLocation?: unknown
     dailyNotes?: {
       enabled?: unknown
@@ -1113,6 +1132,9 @@ function normalizeVaultSettings(
     }
   }
   return {
+    // Undefined when unset, which JSON.stringify leaves out, so a vault that
+    // never named itself keeps a vault.json without the key (#692).
+    displayName: normalizeVaultDisplayName(candidate.displayName),
     primaryNotesLocation: normalizePrimaryNotesLocation(
       candidate.primaryNotesLocation ?? fallbackPrimary
     ),
@@ -1870,8 +1892,26 @@ async function migrateOneLegacyDatabase(
   return true
 }
 
+/** A vault by its folder: the name is the directory's own. Cheap and sync;
+ *  where the app shows the vault, `describeVault` is the one to call. */
 export function vaultInfo(root: string): VaultInfo {
   return { root, name: path.basename(root) }
+}
+
+/**
+ * The vault as the app names it: its display name from vault.json when it
+ * has one (#692), else the folder name. Reads through the settings cache, so
+ * after the first open it costs one stat. A folder that cannot be read still
+ * describes itself by name, the way it always did.
+ */
+export async function describeVault(root: string): Promise<VaultInfo> {
+  const info = vaultInfo(root)
+  try {
+    const settings = await getVaultSettings(root)
+    return { ...info, name: resolveVaultName(settings.displayName, info.name) }
+  } catch {
+    return info
+  }
 }
 
 function toPosix(p: string): string {

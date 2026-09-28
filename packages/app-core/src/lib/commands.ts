@@ -29,6 +29,8 @@ import {
 } from './cm-harper'
 import { harperEditorConfig, harperSupported } from './harper-runtime'
 import { reflowParagraph } from './cm-reflow'
+import { convertTableToDatabase } from './table-to-database'
+import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
 import { promptImageWidth } from './image-resize'
 import { copyLinkAtCursor } from './link-copy'
 import { getKeymapDisplay, type KeymapId } from './keymaps'
@@ -196,7 +198,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'New Note from Template…',
       category: 'Note',
       keywords: 'template scaffold adr rfc meeting daily weekly boilerplate new',
-      shortcut: leaderShortcut('vim.leaderTemplatePicker'),
+      shortcut:
+        shortcut('global.newNoteFromTemplate') ||
+        (getState().vimMode ? leaderShortcut('vim.leaderTemplatePicker') : undefined),
       run: () => getState().setTemplatePaletteOpen(true)
     },
     {
@@ -204,7 +208,9 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Insert Template into Current Note…',
       category: 'Note',
       keywords: 'template insert apply into current note scaffold fill',
-      shortcut: leaderShortcut('vim.leaderInsertTemplate'),
+      shortcut:
+        shortcut('global.insertTemplate') ||
+        (getState().vimMode ? leaderShortcut('vim.leaderInsertTemplate') : undefined),
       when: () => !!getState().activeNote,
       run: () => getState().openTemplatePaletteForInsert()
     },
@@ -971,6 +977,24 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         if (!view) return
         reflowParagraph(view)
         view.focus()
+      }
+    },
+    {
+      id: 'table.to-database',
+      title: 'Convert Table to Database…',
+      category: 'Editor',
+      shortcut: getState().vimMode
+        ? chord('vim.leaderPrefix', 'vim.leaderNoteActions', 'vim.leaderTableToDatabase')
+        : undefined,
+      keywords: 'table database convert csv base grid board rows columns markdown pipe extract',
+      // Stays listed whenever a note is open: with no table under the cursor
+      // the run says so, which beats an entry that vanishes from the palette
+      // and an ex command that returns nothing.
+      when: () => !!getState().editorViewRef && !!getState().activeNote,
+      run: async () => {
+        const view = getState().editorViewRef
+        if (!view) return
+        await convertTableToDatabase(view)
       }
     },
     {
@@ -1864,6 +1888,18 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
           window.zen.getCapabilities().supportsRemoteWorkspace),
       run: () => {
         /* handled by CommandPalette */
+      }
+    },
+    {
+      id: 'vault.rename',
+      title: 'Rename Vault…',
+      category: 'Vault',
+      keywords: 'vault name display name rename label switcher sidebar header folder',
+      // Local vaults only (#692): a temporary folder session writes nothing
+      // into its folder, and a remote workspace's settings belong to its server.
+      when: () => canRenameVault(getState()),
+      run: async () => {
+        await renameVaultWithPrompt()
       }
     },
     {

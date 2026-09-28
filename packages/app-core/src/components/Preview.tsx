@@ -38,6 +38,7 @@ import { isExcalidrawPath, isObsidianExcalidrawPath } from "@shared/excalidraw";
 import { resolveExcalidrawEmbedPath } from "../lib/excalidraw-preview";
 import { LazyExcalidrawPreview } from "./LazyExcalidrawPreview";
 import { enhancePreviewHeadingFolds } from "../lib/preview-heading-fold";
+import { wrapTaskItemOwnText } from "../lib/preview-task-body";
 import {
   previewEditRequestForTarget,
   type PreviewEditRequest,
@@ -844,33 +845,9 @@ export const Preview = memo(function Preview({
         const due = chip.dataset.due ?? "";
         chip.classList.toggle("zen-task-due-overdue", !closed && due !== "" && due < today);
       });
-      // Wrap the item's OWN inline text in a span, so state styling (strike/gray
-      // for done and cancelled) targets just this line and never bleeds onto
-      // nested sub-tasks. Loose items keep their <p>, which the CSS targets
-      // directly; only bare-text (tight) items get the wrapper. The state marker
-      // span stays outside it: it sits in the gutter and must not be struck
-      // along with the text. (#512)
-      if (!li.querySelector(":scope > .task-item-body")) {
-        const own = Array.from(li.childNodes).filter((node) => {
-          if (node === input) return false;
-          if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node as Element;
-            if (el.tagName === "UL" || el.tagName === "OL" || el.tagName === "P") return false;
-            if (el.classList.contains("zen-task-state")) return false;
-          }
-          return true;
-        });
-        const hasText = own.some(
-          (node) =>
-            node.nodeType !== Node.TEXT_NODE || (node.textContent ?? "").trim() !== "",
-        );
-        if (hasText && own.length > 0) {
-          const body = document.createElement("span");
-          body.className = "task-item-body";
-          li.insertBefore(body, own[0]);
-          for (const node of own) body.appendChild(node);
-        }
-      }
+      // Wrap the item's own text so done and cancelled styling lands on it
+      // alone, never on a sub-task or a block such as a code block. (#512, #849)
+      wrapTaskItemOwnText(li, input);
     });
 
     const applyRenderedDom = async (): Promise<void> => {

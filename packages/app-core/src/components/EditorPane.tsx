@@ -100,7 +100,7 @@ import {
 } from '../lib/cm-heading-fold'
 import { tags as t } from '@lezer/highlight'
 import { autocompletion } from '@codemirror/autocomplete'
-import { MIN_RIGHT_PANEL_WIDTH, useStore } from '../store'
+import { MIN_RIGHT_PANEL_WIDTH, noteDiskRevision, useStore } from '../store'
 import type { LineNumberMode } from '../store'
 import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
@@ -311,6 +311,7 @@ import {
 import { noteUndoHistoryFromFile, serializeNoteUndoHistory } from '../lib/note-undo-file'
 import { latestPathRewriteSeq, pathAfterRewrites } from '../lib/path-rewrites'
 import { minimalTextChange } from '../lib/minimal-text-change'
+import { isDiskChange, resetUndoHistory } from '../lib/editor-disk-sync'
 import {
   MIN_NOTE_WIDTH,
   MIN_SPLIT_NOTE_WIDTH,
@@ -1172,6 +1173,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
    *  accounted for. Only newer ones can explain a path change as a rename, so
    *  an old rename can never make a real note switch look like one. */
   const seenPathRewriteSeqRef = useRef(0)
+  /** The store's disk revision for the note on screen that this editor has
+   *  accounted for. A body change under the same path with a newer revision
+   *  is the file changing on disk, which starts the undo history clean; a
+   *  peer pane or a rename rewrite leaves the revision alone (#852). */
+  const seenDiskRevisionRef = useRef(0)
 
   const updateSelectionCommentAction = useCallback((view: EditorView | null = viewRef.current): void => {
     setSelectionCommentAction(view ? getSelectionCommentAction(view) : null)
@@ -2053,8 +2059,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       richMarkdownDeferredRef.current = deferInitialRichMarkdown
       const stateStartedAt = performance.now()
       viewPathRef.current = initialPath
-      // A new editor starts on its note, so no earlier rename concerns it.
+      // A new editor starts on its note, so no earlier rename concerns it,
+      // and no earlier disk change either.
       seenPathRewriteSeqRef.current = latestPathRewriteSeq(s0.recentPathRewrites)
+      seenDiskRevisionRef.current = initialPath ? noteDiskRevision(initialPath) : 0
       followPathRewritesInNoteUndoHistories(s0.recentPathRewrites)
       const state = EditorState.create({
         doc: initialBody,
@@ -2428,6 +2436,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       switched ||
       view.state.doc.length !== nextBody.length ||
       view.state.doc.toString() !== nextBody
+    // The file changing on disk under the note on screen, as opposed to a
+    // peer pane or a rename rewrite: the store bumps the note's disk revision
+    // in the same update. Re-baseline on every path change, so a disk change
+    // a note took while off screen (already handled by the set-aside history)
+    // is not counted again when it comes back.
+    const diskRevision = nextPath ? noteDiskRevision(nextPath) : 0
+    const fromDisk = isDiskChange({
+      pathChanged,
+      bodyChanged,
+      diskRevision,
+      seenDiskRevision: seenDiskRevisionRef.current
+    })
+    seenDiskRevisionRef.current = diskRevision
     if (!pathChanged && !bodyChanged) return
     followPathRewritesInNoteUndoHistories(rewrites)
     if (renamed && prevPath && nextPath) {
@@ -2527,6 +2548,17 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             ? undefined
             : { anchor: clampedAnchor, head: clampedHead }
       })
+    }
+    if (fromDisk) {
+      // The text came from disk (a sync tool, an external editor, a script),
+      // not from anyone in this app. The user's undo steps were mapped through
+      // the change and still apply, but onto text nobody here wrote: undoing
+      // one made a document neither the user nor the other program ever had,
+      // and the save that follows every edit wrote it to disk (#852). A note
+      // reopened after such a change already starts clean; one that never left
+      // the screen now does too. The caret and scroll stay where they are.
+      const historyCompartment = historyCompartmentRef.current
+      if (historyCompartment) resetUndoHistory(view, historyCompartment)
     }
     if (switched) {
       // Switching notes: also drop the previous note's undo history so undo

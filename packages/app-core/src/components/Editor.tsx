@@ -1420,7 +1420,13 @@ function registerCommandPaletteEx(): void {
   };
 
   const names = new Set<string>(MANUAL_EX_NAMES);
-  for (const cmd of buildCommands()) {
+  // Register every command, gated or not. This runs when the Editor mounts,
+  // before any pane has a view or a note, and buildCommands() drops every
+  // command whose `when` says no at that instant, which is the whole
+  // editor-scoped family (:editor_reflow_paragraph, :task_forward, and the
+  // rest) for the life of the window. `runCommand` re-checks `when` when the
+  // name is actually typed, so nothing runs out of context.
+  for (const cmd of buildCommands({ includeUnavailable: true })) {
     const name = commandIdToExName(cmd.id);
     if (names.has(name)) continue;
     names.add(name);

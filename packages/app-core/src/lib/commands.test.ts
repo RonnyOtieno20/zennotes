@@ -270,6 +270,39 @@ describe('close-tab command shortcut', () => {
   })
 })
 
+describe('template command shortcuts (#847)', () => {
+  it('show the template shortcut once one is set, and the leader key only with Vim on', async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    // Linux: the template shortcuts ship unbound there.
+    Object.defineProperty(window, 'zen', {
+      configurable: true,
+      value: { ...window.zen, platformSync: () => 'linux' }
+    })
+    const shortcutOf = (id: string) => buildCommands().find((c) => c.id === id)?.shortcut
+
+    // Insert only exists with a note open.
+    useStore.setState({
+      vimMode: false,
+      keymapOverrides: {},
+      activeNote: { folder: 'inbox', path: 'inbox/Plan.md', title: 'Plan', body: '' } as never
+    })
+    expect(buildCommands().some((c) => c.id === 'template.insert')).toBe(true)
+    expect(shortcutOf('template.create')).toBeFalsy()
+    expect(shortcutOf('template.insert')).toBeFalsy()
+
+    useStore.setState({ vimMode: true })
+    expect(shortcutOf('template.create')).toMatch(/ t$/)
+    expect(shortcutOf('template.insert')).toMatch(/ i$/)
+
+    useStore.setState({
+      vimMode: false,
+      keymapOverrides: { 'global.newNoteFromTemplate': 'Alt+Mod+T', 'global.insertTemplate': 'Alt+Mod+Y' }
+    })
+    expect(shortcutOf('template.create')).toMatch(/T$/)
+    expect(shortcutOf('template.insert')).toMatch(/Y$/)
+  })
+})
+
 describe('New Note in Current Folder (#403)', () => {
   it('creates in the active note folder, not the sidebar browse view', async () => {
     const { buildCommands, useStore } = await loadCommands()

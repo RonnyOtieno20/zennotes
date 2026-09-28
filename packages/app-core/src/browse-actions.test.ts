@@ -19,7 +19,7 @@ async function setup() {
   const create = vi.fn(async () => {})
   const rename = vi.fn(async () => {})
   const remove = vi.fn(async () => {})
-  const createDatabase = vi.fn(async () => {})
+  const createDatabase = vi.fn(async () => undefined)
   const renameDatabase = vi.fn(async () => {})
   useStore.setState({
     vault: { root: '/test', name: 'Test' },

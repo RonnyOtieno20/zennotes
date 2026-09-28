@@ -195,6 +195,79 @@ describe('#202 — store keeps each note its own content during navigation', () 
   })
 })
 
+// #852: the editor tells a body that came from disk apart from one another
+// pane or a rename rewrite produced by the note's disk revision, which only a
+// read from disk moves.
+describe('#852: a note body taken from disk moves its disk revision', () => {
+  const a = 'Work/Documentation/Vault CLI Cheatsheet.md'
+
+  it('an external change to an open, clean note bumps it once', async () => {
+    const { useStore, noteDiskRevision } = await loadStore()
+    seedRootVault(useStore)
+    await useStore.getState().openNoteInPane(useStore.getState().activePaneId, a)
+    await flush()
+    expect(noteDiskRevision(a)).toBe(0)
+
+    vault.set(a, 'Hello, changed outside')
+    await useStore.getState().applyChange({ kind: 'change', path: a, folder: 'inbox' })
+    await flush()
+    expect(useStore.getState().noteContents[a]?.body).toBe('Hello, changed outside')
+    expect(noteDiskRevision(a)).toBe(1)
+  })
+
+  it("the app's own save echo and the user's typing leave it alone", async () => {
+    const { useStore, noteDiskRevision } = await loadStore()
+    seedRootVault(useStore)
+    await useStore.getState().openNoteInPane(useStore.getState().activePaneId, a)
+    await flush()
+
+    // Typing is an in-app change: no disk read, no revision.
+    useStore.getState().updateNoteBody(a, 'CLI_BODY typed')
+    await useStore.getState().persistNote(a)
+    expect(vault.get(a)).toBe('CLI_BODY typed')
+    expect(noteDiskRevision(a)).toBe(0)
+
+    // The watcher echoing that save reads the same bytes the buffer holds.
+    await useStore.getState().applyChange({ kind: 'change', path: a, folder: 'inbox' })
+    await flush()
+    expect(noteDiskRevision(a)).toBe(0)
+  })
+
+  it('a rewrite the app made itself (an asset rename) is read back without moving it', async () => {
+    const { useStore, noteDiskRevision } = await loadStore()
+    seedRootVault(useStore)
+    await useStore.getState().openNoteInPane(useStore.getState().activePaneId, a)
+    await flush()
+
+    vault.set(a, 'CLI_BODY with ![](renamed.png)')
+    await useStore.getState().applyChange({ kind: 'change', path: a, folder: 'inbox' }, { source: 'app' })
+    await flush()
+    expect(useStore.getState().noteContents[a]?.body).toBe('CLI_BODY with ![](renamed.png)')
+    expect(noteDiskRevision(a)).toBe(0)
+  })
+
+  it('a change refused because the buffer is dirty does not count as one', async () => {
+    const { useStore, noteDiskRevision } = await loadStore()
+    seedRootVault(useStore)
+    await useStore.getState().openNoteInPane(useStore.getState().activePaneId, a)
+    await flush()
+    useStore.getState().updateNoteBody(a, 'unsaved typing')
+
+    vault.set(a, 'Hello, changed outside')
+    await useStore.getState().applyChange({ kind: 'change', path: a, folder: 'inbox' })
+    await flush()
+    expect(useStore.getState().noteContents[a]?.body).toBe('unsaved typing')
+    expect(noteDiskRevision(a)).toBe(0)
+
+    // The typing above armed the debounced save; settle it here rather than
+    // let it fire into a later test. The user's own write reaching disk is
+    // not a disk change either.
+    await useStore.getState().persistNote(a)
+    expect(vault.get(a)).toBe('unsaved typing')
+    expect(noteDiskRevision(a)).toBe(0)
+  })
+})
+
 // #585 ("ZenNotes clears all text from a note while editing"): the watcher
 // echo of one save could read the file while the next non-atomic save had it
 // truncated. applyChange pushed that empty read over the DIRTY buffer, the

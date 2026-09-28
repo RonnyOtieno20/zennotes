@@ -50,6 +50,7 @@ import {
   FolderPlusIcon,
   NotePlusIcon,
   PanelLeftIcon,
+  PencilIcon,
   PlusIcon,
   SearchIcon,
   SettingsIcon,
@@ -64,6 +65,7 @@ import { ResizeHandle } from "./ResizeHandle";
 import { VaultBadge } from "./VaultBadge";
 import { confirmApp } from '../lib/confirm-requests'
 import { promptApp } from '../lib/prompt-requests'
+import { canRenameVault, renameVaultWithPrompt } from '../lib/rename-vault'
 import { naturalCompare } from '../lib/natural-sort'
 import { resolveQuickNoteTitle } from "../lib/quick-note-title";
 import { recordRendererPerf } from "../lib/perf";
@@ -580,6 +582,10 @@ export function Sidebar(): JSX.Element {
     window.zen.getCapabilities().supportsRemoteWorkspace;
   const canSwitchVaults = canSwitchLocalVaults || canUseRemoteWorkspaces;
   const canCloseCurrentVault = canSwitchLocalVaults && workspaceMode !== "remote" && !!vault;
+  // A display name (#692) is a vault.json setting, so any host that can write
+  // one can rename; only a temporary folder session and a remote workspace
+  // cannot.
+  const canRenameCurrentVault = canRenameVault({ vault, workspaceMode });
   const absolutePathLabel =
     workspaceMode === "remote" ? "Copy Server Path" : "Copy Absolute Path";
   const canManageAssetFiles =
@@ -2659,6 +2665,15 @@ export function Sidebar(): JSX.Element {
     }
 
     items.push({ kind: "separator" });
+    if (canRenameCurrentVault) {
+      items.push({
+        label: "Rename Vault…",
+        icon: <PencilIcon className="h-4 w-4" />,
+        onSelect: async () => {
+          await renameVaultWithPrompt();
+        },
+      });
+    }
     if (canCloseCurrentVault) {
       items.push({
         label: "Close Current Vault",
@@ -2700,6 +2715,7 @@ export function Sidebar(): JSX.Element {
     return items;
   }, [
     canCloseCurrentVault,
+    canRenameCurrentVault,
     canSwitchLocalVaults,
     canUseRemoteWorkspaces,
     closeVault,

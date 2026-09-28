@@ -11,6 +11,7 @@ import {
   type EditorCursorPosition
 } from './lib/editor-cursor-position'
 import { DEFAULT_VAULT_SETTINGS } from '@shared/ipc'
+import { normalizeVaultDisplayName, resolveVaultName } from '@shared/vault-display-name'
 import {
   DEFAULT_HARPER_DIALECT,
   isHarperDialect,
@@ -67,7 +68,7 @@ import {
   taskFilePriorityValue,
   updateFrontmatterFields
 } from '@shared/frontmatter'
-import type { DatabaseDoc, DatabaseSidecar } from '@shared/databases'
+import type { DatabaseDoc, DatabaseSeed, DatabaseSidecar } from '@shared/databases'
 import {
   databaseTabPath,
   csvPathFromDatabaseTab,
@@ -1767,6 +1768,13 @@ export interface ConnectionPreviewState {
   anchorRect: PreviewAnchorRect
 }
 
+export interface CreateDatabaseOptions {
+  /** Initial columns and rows (a converted Markdown table, #832). */
+  seed?: DatabaseSeed
+  /** Open the new grid in the active pane. Default true. */
+  open?: boolean
+}
+
 function getVisiblePreviewScrollElement(): HTMLElement | null {
   if (typeof document === 'undefined') return null
   return [...document.querySelectorAll<HTMLElement>('[data-preview-scroll]')].find(
@@ -3272,6 +3280,14 @@ interface Store {
    *  save that never happened. */
   setVaultSettings: (next: VaultSettings) => Promise<boolean>
   /**
+   * Give the open vault a display name (#692), kept in its vault.json so it
+   * travels with the folder; empty or whitespace goes back to the folder's
+   * own name. Local vaults only: a temporary folder session writes nothing.
+   * Resolves true once saved; the header, switcher and remembered-vaults
+   * list follow without a reopen.
+   */
+  renameVault: (name: string | null) => Promise<boolean>
+  /**
    * Toggle a favorite (a note path or a `folder:subpath` key) and persist it.
    * Favorites pin to the top of the sidebar.
    */
@@ -3324,8 +3340,18 @@ interface Store {
   loadDatabase: (csvPath: string) => Promise<void>
   /** Load a database and open it as a tab in the active pane. */
   openDatabase: (csvPath: string) => Promise<void>
-  /** Create a new empty database under `folder`/`subpath` and open it. */
-  createDatabase: (folder: NoteFolder, subpath?: string, title?: string, isCurrent?: () => boolean) => Promise<void>
+  /** Create a new database under `folder`/`subpath` and open it: empty by
+   *  default, or holding `options.seed` (a converted Markdown table, #832).
+   *  `options.open: false` leaves the caller in place. Resolves to the created
+   *  doc (its title may carry a collision suffix), or undefined when nothing
+   *  was created or the workspace moved on meanwhile. */
+  createDatabase: (
+    folder: NoteFolder,
+    subpath?: string,
+    title?: string,
+    isCurrent?: () => boolean,
+    options?: CreateDatabaseOptions
+  ) => Promise<DatabaseDoc | undefined>
   /** Create a database in the configured default databases location and open it. (#362) */
   newDatabase: () => Promise<void>
   /** Rename a database (its `.base` folder); rehomes the open grid tab. */
@@ -3436,7 +3462,14 @@ interface Store {
   jumpToPreviousNote: () => Promise<void>
   jumpToNextNote: () => Promise<void>
   toggleRecentNote: () => Promise<void>
-  applyChange: (ev: VaultChangeEvent) => Promise<void>
+  /**
+   * Bring a vault change into the store. A body re-read for an open note
+   * counts as a change from disk unless `options.source` is `'app'`: the app
+   * itself rewrote the file (a link re-targeted after an asset rename) and
+   * the editor should keep the note's undo history through it, as it does
+   * for a rename's heading rewrite, rather than start it clean (#852).
+   */
+  applyChange: (ev: VaultChangeEvent, options?: { source?: 'disk' | 'app' }) => Promise<void>
   refreshNotes: () => Promise<void>
   refreshRootContentHidden: () => Promise<void>
   /** Dismiss the vault-root notice for the current vault, persisted (#216). */
@@ -3886,6 +3919,21 @@ const savedBodies = new Map<string, string>()
 // Only the latest watcher read may apply, and a newer local save invalidates
 // older reads even if it finishes or returns to the same starting body.
 const noteContentVersions = new Map<string, number>()
+/**
+ * How many times each open note's body was taken from disk this session (a
+ * watcher event, a resync after a remote feed came back), bumped in the same
+ * update that replaces the body and left alone by every in-app writer. The
+ * editor reads it to tell a change from disk apart from a peer pane or a
+ * rename rewrite, which look the same in the body, and starts the note's undo
+ * history clean for the former (#852). Keyed by path like noteContentVersions;
+ * an entry outliving a vault switch is harmless, since an editor re-baselines
+ * on every note it starts showing.
+ */
+const noteDiskRevisions = new Map<string, number>()
+
+export function noteDiskRevision(path: string): number {
+  return noteDiskRevisions.get(path) ?? 0
+}
 
 /**
  * Old paths of renames the host has not answered yet. A rename is a move on
@@ -4794,6 +4842,22 @@ function withoutNoteInWorkspace(s: Store, path: string): Partial<Store> {
     pinnedRefPath: s.pinnedRefPath === path ? null : s.pinnedRefPath,
     ...activeFieldsFrom(ensured.layout, ensured.activePaneId, contents, dirty)
   }
+}
+
+/**
+ * Give the open vault the name its settings say (#692): the display name when
+ * there is one, else the folder's own, read off the root the way main does.
+ * Runs after every settings save and every external vault.json change, so
+ * the header, title bar and note-list heading move with the file. A plain
+ * `set`, not `setVault`: a renamed vault is the same vault.
+ */
+function applyVaultNameFromSettings(settings: VaultSettings): void {
+  const vault = useStore.getState().vault
+  if (!vault) return
+  const folder = vault.root.split(/[\\/]/).filter(Boolean).pop() ?? vault.root
+  const name = resolveVaultName(settings.displayName, folder)
+  if (name === vault.name) return
+  useStore.setState({ vault: { ...vault, name } })
 }
 
 export const useStore = create<Store>((set, get) => {
@@ -5848,7 +5912,10 @@ export const useStore = create<Store>((set, get) => {
 
   setVault: (v) =>
     set((s) => {
-      const vaultChanged = s.vault?.root !== v?.root || s.vault?.name !== v?.name
+      // The root is the vault's identity. Its name is a label the user can
+      // change (#692), so a renamed vault keeps its caches, undo stacks and
+      // closed-tab history; only a different folder starts those over.
+      const vaultChanged = s.vault?.root !== v?.root
       if (vaultChanged) {
         clearNoteContentReadCaches()
       }
@@ -5861,6 +5928,7 @@ export const useStore = create<Store>((set, get) => {
       set({
         vaultSettings: settings
       })
+      applyVaultNameFromSettings(settings)
     } catch (err) {
       console.error('setVaultSettings failed', err)
       return false
@@ -5874,6 +5942,21 @@ export const useStore = create<Store>((set, get) => {
       console.error('setVaultSettings failed', err)
     }
     return true
+  },
+  renameVault: async (name) => {
+    const vault = get().vault
+    if (!vault || vault.temporary) return false
+    const displayName = normalizeVaultDisplayName(name ?? '')
+    const current = get().vaultSettings
+    if (current.displayName === displayName) return true
+    const { displayName: _previous, ...rest } = current
+    const saved = await get().setVaultSettings(
+      displayName ? { ...rest, displayName } : rest
+    )
+    // Main rewrote the remembered-vaults entry with the save; the switcher
+    // and the sidebar header read that list, so fetch it again.
+    if (saved) await get().refreshLocalVaults()
+    return saved
   },
   applyFavorites: async (nextFavorites) => {
     const isCurrent = captureFolderActionContext(get)
@@ -6148,10 +6231,10 @@ export const useStore = create<Store>((set, get) => {
     ;(document.activeElement as HTMLElement | null)?.blur?.()
     set({ focusedPanel: 'editor' })
   },
-  createDatabase: async (folder, subpath = '', title, hostIsCurrent) => {
-    if (workspaceWritesBlocked()) return
+  createDatabase: async (folder, subpath = '', title, hostIsCurrent, options) => {
+    if (workspaceWritesBlocked()) return undefined
     const isCurrent = captureFolderActionContext(get, hostIsCurrent)
-    if (!isCurrent()) return
+    if (!isCurrent()) return undefined
     const directory = vaultRelativeFolderPath(folder, subpath, get().vaultSettings)
     const prefix = directory ? `${directory}/` : ''
     let release: (() => void) | undefined
@@ -6171,15 +6254,17 @@ export const useStore = create<Store>((set, get) => {
           release = resolve
         })
       )
-      const doc = await window.zen.createDatabase(folder, subpath, title)
-      if (!isCurrent()) return
+      const doc = await window.zen.createDatabase(folder, subpath, title, options?.seed)
+      if (!isCurrent()) return undefined
       set((s) => ({ databases: { ...s.databases, [doc.path]: doc } }))
       await get().refreshNotes()
-      if (!isCurrent()) return
+      if (!isCurrent()) return undefined
+      if (options?.open === false) return doc
       await get().openNoteInPane(get().activePaneId, databaseTabPath(doc.path))
-      if (!isCurrent()) return
+      if (!isCurrent()) return undefined
       ;(document.activeElement as HTMLElement | null)?.blur?.()
       set({ focusedPanel: 'editor' })
+      return doc
     } catch (err) {
       if (hostIsCurrent) throw err
       console.error('createDatabase failed', err)
@@ -6187,6 +6272,7 @@ export const useStore = create<Store>((set, get) => {
         const { useToastStore } = await import('./lib/toast')
         useToastStore.getState().addToast(humanIpcError(err, 'Could not create database'), 'error')
       }
+      return undefined
     } finally {
       if (release) {
         databaseCreations.delete(prefix)
@@ -6948,8 +7034,10 @@ export const useStore = create<Store>((set, get) => {
     // already reads as that day, so strip any `due:` token; otherwise write the
     // explicit date.
     const movedLine = setTaskDueAtIndex(line, 0, inferDue ? null : dateIso)
-    const trimmed = tgtBody.replace(/\s+$/u, '')
-    const nextTgt = trimmed.length ? `${trimmed}\n${movedLine}\n` : `${movedLine}\n`
+
+    // Insert into the destination note's Tasks section when one exists;
+    // otherwise append to the end of the note.
+    const nextTgt = insertTasksUnderTasksHeading(tgtBody, [movedLine])
 
     // Persist both notes (open buffers go through the edit pipeline).
     if (srcBuffer) get().updateNoteBody(task.sourcePath, strippedSrc)
@@ -7422,7 +7510,7 @@ export const useStore = create<Store>((set, get) => {
       result = await window.zen.renameAsset(relPath, nextName)
       await Promise.all([get().refreshAssets(), get().refreshNotes()])
       await Promise.all(Object.values(get().noteContents).map(({ path, folder }) =>
-        get().applyChange({ kind: 'change', path, folder })
+        get().applyChange({ kind: 'change', path, folder }, { source: 'app' })
       ))
     }, false, true)
     return result
@@ -7433,7 +7521,7 @@ export const useStore = create<Store>((set, get) => {
       result = await window.zen.moveAsset(relPath, targetDir)
       await Promise.all([get().refreshAssets(), get().refreshNotes()])
       await Promise.all(Object.values(get().noteContents).map(({ path, folder }) =>
-        get().applyChange({ kind: 'change', path, folder })
+        get().applyChange({ kind: 'change', path, folder }, { source: 'app' })
       ))
     }, false, true)
     return result
@@ -7507,7 +7595,7 @@ export const useStore = create<Store>((set, get) => {
     }
   },
 
-  applyChange: async (ev) => {
+  applyChange: async (ev, options) => {
     if (folderMutationBlocks(ev.path)) return
     // The live feed's unlink handling, shared with the resync path below:
     // a deleted note's tab closes wherever it is open.
@@ -7593,6 +7681,10 @@ export const useStore = create<Store>((set, get) => {
               if (!existing || existing.body === content.body || s.noteDirty[openPath]) return s
               const contents = { ...s.noteContents, [openPath]: content }
               const dirty = { ...s.noteDirty, [openPath]: false }
+              // The body comes from the server's disk: the editor starts the
+              // note's undo history clean rather than mapping steps onto
+              // text written elsewhere (#852).
+              noteDiskRevisions.set(openPath, noteDiskRevision(openPath) + 1)
               return {
                 noteContents: contents,
                 noteDirty: dirty,
@@ -7673,6 +7765,11 @@ export const useStore = create<Store>((set, get) => {
                 vaultSettings: normalized,
                 ...(get().viewSettingsScope === 'vault' ? viewPrefsFromVault(normalized) : {})
               })
+              // A display name edited outside (#692) renames the open vault
+              // too; the remembered list is what main rewrites, so refetch it.
+              const nameBefore = get().vault?.name
+              applyVaultNameFromSettings(normalized)
+              if (get().vault?.name !== nameBefore) void get().refreshLocalVaults()
             })
             .catch((err) => {
               console.error('refresh vault settings failed', err)
@@ -7748,6 +7845,12 @@ export const useStore = create<Store>((set, get) => {
           if (s.noteDirty[ev.path]) return s
           const contents = { ...s.noteContents, [ev.path]: content }
           const dirty = { ...s.noteDirty, [ev.path]: false }
+          // Text from disk, not from this app: the editor starts the note's
+          // undo history clean, since the user's steps would map onto text
+          // nobody here wrote (#852). A rewrite the app made itself keeps it.
+          if (options?.source !== 'app') {
+            noteDiskRevisions.set(ev.path, noteDiskRevision(ev.path) + 1)
+          }
           return {
             noteContents: contents,
             noteDirty: dirty,
@@ -9323,8 +9426,9 @@ export const useStore = create<Store>((set, get) => {
       : `- [ ] ${content} due:${dateIso}`
     const openBuffer = get().noteContents[path]
     const body = openBuffer?.body ?? (await window.zen.readNote(path)).body
-    const trimmed = body.replace(/\s+$/u, '')
-    const nextBody = trimmed.length ? `${trimmed}\n${line}\n` : `${line}\n`
+    // Insert into the note's Tasks section when one exists; otherwise
+    // append to the end of the note
+    const nextBody = insertTasksUnderTasksHeading(body, [line])
     if (openBuffer) {
       // Open note: edit through the buffer so unsaved changes aren't stomped;
       // its autosave + the watcher rescan the tasks (a disk rescan now would be

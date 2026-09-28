@@ -533,7 +533,15 @@ export async function resolveVaultSelector(selector: string): Promise<string> {
   const trimmed = selector.trim()
   const known = await readKnownVaultsFromConfig()
 
-  const byName = known.filter((vault) => vault.name.toLowerCase() === trimmed.toLowerCase())
+  // The name the app shows, then the folder's own: a vault renamed in the
+  // app (#692) answers to both, so a script written before the rename keeps
+  // working. Same ambiguity rule for either.
+  const wanted = trimmed.toLowerCase()
+  const byDisplayName = known.filter((vault) => vault.name.toLowerCase() === wanted)
+  const byName =
+    byDisplayName.length > 0
+      ? byDisplayName
+      : known.filter((vault) => path.basename(vault.root).toLowerCase() === wanted)
   if (byName.length === 1) {
     const root = byName[0].root
     try {
