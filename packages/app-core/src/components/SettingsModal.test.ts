@@ -132,6 +132,7 @@ vi.mock("@zennotes/bridge-contract/bridge", () => ({
       supportsCustomTemplates: true,
       supportsRemoteWorkspace: false,
       supportsCloudSync: true,
+      ...mocks.capabilities,
       supportsGrammarProviderTransport: true,
     }),
     ...cloudMocks,
