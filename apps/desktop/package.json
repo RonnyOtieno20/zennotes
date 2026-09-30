@@ -296,7 +296,20 @@
     },
     "deb": {
       "afterInstall": "build/after-install.sh",
-      "compression": "xz"
+      "compression": "xz",
+      "depends": [
+        "libgtk-3-0",
+        "libnotify4",
+        "libnss3",
+        "libxss1",
+        "libxtst6",
+        "xdg-utils",
+        "libatspi2.0-0",
+        "libuuid1",
+        "libsecret-1-0",
+        "libasound2t64 | libasound2",
+        "libgbm1"
+      ]
     },
     "rpm": {
       "afterInstall": "build/after-install.sh",
@@ -304,6 +317,16 @@
     },
     "pacman": {
       "compression": "xz",
+      "depends": [
+        "gtk3",
+        "nss",
+        "alsa-lib",
+        "mesa",
+        "libnotify",
+        "libsecret",
+        "xdg-utils",
+        "desktop-file-utils"
+      ],
       "fpm": [
         "--provides",
         "zennotes",

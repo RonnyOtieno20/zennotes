@@ -38,6 +38,7 @@ import { isExcalidrawPath, isObsidianExcalidrawPath } from "@shared/excalidraw";
 import { resolveExcalidrawEmbedPath } from "../lib/excalidraw-preview";
 import { LazyExcalidrawPreview } from "./LazyExcalidrawPreview";
 import { enhancePreviewHeadingFolds } from "../lib/preview-heading-fold";
+import { enhancePreviewListFolds } from "../lib/preview-list-fold";
 import { wrapTaskItemOwnText } from "../lib/preview-task-body";
 import {
   previewEditRequestForTarget,
@@ -849,6 +850,9 @@ export const Preview = memo(function Preview({
       // alone, never on a sub-task or a block such as a code block. (#512, #849)
       wrapTaskItemOwnText(li, input);
     });
+    // After the task pass: wrapTaskItemOwnText gathers every inline node of a
+    // task item into its body span, and would take a fold arrow in with them.
+    enhancePreviewListFolds(stage);
 
     const applyRenderedDom = async (): Promise<void> => {
       try {
