@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   MAX_UNDO_HISTORY_AGE_MS,
   MAX_UNDO_HISTORY_BYTES,
-  MAX_UNDO_HISTORY_FILES,
   UNDO_HISTORY_DIR,
   clearUndoHistories,
   pruneUndoHistories,
@@ -94,21 +93,26 @@ describe('pruning undo history files', () => {
     expect((await readdir(path.dirname(oldFile))).length).toBe(1)
   })
 
+  // Checked against a small cap, not the real 400: writing 400 histories took
+  // over five seconds on the Windows runner, the test timed out, and vitest's
+  // cleanup then raced the abandoned writes into an ENOTEMPTY.
   it('keeps the most recently written notes when a vault has too many', async () => {
+    const cap = 4
     const extra = 3
-    for (let n = 0; n < MAX_UNDO_HISTORY_FILES + extra; n++) {
+    for (let n = 0; n < cap + extra; n++) {
       await writeUndoHistory(base, VAULT, `inbox/${n}.md`, String(n))
       const file = undoHistoryFile(base, VAULT, `inbox/${n}.md`)!
-      const at = new Date(Date.now() - (MAX_UNDO_HISTORY_FILES + extra - n) * 1000)
+      const at = new Date(Date.now() - (cap + extra - n) * 1000)
       await utimes(file, at, at)
     }
-    await pruneUndoHistories(base)
+    await pruneUndoHistories(base, Date.now(), cap)
     expect(await readUndoHistory(base, VAULT, 'inbox/0.md')).toBeNull()
     expect(await readUndoHistory(base, VAULT, `inbox/${extra - 1}.md`)).toBeNull()
     expect(await readUndoHistory(base, VAULT, `inbox/${extra}.md`)).toBe(String(extra))
-    expect(await readFile(undoHistoryFile(base, VAULT, `inbox/${MAX_UNDO_HISTORY_FILES}.md`)!, 'utf8')).toBe(
-      String(MAX_UNDO_HISTORY_FILES)
+    expect(await readFile(undoHistoryFile(base, VAULT, `inbox/${cap + extra - 1}.md`)!, 'utf8')).toBe(
+      String(cap + extra - 1)
     )
+    expect(await readdir(path.dirname(undoHistoryFile(base, VAULT, 'inbox/0.md')!))).toHaveLength(cap)
   })
 
   it('is fine with nothing to prune', async () => {

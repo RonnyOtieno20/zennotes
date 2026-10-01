@@ -87,31 +87,38 @@ function installZen(overrides: Record<string, unknown> = {}): void {
   })
 }
 
-// The most recent store module a test loaded. `vi.resetModules` gives every
-// test a fresh module, but timers the OLD module already scheduled keep
-// running: `updateNoteBody` debounces a `persistNote` at 350ms
-// (pathSaveTimers), and database edits debounce a write at 400ms
-// (databaseSaveTimers). A test that schedules either without awaiting it
-// leaves a straggler that fires against whichever `window.zen` spy is
-// installed one or two tests later; a partial mock there turns the write
-// into `undefined.catch`, which is an unhandled error that fails the whole
-// run (seen on the macOS runner). The cure is the afterEach below: it
-// starves both timers' bail-out checks on the old store, so a stray
-// persistNote finds nothing dirty and a stray database write finds no doc,
-// and each returns before touching `window.zen`.
-let lastLoadedStore: { useStore: { setState: (partial: object) => void } } | null = null
+// Every store module the running test loaded (a relaunch test loads two).
+// `vi.resetModules` gives every test a fresh module, but timers the OLD
+// module already scheduled keep running: `updateNoteBody` debounces a
+// `persistNote` at 350ms (pathSaveTimers), database edits debounce a write at
+// 400ms (databaseSaveTimers), and opening a vault refreshes its assets 2s
+// later (scheduleAssetsRefreshForVault). A test that schedules any of them
+// without awaiting it leaves a straggler that fires against whichever
+// `window.zen` spy is installed tests later; a partial mock there turns the
+// write into `undefined.catch`, which is an unhandled error that fails the
+// whole run (seen on the macOS runner). The asset refresh can also outlive
+// the file: on a slow runner it fired after vitest had torn down the jsdom
+// environment, and `window is not defined` failed the Windows build. The cure
+// is the afterEach below: it starves every timer's bail-out check on the old
+// stores, so a stray persistNote finds nothing dirty, a stray database write
+// finds no doc and a stray asset refresh finds its vault closed, and each
+// returns before touching `window`.
+type LoadedStoreModule = { useStore: { setState: (partial: object) => void } }
+const loadedStores = new Set<LoadedStoreModule>()
 
 async function loadStore() {
   vi.resetModules()
   localStorage.clear()
   const mod = await import('./store')
-  lastLoadedStore = mod as unknown as typeof lastLoadedStore
+  loadedStores.add(mod as unknown as LoadedStoreModule)
   return mod
 }
 
 afterEach(() => {
-  lastLoadedStore?.useStore.setState({ noteDirty: {}, databases: {} })
-  lastLoadedStore = null
+  for (const loaded of loadedStores) {
+    loaded.useStore.setState({ noteDirty: {}, databases: {}, vault: null })
+  }
+  loadedStores.clear()
 })
 
 type LoadedStore = Awaited<ReturnType<typeof loadStore>>['useStore']
@@ -842,7 +849,7 @@ describe('per-note panels survive a restart (#794)', () => {
   async function relaunch() {
     vi.resetModules()
     const mod = await import('./store')
-    lastLoadedStore = mod as unknown as typeof lastLoadedStore
+    loadedStores.add(mod as unknown as LoadedStoreModule)
     return mod
   }
 

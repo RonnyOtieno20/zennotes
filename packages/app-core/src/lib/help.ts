@@ -1227,6 +1227,11 @@ export const HELP_CLI: HelpCard[] = [
       'Builds with the Go terminal tool include `zn tui`. Update and open ZenNotes once to upgrade an existing desktop-managed CLI; keep using the same `zn` commands. Settings shows the installed terminal version and offers Repair if an upgrade needs attention. Desktop-installed commands keep following the desktop vault, while the TUI remembers its own selection. Explicit `--vault` and `--server` flags still win. Set `ZENNOTES_WORKSPACE_SOURCE=terminal` to use the terminal default for a command, or `ZENNOTES_CLI_ENGINE=legacy` to run the previous CLI during the transition. Homebrew and manual installations stay managed by their own installer. A shortcut left behind by a moved Mac app or an old AppImage can be repaired from Settings: review the old target, replacement and backup path before choosing Repair shortcut. Note saves preserve creation dates in small files under `.zennotes/note-metadata` without changing Markdown; keep the `.zennotes` folder with vault backups. Explicit legacy rollback needs the original app resources to remain available.'
   },
   {
+    title: 'CLI 0.6.0 in desktop 2.59.0',
+    body:
+      'On macOS and Linux, desktop 2.59.0 bundles CLI 0.6.0. Run `zn` in an interactive terminal or `zn tui` to open the editor. It includes editable settings, restored splits and sessions, comments, attachments, templates, bulk actions, and cross-note yank and paste. Use `:version` in the TUI for a persistent report and press `c` or `y` to copy it. `zn status`, `zn doctor`, `zn config`, and `zn completion` help with setup and scripts; `zn server` manages native local servers, also available through `:servers`. Run `zn update --check` to check the CLI release; a desktop-managed CLI updates with the desktop app. The full command reference is at https://zennotes.org/tui/docs.'
+  },
+  {
     title: 'No app required',
     body:
       'The CLI reads from the same vault folder the desktop app uses, so it works whether or not ZenNotes is open. When the app is open, file watchers pick up CLI changes automatically — captures and edits show up live in the sidebar.'

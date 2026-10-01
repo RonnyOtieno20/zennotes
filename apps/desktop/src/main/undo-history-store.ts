@@ -105,7 +105,11 @@ export async function clearUndoHistories(baseDir: string): Promise<void> {
  * oldest ones beyond the per-vault count, and any stray partial writes. Cheap
  * enough to run once per launch.
  */
-export async function pruneUndoHistories(baseDir: string, now: number = Date.now()): Promise<void> {
+export async function pruneUndoHistories(
+  baseDir: string,
+  now: number = Date.now(),
+  maxFiles: number = MAX_UNDO_HISTORY_FILES
+): Promise<void> {
   const root = path.join(baseDir, UNDO_HISTORY_DIR)
   let vaults: string[]
   try {
@@ -134,7 +138,7 @@ export async function pruneUndoHistories(baseDir: string, now: number = Date.now
       }
     }
     kept.sort((a, b) => b.mtimeMs - a.mtimeMs)
-    for (const { file } of kept.slice(MAX_UNDO_HISTORY_FILES)) {
+    for (const { file } of kept.slice(maxFiles)) {
       await fsp.rm(file, { force: true }).catch(() => undefined)
     }
     if (kept.length === 0) await fsp.rmdir(dir).catch(() => undefined)
