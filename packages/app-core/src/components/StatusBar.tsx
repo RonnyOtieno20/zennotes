@@ -39,10 +39,11 @@ export function StatusBar({ note }: { note: NoteContent | null }): JSX.Element {
   }, [note?.body]);
 
   // Backlinks depend only on the active note's *path* and the vault's
-  // wikilink metadata — never on the note body. Keying the memo on
-  // `note.path` (instead of the whole `note` object, which changes on every
-  // keystroke) keeps this O(n) scan off the typing hot path while producing
-  // an identical count.
+  // wikilink metadata, never on the note body. backlinksForNote resolves the
+  // vault's links once per notes array, so a note switch is a map lookup
+  // (#880). Keying the memo on `note.path` (instead of the whole `note`
+  // object, which changes on every keystroke) keeps even that lookup off the
+  // typing hot path while producing an identical count.
   const backlinks = useMemo(() => {
     if (!note) return 0;
     return backlinksForNote(notes as NoteMeta[], note).length;

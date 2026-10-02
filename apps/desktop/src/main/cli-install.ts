@@ -245,6 +245,18 @@ async function reviewRepair(
   return offer
 }
 
+/** Where this build's own `zn` and its manifest live. */
+export function terminalBundleDir(): string {
+  // Named in build/after-pack.js, which says why it is not `terminal` (#869).
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'zn-cli')
+    : path.resolve(
+        path.dirname(fileURLToPath(import.meta.url)),
+        '../../build/terminal',
+        `${process.platform}-${process.arch}`
+      )
+}
+
 async function locateWrapper(): Promise<WrapperLocation | null> {
   const candidates: WrapperLocation[] = []
 
@@ -275,10 +287,7 @@ async function locateWrapper(): Promise<WrapperLocation | null> {
         let terminal
         try {
           terminal = await prepareTerminalRuntime({
-            // Named in build/after-pack.js, which says why it is not `terminal` (#869).
-            bundleDir: app.isPackaged
-              ? path.join(process.resourcesPath, 'zn-cli')
-              : path.resolve(here, '../../build/terminal', `${process.platform}-${process.arch}`),
+            bundleDir: terminalBundleDir(),
             userData: app.getPath('userData'),
             platform: process.platform,
             arch: process.arch,

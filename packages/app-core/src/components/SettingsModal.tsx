@@ -24,6 +24,7 @@ import { harperSupported } from "../lib/harper-runtime";
 import type {
   AppUpdateState,
   CliInstallStatus,
+  CliUpdateState,
   NoteFolder,
   RaycastExtensionStatus,
   RemoteWorkspaceProfile,
@@ -5562,6 +5563,20 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "cli-updates",
+          title: "zn updates",
+          description:
+            "The installed `zn` version, the version this ZenNotes ships, and Check for updates.",
+          keywords: ["cli", "zn", "update", "upgrade", "version", "release", "check"],
+        },
+        {
+          id: "cli-auto-update",
+          title: "Update zn automatically",
+          description:
+            "ZenNotes installs new `zn` releases itself after checking their signature.",
+          keywords: ["cli", "zn", "update", "upgrade", "version", "release", "automatic"],
+        },
+        {
           id: "cli-quick-reference",
           title: "CLI quick reference",
           description: "A handful of the most useful `zn` commands.",
@@ -8406,6 +8421,8 @@ function CliSettings(): JSX.Element {
         </div>
       </Section>
 
+      {status.runtime === "go" && installed && ours && <CliUpdatesSection />}
+
       <RaycastExtensionSettings
         cliInstalled={installed && !status.repair}
         copyToClipboard={copyToClipboard}
@@ -8429,6 +8446,121 @@ function CliSettings(): JSX.Element {
       </Section>
 
     </div>
+  );
+}
+
+/**
+ * The desktop-managed zn updates itself from signed ZenNotes/tui releases, so
+ * a CLI fix ships without a ZenNotes release. This shows which version runs,
+ * which one this build carries as its floor, and the result of the last check.
+ */
+function CliUpdatesSection(): JSX.Element | null {
+  const [update, setUpdate] = useState<CliUpdateState | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void window.zen
+      .cliUpdateGetState?.()
+      .then((next) => {
+        if (!cancelled) setUpdate(next);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // A scheduled check can start or finish while this page is open.
+  useEffect(() => window.zen.onCliUpdateState?.((next) => setUpdate(next)), []);
+
+  if (!update?.supported || !window.zen.cliUpdateCheck) return null;
+
+  const check = async (install: boolean): Promise<void> => {
+    setBusy(true);
+    try {
+      const next = await window.zen.cliUpdateCheck?.({ install });
+      if (next) setUpdate(next);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const setAutoUpdate = async (enabled: boolean): Promise<void> => {
+    const next = await window.zen.cliSetAutoUpdate?.(enabled);
+    if (next) setUpdate(next);
+  };
+
+  const checking = busy || update.phase === "checking";
+  const ahead =
+    update.bundledVersion != null &&
+    update.installedVersion != null &&
+    update.bundledVersion !== update.installedVersion;
+
+  return (
+    <Section
+      title="Updates"
+      description="ZenNotes installs new zn releases itself, so the command-line tool no longer waits for a ZenNotes update. Every release is checked against its signature before it runs."
+      settingId="cli-updates"
+    >
+      <ToggleRow
+        label="Update zn automatically"
+        description="Checks once a day and installs newer releases. When off, ZenNotes still checks and offers the update here."
+        value={update.autoUpdate}
+        settingId="cli-auto-update"
+        onChange={(next) => void setAutoUpdate(next)}
+      />
+      <div className="flex items-start justify-between gap-4 px-5 py-4">
+        <div className="min-w-0 text-xs leading-5 text-ink-500">
+          <div
+            className="text-sm font-medium text-ink-900"
+            data-cli-update-installed
+          >
+            zn {update.installedVersion ?? "not set up yet"}
+          </div>
+          {ahead && (
+            <div>This copy of ZenNotes ships zn {update.bundledVersion}.</div>
+          )}
+          {update.message && (
+            <div
+              data-cli-update-message
+              className={update.phase === "error" ? "text-amber-500" : undefined}
+            >
+              {update.message}
+            </div>
+          )}
+          {update.lastCheckedAt != null && (
+            <div>
+              Last checked{" "}
+              {new Date(update.lastCheckedAt).toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
+            </div>
+          )}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {update.phase === "available" && !update.autoUpdate && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void check(true)}
+              disabled={checking}
+            >
+              Install zn {update.availableVersion}
+            </Button>
+          )}
+          <Button
+            size="sm"
+            onClick={() => void check(update.autoUpdate)}
+            disabled={checking}
+            data-cli-update-check
+          >
+            {checking ? "Checking…" : "Check for updates"}
+          </Button>
+        </div>
+      </div>
+    </Section>
   );
 }
 

@@ -4,6 +4,8 @@ import type {
   AssetMeta,
   CliInstallStatus,
   CliInstallRequest,
+  CliUpdateCheckRequest,
+  CliUpdateState,
   DeletedAsset,
   ExternalFileContent,
   ExternalFileLink,
@@ -484,6 +486,14 @@ export interface ZenBridge {
   cliGetStatus(): Promise<CliInstallStatus>
   cliInstall(request?: CliInstallRequest): Promise<CliInstallStatus>
   cliUninstall(): Promise<CliInstallStatus>
+  /** Desktop only: the managed `zn` version and its update state. */
+  cliUpdateGetState?(): Promise<CliUpdateState>
+  /** Desktop only: check the latest signed CLI release now. */
+  cliUpdateCheck?(request: CliUpdateCheckRequest): Promise<CliUpdateState>
+  /** Desktop only: install newer CLI releases automatically or only report them. */
+  cliSetAutoUpdate?(enabled: boolean): Promise<CliUpdateState>
+  /** Desktop only: every change to the CLI update state, including scheduled checks. */
+  onCliUpdateState?(cb: (state: CliUpdateState) => void): () => void
   raycastGetStatus(): Promise<RaycastExtensionStatus>
   raycastInstall(): Promise<RaycastExtensionStatus>
   clipboardWriteText(text: string): void

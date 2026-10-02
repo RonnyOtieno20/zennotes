@@ -65,6 +65,8 @@ import type {
   AppUpdateState,
   AssetMeta,
   CliInstallStatus,
+  CliUpdateCheckRequest,
+  CliUpdateState,
   CliInstallRequest,
   DeletedAsset,
   DirectoryBrowseResult,
@@ -745,6 +747,16 @@ const api: ZenBridge = {
   cliInstall: (request?: CliInstallRequest): Promise<CliInstallStatus> =>
     ipcRenderer.invoke(IPC.CLI_INSTALL, request),
   cliUninstall: (): Promise<CliInstallStatus> => ipcRenderer.invoke(IPC.CLI_UNINSTALL),
+  cliUpdateGetState: (): Promise<CliUpdateState> => ipcRenderer.invoke(IPC.CLI_UPDATE_GET_STATE),
+  cliUpdateCheck: (request: CliUpdateCheckRequest): Promise<CliUpdateState> =>
+    ipcRenderer.invoke(IPC.CLI_UPDATE_CHECK, request),
+  cliSetAutoUpdate: (enabled: boolean): Promise<CliUpdateState> =>
+    ipcRenderer.invoke(IPC.CLI_SET_AUTO_UPDATE, enabled),
+  onCliUpdateState: (cb: (state: CliUpdateState) => void): (() => void) => {
+    const listener = (_: unknown, state: CliUpdateState): void => cb(state)
+    ipcRenderer.on(IPC.CLI_UPDATE_ON_STATE, listener)
+    return () => ipcRenderer.removeListener(IPC.CLI_UPDATE_ON_STATE, listener)
+  },
   raycastGetStatus: (): Promise<RaycastExtensionStatus> =>
     ipcRenderer.invoke(IPC.RAYCAST_GET_STATUS),
   raycastInstall: (): Promise<RaycastExtensionStatus> =>

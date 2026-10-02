@@ -180,6 +180,10 @@ export const IPC = {
   CLI_GET_STATUS: 'cli:get-status',
   CLI_INSTALL: 'cli:install',
   CLI_UNINSTALL: 'cli:uninstall',
+  CLI_UPDATE_GET_STATE: 'cli:update-get-state',
+  CLI_UPDATE_CHECK: 'cli:update-check',
+  CLI_SET_AUTO_UPDATE: 'cli:set-auto-update',
+  CLI_UPDATE_ON_STATE: 'cli:update-on-state',
   RAYCAST_GET_STATUS: 'raycast:get-status',
   RAYCAST_INSTALL: 'raycast:install',
   CONFIG_GET_SYNC: 'config:get-sync',
@@ -245,6 +249,41 @@ export interface CliInstallRequest {
 }
 
 /** Where on disk the `zn` shim is currently installed (or could be). */
+/**
+ * The desktop-managed `zn` and its updates. ZenNotes installs newer CLI
+ * releases itself from a signed manifest on the latest ZenNotes/tui release,
+ * so a CLI fix no longer waits for a desktop release.
+ */
+export interface CliUpdateState {
+  /** False on platforms without a managed CLI (Windows). */
+  supported: boolean
+  /** Install newer releases as they appear, or only report them. */
+  autoUpdate: boolean
+  phase:
+    | 'idle'
+    | 'checking'
+    | 'up-to-date'
+    | 'available'
+    | 'updated'
+    | 'incompatible'
+    | 'not-installed'
+    | 'error'
+  /** The version `zn` runs now, from this build's bundle or a later update. */
+  installedVersion: string | null
+  /** The version this desktop build ships, the floor it always keeps. */
+  bundledVersion: string | null
+  /** Set when a newer release was found, installed or not. */
+  availableVersion: string | null
+  /** Epoch ms of the last finished check. */
+  lastCheckedAt: number | null
+  message: string | null
+}
+
+export interface CliUpdateCheckRequest {
+  /** Install a newer compatible release instead of only reporting it. */
+  install: boolean
+}
+
 export interface CliInstallStatus {
   /** Runtime supplied by this desktop build or its retained managed install. */
   runtime?: 'go' | 'node'

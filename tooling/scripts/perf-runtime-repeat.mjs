@@ -60,6 +60,8 @@ const metricNames = {
     'cpu throttle rate',
     'large note lines',
     'large note index',
+    'wikilinks per note',
+    'seeded wikilinks',
     'main ready-to-show',
     'main did-finish-load',
     'main list notes',
@@ -74,6 +76,10 @@ const metricNames = {
     'note open sample',
     'note open wall',
     'editor ready wall',
+    'note switch count',
+    'note switch wall p50',
+    'note switch wall max',
+    'note reopen wall p50',
     'search input wall',
     'virtual scroll wall',
     'visible rows after scroll',
@@ -158,6 +164,10 @@ const repeatBudgets = {
     {
       label: 'editor ready wall',
       budget: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_EDITOR_READY_WALL_MS, 700)
+    },
+    {
+      label: 'note switch wall p50',
+      budget: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_SWITCH_MS, 150)
     },
     {
       label: 'search input wall',

@@ -35,6 +35,19 @@ const cpuThrottleRate = parsePositiveFloat(
 )
 const largeNoteLines = parseNonNegativeInt(process.env.ZEN_PERF_LARGE_NOTE_LINES, 0)
 const largeNoteIndex = parseNonNegativeInt(process.env.ZEN_PERF_LARGE_NOTE_INDEX, 159)
+// Wikilinks seeded into each synthetic note. Zero keeps the notes
+// byte-identical to older runs, so their numbers stay comparable. The seeded
+// vault used to have no links at all, which is how #880 got past this
+// harness: the status bar resolved every link in the vault against every
+// note on each note switch, ~5 s per switch in a 6,577-note vault with 13,672
+// links, and a vault without links made that cost invisible.
+// `ZEN_PERF_DESKTOP_NOTES=6577 ZEN_PERF_WIKILINKS_PER_NOTE=2` is roughly the
+// reported vault.
+const wikilinksPerNote = parseNonNegativeInt(process.env.ZEN_PERF_WIKILINKS_PER_NOTE, 0)
+// Note switches, timed from click to paint. They run after the heap, DOM and
+// long-task numbers are taken, so those stay comparable with older runs.
+const noteSwitchCount = parseNonNegativeInt(process.env.ZEN_PERF_NOTE_SWITCHES, 5)
+const noteReopenCount = parseNonNegativeInt(process.env.ZEN_PERF_NOTE_REOPENS, 2)
 const configuredSearchQuery =
   process.env.ZEN_PERF_DESKTOP_SEARCH_QUERY?.trim() || process.env.ZEN_PERF_SEARCH_QUERY?.trim() || null
 
@@ -43,6 +56,7 @@ const budgets = {
   rendererReadyMs: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_READY_MS, 1800),
   expansionMs: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_EXPAND_MS, 80),
   noteOpenMs: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_OPEN_MS, 120),
+  noteSwitchMs: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_SWITCH_MS, 150),
   searchInputMs: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_SEARCH_MS, 120),
   scrollMs: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_SCROLL_MS, 80),
   maxLongTaskMs: parsePositiveInt(process.env.ZEN_PERF_DESKTOP_BUDGET_LONG_TASK_MS, 180),
@@ -211,6 +225,42 @@ function largeNoteBody(lines, id) {
   return `\n## Large note stress section\n\n${blocks.join('\n')}\n`
 }
 
+// mulberry32: a fixed seed gives every run the same link graph.
+function seededRandom(seed) {
+  let state = seed >>> 0
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0
+    let t = state
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function seededNoteStem(index) {
+  return `${formatIndex(index)} - topic-${index % 20}`
+}
+
+// The #880 mix: about half the links resolve (titles, `#Details` and `^block`
+// anchors, `inbox/` and `/` paths), the rest name notes that do not exist, by
+// title or by path, each one unique. Unresolved targets were the expensive
+// ones, since nothing short of the whole vault could rule them out.
+function seededWikilinks(count, random, missing) {
+  const links = []
+  for (let link = 0; link < wikilinksPerNote; link += 1) {
+    const stem = seededNoteStem(Math.floor(random() * count))
+    const roll = random()
+    if (roll < 0.35) links.push(stem)
+    else if (roll < 0.45) links.push(`${stem}#Details`)
+    else if (roll < 0.5) links.push(`${stem}^block-${link}`)
+    else if (roll < 0.6) links.push(`inbox/${stem}`)
+    else if (roll < 0.65) links.push(`/${stem}`)
+    else if (roll < 0.85) links.push(`Missing note ${missing.next++}`)
+    else links.push(`projects/missing-${missing.next++}`)
+  }
+  return links
+}
+
 async function writeFilesInBatches(files, batchSize = 96) {
   for (let index = 0; index < files.length; index += batchSize) {
     await Promise.all(files.slice(index, index + batchSize).map(([path, body]) => writeFile(path, body)))
@@ -230,12 +280,15 @@ async function seedVault(vaultRoot, count) {
   ])
 
   const files = []
+  const random = seededRandom(880)
+  const missing = { next: 0 }
+  let wikilinks = 0
   for (let index = 0; index < count; index += 1) {
     const id = formatIndex(index)
     const topic = index % 20
     const sprint = index % 13
     const title = `Perf Note ${id} Topic ${topic}`
-    const body = `# ${title}
+    let body = `# ${title}
 
 This is a synthetic desktop runtime benchmark note for ZenNotes.
 It contains searchable token desktop-runtime-benchmark-${id} and shared topic-${topic}.
@@ -251,9 +304,15 @@ The body is intentionally modest so note-open timing measures app overhead more 
 
 #perf #topic-${topic} #sprint-${sprint}
 ${largeNoteLines > 0 && index === Math.min(count - 1, largeNoteIndex) ? largeNoteBody(largeNoteLines, id) : ''}`
-    files.push([join(inbox, `${id} - topic-${topic}.md`), body])
+    if (wikilinksPerNote > 0) {
+      const links = seededWikilinks(count, random, missing)
+      wikilinks += links.length
+      body += `\n## Links\n\n${links.map((target) => `- [[${target}]]`).join('\n')}\n`
+    }
+    files.push([join(inbox, `${seededNoteStem(index)}.md`), body])
   }
   await writeFilesInBatches(files)
+  return { wikilinks }
 }
 
 async function seedUserData(userDataRoot, vaultRoot) {
@@ -598,9 +657,10 @@ async function main() {
 
   try {
     const seedStartedAt = performance.now()
+    let seededWikilinkCount = 0
     if (!externalVaultRoot) {
       if (skipSyntheticSeed) await access(vaultRoot, constants.R_OK)
-      else await seedVault(vaultRoot, noteCount)
+      else seededWikilinkCount = (await seedVault(vaultRoot, noteCount)).wikilinks
     }
     await seedUserData(userDataRoot, vaultRoot)
     const seedMs = round(performance.now() - seedStartedAt)
@@ -832,10 +892,12 @@ async function main() {
     const search = await evaluate(
       client,
       `(async () => {
+        // Mod+P: Ctrl on Linux and Windows, where Meta+P opens nothing.
         window.dispatchEvent(new KeyboardEvent('keydown', {
           key: 'p',
           code: 'KeyP',
-          metaKey: true,
+          metaKey: ${process.platform === 'darwin'},
+          ctrlKey: ${process.platform !== 'darwin'},
           bubbles: true,
           cancelable: true
         }));
@@ -920,6 +982,68 @@ async function main() {
     await evaluate(client, `(() => { globalThis.gc?.(); globalThis.gc?.(); return true })()`)
     const runtimeMetrics = summarizePerformanceMetrics(await client.send('Performance.getMetrics'))
 
+    // Click to paint, per note: the `note.open.*` samples above finish when the
+    // store has the note, before React renders it, so they stayed fast while
+    // #880 froze every switch for seconds in that render. The finish line here
+    // is the editor's doc sync for the clicked path, which lands after the
+    // commit that renders the note, its tab and the status bar, plus two
+    // frames. It reads no seeded content, so it works on an external vault.
+    const noteSwitches = noteSwitchCount > 0
+      ? await evaluate(
+          client,
+          `(async () => {
+            const nextFrames = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            const rowSelector = '[data-notelist-path], [data-sidebar-type="note"]';
+            const pathOf = (row) => row.getAttribute('data-notelist-path') ?? row.getAttribute('data-sidebar-path');
+            const rowFor = (path) => [...document.querySelectorAll(rowSelector)].find((row) => pathOf(row) === path) ?? null;
+            const activeTabPath = () => document.querySelector('[data-tab-active="true"][data-tab-path]')?.getAttribute('data-tab-path') ?? null;
+            // pathChanged is only ruled out when false: an older packaged app
+            // (ZEN_PERF_DESKTOP_APP_PATH) may record the sync without it, and the
+            // tab check still pins the path.
+            const editorShows = (path, since) => {
+              const synced = (window.__ZEN_PERF__?.getSamples?.() ?? []).some((sample) =>
+                sample.at >= since &&
+                ((sample.name === 'editor.doc.sync' && sample.detail?.pathChanged !== false) || sample.name === 'editor.mount.view')
+              );
+              const tab = activeTabPath();
+              return synced && (tab === null || tab === path);
+            };
+            const open = async (path) => {
+              rowFor(path)?.scrollIntoView({ block: 'nearest' });
+              await nextFrames();
+              const row = rowFor(path);
+              if (!row) throw new Error('No row for ' + path);
+              const startedAt = performance.now();
+              row.click();
+              while (!editorShows(path, startedAt)) {
+                if (performance.now() - startedAt > 30000) throw new Error('Timed out switching to ' + path);
+                await new Promise((resolve) => setTimeout(resolve, 4));
+              }
+              await nextFrames();
+              return { path, wallMs: Math.round((performance.now() - startedAt) * 100) / 100 };
+            };
+
+            // In sidebar order, whether on screen or not: the scroll step leaves
+            // the list past its last row, and open() scrolls each row into view
+            // before its clock starts.
+            const current = activeTabPath();
+            const targets = [...new Set(
+              [...document.querySelectorAll(rowSelector)]
+                .map(pathOf)
+                .filter((path) => path && path !== current && /\\.md$/i.test(path))
+            )].slice(0, ${noteSwitchCount});
+            if (targets.length === 0) throw new Error('No note rows to switch between');
+            const switches = [];
+            for (const path of targets) switches.push(await open(path));
+            const reopens = [];
+            for (const path of targets.slice(0, ${noteReopenCount})) reopens.push(await open(path));
+            return { switches, reopens };
+          })()`
+        )
+      : { switches: [], reopens: [] }
+    const switchWalls = noteSwitches.switches.map((entry) => entry.wallMs)
+    const reopenWalls = noteSwitches.reopens.map((entry) => entry.wallMs)
+
     const mainPerfSamples = parseMainPerfSamples(electron.log())
     const mainReady = mainPerfSamples.find((sample) => sample.name === 'main.window.ready-to-show') ?? null
     const mainFinish = mainPerfSamples.find((sample) => sample.name === 'main.window.did-finish-load') ?? null
@@ -932,6 +1056,9 @@ async function main() {
       budgetStatus('renderer workspace ready', startup.ready.durationMs, budgets.rendererReadyMs),
       budgetStatus('inbox expansion', inboxExpansion.wallMs, budgets.expansionMs),
       budgetStatus('note open sample', noteOpen.sample.durationMs, budgets.noteOpenMs),
+      ...(switchWalls.length > 0
+        ? [budgetStatus('note switch wall p50', round(percentile(switchWalls, 50)), budgets.noteSwitchMs)]
+        : []),
       budgetStatus('search input', search.wallMs, budgets.searchInputMs),
       budgetStatus('virtual scroll', scroll.wallMs, budgets.scrollMs),
       budgetStatus('max long task', longTaskSummary.maxMs, budgets.maxLongTaskMs),
@@ -947,6 +1074,8 @@ async function main() {
     printMetric('cpu throttle rate', cpuThrottleRate, '')
     printMetric('large note lines', largeNoteLines, '')
     printMetric('large note index', largeNoteLines > 0 ? Math.min(noteCount - 1, largeNoteIndex) : 0, '')
+    printMetric('wikilinks per note', externalVaultRoot ? 0 : wikilinksPerNote, '')
+    printMetric('seeded wikilinks', seededWikilinkCount, '')
     printMetric('search query length', searchQuery.length, '')
     printMetric('seed vault + config', seedMs)
     printMetric('main ready-to-show', mainReady?.durationMs ?? 0)
@@ -978,6 +1107,19 @@ async function main() {
       for (const sample of noteOpen.samples) {
         printMetric(sample.name, sample.durationMs)
       }
+    }
+    printMetric('note switch count', switchWalls.length, '')
+    if (switchWalls.length > 0) {
+      printMetric('note switch wall p50', round(percentile(switchWalls, 50)))
+      printMetric('note switch wall max', round(Math.max(...switchWalls)))
+    }
+    if (reopenWalls.length > 0) {
+      printMetric('note reopen wall p50', round(percentile(reopenWalls, 50)))
+    }
+    if (switchWalls.length > 0 || reopenWalls.length > 0) {
+      console.log('\nNote switches (click to paint)')
+      for (const entry of noteSwitches.switches) console.log(`- ${entry.path} ${entry.wallMs}ms`)
+      for (const entry of noteSwitches.reopens) console.log(`- reopen ${entry.path} ${entry.wallMs}ms`)
     }
     printMetric('search input wall', search.wallMs)
     printMetric('search results', search.resultCount, '')

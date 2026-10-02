@@ -249,6 +249,12 @@ import {
   uninstallCli,
 } from "./cli-install";
 import {
+  checkForCliUpdate,
+  getCliUpdateState,
+  scheduleCliUpdateChecks,
+  setCliAutoUpdate,
+} from "./cli-update";
+import {
   getRaycastExtensionStatus,
   installRaycastExtension,
 } from "./raycast-integration";
@@ -4749,6 +4755,18 @@ function registerIpc(): void {
     await installCli(request),
   );
   handle(IPC.CLI_UNINSTALL, async () => await uninstallCli());
+  handle(IPC.CLI_UPDATE_GET_STATE, async () => await getCliUpdateState());
+  handle(IPC.CLI_UPDATE_CHECK, async (_event, request: unknown) =>
+    await checkForCliUpdate({
+      install:
+        typeof request === "object" &&
+        request !== null &&
+        (request as { install?: unknown }).install === true,
+    }),
+  );
+  handle(IPC.CLI_SET_AUTO_UPDATE, async (_event, enabled: unknown) =>
+    await setCliAutoUpdate(enabled === true),
+  );
   handle(IPC.RAYCAST_GET_STATUS, async () => await getRaycastExtensionStatus());
   handle(IPC.RAYCAST_INSTALL, async () => await installRaycastExtension());
 
@@ -5708,6 +5726,7 @@ app.whenReady().then(async () => {
   }
   void flushPendingFloatingNoteRequests();
   scheduleBackgroundAppUpdateCheck();
+  scheduleCliUpdateChecks();
 
   try {
     const cfg = await loadConfig();

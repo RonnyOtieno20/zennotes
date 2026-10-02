@@ -309,6 +309,11 @@ export interface PersistedConfig {
   /** When true, the quick-capture window stays pinned on top of all windows
    *  and does not auto-hide when it loses focus. */
   quickCapturePinned: boolean
+  /** Install newer `zn` releases into the managed CLI as they appear. Off
+   *  still checks and reports one in Settings, installing only on request.
+   *  Kept here, not in the portable config.toml, because it governs this
+   *  machine's managed copy under userData, like the install location. */
+  cliAutoUpdate: boolean
 }
 
 export const DEFAULT_QUICK_CAPTURE_HOTKEY = 'CommandOrControl+Shift+Space'
@@ -323,7 +328,8 @@ const DEFAULT_CONFIG: PersistedConfig = {
   windowState: null,
   zoomFactor: 1,
   quickCaptureHotkey: DEFAULT_QUICK_CAPTURE_HOTKEY,
-  quickCapturePinned: false
+  quickCapturePinned: false,
+  cliAutoUpdate: true
 }
 
 let configWriteQueue = Promise.resolve()
@@ -455,6 +461,7 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
       ? candidate.quickCaptureHotkey.trim()
       : DEFAULT_QUICK_CAPTURE_HOTKEY
   const quickCapturePinned = candidate.quickCapturePinned === true
+  const cliAutoUpdate = candidate.cliAutoUpdate !== false
   return {
     workspaceMode: candidate.workspaceMode === 'remote' ? 'remote' : 'local',
     vaultRoot: typeof candidate.vaultRoot === 'string' ? candidate.vaultRoot : null,
@@ -471,7 +478,8 @@ function normalizePersistedConfig(value: unknown): PersistedConfig {
     windowState: normalizeWindowState(candidate.windowState),
     zoomFactor,
     quickCaptureHotkey,
-    quickCapturePinned
+    quickCapturePinned,
+    cliAutoUpdate
   }
 }
 

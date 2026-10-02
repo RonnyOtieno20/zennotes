@@ -8,6 +8,7 @@
  */
 import { isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
 import { confirmApp } from './confirm-requests'
+import { requestSettingsTarget } from './settings-navigation'
 import { promptApp } from './prompt-requests'
 import { captureNavigationContext } from './navigation-context'
 import { buildMoveNotePrompt, moveNoteVocabulary, parseMoveNoteTarget } from './move-note'
@@ -1939,6 +1940,50 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       run: () => getState().revealAssetsDir()
     },
     {
+      id: 'cli.check-updates',
+      title: 'Check for zn Updates…',
+      category: 'CLI',
+      keywords: 'cli zn terminal command line update upgrade version release',
+      when: () =>
+        window.zen.getAppInfo().runtime === 'desktop' &&
+        window.zen.getCapabilities().supportsCliInstall &&
+        typeof window.zen.cliUpdateCheck === 'function',
+      run: async () => {
+        const before = await window.zen.cliUpdateGetState?.()
+        if (!before?.supported) return
+        const install = await window.zen.cliGetStatus()
+        if (!install.installedAt || !install.installedByThisApp) {
+          await confirmApp({
+            title: 'zn is not managed by ZenNotes',
+            description: install.installedAt
+              ? `The zn at ${install.installedAt} came from another installer. Update it with that installer (\`zn update\` tells you how).`
+              : 'Install zn from Settings → CLI first; ZenNotes then keeps it up to date.',
+            confirmLabel: 'OK',
+            cancelLabel: 'Close'
+          })
+          return
+        }
+        let state = await window.zen.cliUpdateCheck?.({ install: before.autoUpdate })
+        if (state?.phase === 'available') {
+          const proceed = await confirmApp({
+            title: `zn ${state.availableVersion ?? ''} is available`,
+            description:
+              'Install it now? The zn you have keeps working until the new one passes its checks.',
+            confirmLabel: 'Install',
+            cancelLabel: 'Later'
+          })
+          if (!proceed) return
+          state = await window.zen.cliUpdateCheck?.({ install: true })
+        }
+        await confirmApp({
+          title: 'zn updates',
+          description: state?.message ?? 'Checked for zn updates.',
+          confirmLabel: 'OK',
+          cancelLabel: 'Close'
+        })
+      }
+    },
+    {
       id: 'cli.install',
       title: 'Install Command-Line Tool (zn)',
       category: 'CLI',
@@ -2085,7 +2130,11 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       when: () =>
         window.zen.getAppInfo().runtime === 'desktop' &&
         window.zen.getCapabilities().supportsCliInstall,
-      run: () => getState().setSettingsOpen(true)
+      run: () => {
+        // Without a target Settings reopens on whatever page it showed last.
+        requestSettingsTarget('cli')
+        getState().setSettingsOpen(true)
+      }
     }
   )
 
