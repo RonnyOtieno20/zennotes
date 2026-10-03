@@ -97,7 +97,13 @@ describe('shouldSyncVaultPath', () => {
     '.zennotes/vault.cloud-conflict.json',
     '.git/config',
     'vendor/project/.svn/entries',
-    'node_modules/package/index.js'
+    'node_modules/package/index.js',
+    'zennotes-cloud-sync/links/vault.json',
+    'zennotes-cloud-sync/states/vault/account/state.json',
+    'zennotes-cloud-sync/scan-cache/vault.json',
+    'zennotes-cloud-sync/retired-states/previous.json',
+    'Documents/zennotes-cloud-sync/states/vault.json',
+    'ZENNOTES-CLOUD-SYNC/states/vault.json'
   ])('excludes device-local or temporary file %s', (path) => {
     expect(shouldSyncVaultPath(path)).toBe(false)
   })
@@ -107,5 +113,8 @@ describe('shouldSyncVaultPath', () => {
     expect(shouldTraverseCloudSyncDirectory('.zennotes/templates')).toBe(true)
     expect(shouldTraverseCloudSyncDirectory('.git')).toBe(false)
     expect(shouldTraverseCloudSyncDirectory('project/node_modules')).toBe(false)
+    expect(shouldTraverseCloudSyncDirectory('zennotes-cloud-sync')).toBe(false)
+    expect(shouldTraverseCloudSyncDirectory('Documents/ZENNOTES-CLOUD-SYNC/states')).toBe(false)
+    expect(shouldSyncVaultPath('notes/zennotes-cloud-sync-guide.md')).toBe(true)
   })
 })

@@ -1,6 +1,8 @@
 const WINDOWS_RESERVED_CHARACTERS = /[:*?"<>|]/
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/
-const LOCAL_ONLY_DIRECTORIES = new Set(['.git', '.hg', '.svn', 'node_modules'])
+// Mobile app storage can sit inside a user-selected Documents vault. Its
+// bookkeeping must never become either a sync source or a remote destination.
+const LOCAL_ONLY_DIRECTORIES = new Set(['.git', '.hg', '.svn', 'node_modules', 'zennotes-cloud-sync'])
 
 function invalidSyncPath(path: string): never {
   throw new Error(`Invalid sync path: ${JSON.stringify(path)}`)

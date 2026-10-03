@@ -51,11 +51,13 @@ import { getBufferNavigationTarget } from '../lib/buffer-navigation'
 import { focusEditorNormalMode } from '../lib/editor-focus'
 import { atlasHoldsKeyboard } from '../lib/atlas'
 import {
+  hasCloudVaultRemovalNotice,
   hasPendingCloudReview,
   openPendingCloudReview,
   resolvableCloudConflictCount,
   useCloudSyncStatusStore
 } from '../lib/cloud-auto-sync'
+import { requestSettingsTarget } from '../lib/settings-navigation'
 import { EXCALIDRAW_SURFACE, SELF_KEYED_SURFACES } from '../lib/self-keyed-surfaces'
 import { isWorkspaceVirtualTabPath } from '../lib/workspace-tabs'
 import {
@@ -213,6 +215,7 @@ export function VimNav(): JSX.Element | null {
   const cloudConflictsWaiting = useCloudSyncStatusStore(
     (s) => resolvableCloudConflictCount(s.lastSummary) > 0 || s.settingsConflict !== null
   )
+  const cloudVaultRemoved = useCloudSyncStatusStore(hasCloudVaultRemovalNotice)
   const whichKeyHintsPref = useStore((s) => s.whichKeyHints)
   const whichKeyHintMode = useStore((s) => s.whichKeyHintMode)
   const whichKeyHintTimeoutMs = useStore((s) => s.whichKeyHintTimeoutMs)
@@ -296,7 +299,15 @@ export function VimNav(): JSX.Element | null {
               detail: 'Open the files waiting on a sync decision, or the vault settings question.'
             }
           ]
-        : []),
+        : cloudVaultRemoved
+          ? [
+              {
+                keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderCloudConflicts'),
+                label: 'Review Cloud vault',
+                detail: 'This vault stopped syncing because its Cloud vault is gone. Opens Settings → Cloud.'
+              }
+            ]
+          : []),
       {
         keyLabel: getKeymapDisplay(keymapOverrides, 'vim.leaderOpenBuffers'),
         label: 'Open buffers',
@@ -950,13 +961,20 @@ export function VimNav(): JSX.Element | null {
         // Skipped while nothing waits so the key falls through as an unbound
         // leader press rather than opening an empty dialog.
         if (
-          hasPendingCloudReview() &&
+          (hasPendingCloudReview() || hasCloudVaultRemovalNotice()) &&
           matchesSequenceToken(e, overrides, 'vim.leaderCloudConflicts')
         ) {
           e.preventDefault()
           e.stopImmediatePropagation()
           resetLeader()
-          openPendingCloudReview()
+          if (hasPendingCloudReview()) {
+            openPendingCloudReview(state.activeNote?.path)
+          } else {
+            // A Cloud vault that went away is answered in Settings → Cloud,
+            // where the status row's Review goes too.
+            requestSettingsTarget('cloud')
+            state.setSettingsOpen(true)
+          }
           return
         }
         if (matchesSequenceToken(e, overrides, 'vim.hintMode')) {

@@ -11,11 +11,17 @@ import {
 import { useStore } from '../store'
 import {
   buildAttachmentChip,
+  buildEmbed,
   classifyLocalAssetHref,
   hrefFragment,
+  localAssetLabel,
   resolveAssetVaultRelativePath,
-  resolveLocalAssetUrl
+  resolveLocalAssetUrl,
+  setCloudSyncNotice
 } from './local-assets'
+import { useCloudSyncStatusStore } from './cloud-auto-sync'
+import { oversizedCloudFileNotice, oversizedCloudFiles } from './cloud-oversized-files'
+import { noteEditorPath } from './note-editor-context'
 import { isResolvedMarkdownLink, terminatedLinkTailEnd } from './cm-markdown-links'
 import { parseBlockAnchors } from './block-anchors'
 import { setImageBlockDragPayload } from './image-block-dnd'
@@ -321,6 +327,32 @@ function parseStandaloneLocalPdf(lineText: string): ParsedPdf | null {
   }
 }
 
+type ParsedMedia = {
+  kind: 'audio' | 'video'
+  href: string
+  resolvedUrl: string
+  /** Vault-relative path, null when no file in the vault answers the href. */
+  assetPath: string | null
+}
+
+// A standalone audio or video embed, in either spelling: `![[clip.mp4]]` or
+// `![](clip.mp4)`, the same two the image widget reads. A missing file still
+// gets its player, from the resolver's fallback URL, as a missing image still
+// gets its frame; before the asset list arrives there is no URL to trust and
+// the line stays source until the list lands and the plugin redraws.
+function parseStandaloneLocalMedia(lineText: string, notePath: string | null): ParsedMedia | null {
+  const embed = lineText.match(STANDALONE_OBSIDIAN_EMBED_RE)
+  const md = embed ? null : lineText.match(STANDALONE_IMAGE_RE)
+  const href = (embed ? embed[1] : md ? (md[2] ?? md[3]) : '')?.trim() ?? ''
+  if (!href) return null
+  const kind = classifyLocalAssetHref(href)
+  if (kind !== 'audio' && kind !== 'video') return null
+  const root = useStore.getState().vault?.root
+  const resolvedUrl = resolveLocalAssetUrl(root, notePath, href)
+  if (!resolvedUrl) return null
+  return { kind, href, resolvedUrl, assetPath: resolveAssetVaultRelativePath(root, notePath, href) }
+}
+
 type ParsedAttachment = {
   href: string
   resolvedUrl: string
@@ -328,10 +360,10 @@ type ParsedAttachment = {
 }
 
 // A standalone non-previewable attachment embed. Two forms:
-//  - Markdown `![](file.tldraw)` — any non-image, non-excalidraw file (PDFs in
-//    this form have no dedicated widget, so they chip too).
-//  - Obsidian `![[file.tldraw]]` — generic files only; PDF/audio/video keep
-//    their rich widgets/embeds.
+//  - Markdown `![](file.tldraw)`: any file without a widget of its own. PDFs
+//    in this form chip; audio and video play in LocalMediaWidget.
+//  - Obsidian `![[file.tldraw]]`: generic files only. PDF, audio and video
+//    have widgets of their own.
 // Images and excalidraw drawings have their own widgets and are excluded. (#463)
 function parseStandaloneLocalAttachment(lineText: string): ParsedAttachment | null {
   const md = lineText.match(STANDALONE_IMAGE_RE)
@@ -349,7 +381,9 @@ function parseStandaloneLocalAttachment(lineText: string): ParsedAttachment | nu
   }
   const kind = classifyLocalAssetHref(href)
   if (md) {
-    if (!kind || kind === 'image' || kind === 'excalidraw') return null
+    if (!kind || kind === 'image' || kind === 'excalidraw' || kind === 'audio' || kind === 'video') {
+      return null
+    }
   } else if (kind !== 'file') {
     return null
   }
@@ -371,12 +405,13 @@ class LocalImageWidget extends WidgetType {
     private readonly resolvedUrl: string,
     private readonly version: number,
     private readonly width?: number,
-    private readonly height?: number
+    private readonly height?: number,
+    private readonly notice: string | null = null
   ) {
     super()
   }
 
-  eq(other: LocalImageWidget): boolean {
+  private sameBlock(other: LocalImageWidget): boolean {
     return (
       other.notePath === this.notePath &&
       other.lineFrom === this.lineFrom &&
@@ -389,6 +424,16 @@ class LocalImageWidget extends WidgetType {
       other.width === this.width &&
       other.height === this.height
     )
+  }
+
+  eq(other: LocalImageWidget): boolean {
+    return this.sameBlock(other) && other.notice === this.notice
+  }
+
+  updateDOM(dom: HTMLElement, _view: EditorView, from: LocalImageWidget): boolean {
+    if (!this.sameBlock(from)) return false
+    setCloudSyncNotice(dom, this.notice)
+    return true
   }
 
   toDOM(): HTMLElement {
@@ -530,6 +575,7 @@ class LocalImageWidget extends WidgetType {
     caption.textContent = this.alt || decodeURIComponentSafe(this.href.split('/').filter(Boolean).pop()) || 'Image'
 
     figure.append(frame, caption)
+    setCloudSyncNotice(figure, this.notice)
     return figure
   }
 
@@ -568,12 +614,13 @@ class LocalPdfWidget extends WidgetType {
     /** True when this PDF is the active pinned reference — affects
      *  the compact card's primary action ("focus reference" vs
      *  "pin as reference"). */
-    private readonly pinnedAsRef: boolean
+    private readonly pinnedAsRef: boolean,
+    private readonly notice: string | null = null
   ) {
     super()
   }
 
-  eq(other: LocalPdfWidget): boolean {
+  private sameBlock(other: LocalPdfWidget): boolean {
     return (
       other.notePath === this.notePath &&
       other.lineFrom === this.lineFrom &&
@@ -584,6 +631,17 @@ class LocalPdfWidget extends WidgetType {
       other.compact === this.compact &&
       other.pinnedAsRef === this.pinnedAsRef
     )
+  }
+
+  eq(other: LocalPdfWidget): boolean {
+    return this.sameBlock(other) && other.notice === this.notice
+  }
+
+  // Redrawing would reload the iframe and lose the reader's page.
+  updateDOM(dom: HTMLElement, _view: EditorView, from: LocalPdfWidget): boolean {
+    if (!this.sameBlock(from)) return false
+    setCloudSyncNotice(dom, this.notice)
+    return true
   }
 
   private buildEditButton(): HTMLButtonElement {
@@ -677,6 +735,7 @@ class LocalPdfWidget extends WidgetType {
 
       button.append(icon, text, badge)
       figure.append(button, previewButton, editButton)
+      setCloudSyncNotice(figure, this.notice)
       return figure
     }
 
@@ -748,6 +807,7 @@ class LocalPdfWidget extends WidgetType {
     frame.title = this.label || 'PDF'
 
     figure.append(header, frame)
+    setCloudSyncNotice(figure, this.notice)
     return figure
   }
 
@@ -875,12 +935,13 @@ class AttachmentChipWidget extends WidgetType {
   constructor(
     private readonly href: string,
     private readonly resolvedUrl: string,
-    private readonly name: string
+    private readonly name: string,
+    private readonly notice: string | null = null
   ) {
     super()
   }
 
-  eq(other: AttachmentChipWidget): boolean {
+  private sameChip(other: AttachmentChipWidget): boolean {
     return (
       other.href === this.href &&
       other.resolvedUrl === this.resolvedUrl &&
@@ -888,8 +949,18 @@ class AttachmentChipWidget extends WidgetType {
     )
   }
 
+  eq(other: AttachmentChipWidget): boolean {
+    return this.sameChip(other) && other.notice === this.notice
+  }
+
+  updateDOM(dom: HTMLElement, _view: EditorView, from: AttachmentChipWidget): boolean {
+    if (!this.sameChip(from)) return false
+    setCloudSyncNotice(dom, this.notice)
+    return true
+  }
+
   toDOM(): HTMLElement {
-    return buildAttachmentChip(this.resolvedUrl, this.href, this.name, () => {
+    const chip = buildAttachmentChip(this.resolvedUrl, this.href, this.name, () => {
       const state = useStore.getState()
       const root = state.vault?.root
       const notePath = state.activeNote?.path
@@ -903,11 +974,91 @@ class AttachmentChipWidget extends WidgetType {
         void openVaultAssetExternally(assetPath)
       }
     })
+    setCloudSyncNotice(chip, this.notice)
+    return chip
   }
 
   ignoreEvent(): boolean {
     return true
   }
+}
+
+/** A standalone audio or video line, drawn as the reading view's player by the
+ *  same `buildEmbed`. Nothing positional enters `eq`: any edit in the note
+ *  builds the decorations afresh, and a widget that compared unequal would be
+ *  redrawn, stopping whatever was playing. The `</>` action looks its line up
+ *  when pressed instead. */
+class LocalMediaWidget extends WidgetType {
+  constructor(
+    private readonly kind: 'audio' | 'video',
+    private readonly href: string,
+    private readonly resolvedUrl: string,
+    private readonly assetPath: string | null,
+    private readonly notice: string | null
+  ) {
+    super()
+  }
+
+  private samePlayer(other: LocalMediaWidget): boolean {
+    return (
+      other.kind === this.kind &&
+      other.href === this.href &&
+      other.resolvedUrl === this.resolvedUrl &&
+      other.assetPath === this.assetPath
+    )
+  }
+
+  eq(other: LocalMediaWidget): boolean {
+    return this.samePlayer(other) && other.notice === this.notice
+  }
+
+  // A Cloud run that changed only the notice keeps the player, and playback.
+  updateDOM(dom: HTMLElement, _view: EditorView, from: LocalMediaWidget): boolean {
+    if (!this.samePlayer(from)) return false
+    setCloudSyncNotice(dom, this.notice)
+    return true
+  }
+
+  // About the drawn block (header, player, margins), so the height map is
+  // close before the line is first measured.
+  get estimatedHeight(): number {
+    return this.kind === 'video' ? 460 : 120
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const assetPath = this.assetPath
+    const figure = buildEmbed(
+      this.kind,
+      this.resolvedUrl,
+      localAssetLabel(this.href, 'Asset'),
+      this.href,
+      () => {
+        if (assetPath) void useStore.getState().openNoteInTab(assetTabPath(assetPath))
+      },
+      () => editEmbedLine(view, figure)
+    )
+    figure.classList.add('cm-local-media-embed')
+    setCloudSyncNotice(figure, this.notice)
+    return figure
+  }
+
+  // The player's own controls take the clicks and taps.
+  ignoreEvent(): boolean {
+    return true
+  }
+}
+
+/** Puts the caret at the start of the line holding `dom`, revealing the
+ *  embed's source. */
+function editEmbedLine(view: EditorView, dom: HTMLElement): void {
+  let pos: number
+  try {
+    pos = view.posAtDOM(dom)
+  } catch {
+    return
+  }
+  view.dispatch({ selection: { anchor: view.state.doc.lineAt(pos).from }, scrollIntoView: true })
+  view.focus()
 }
 
 /** Renders a GFM task-list marker (`[ ]` / `[x]` / `[X]`) as a clickable
@@ -1089,6 +1240,13 @@ function blockAnchorMarkersFor(state: EditorState): Map<number, { from: number; 
   return markers
 }
 
+/** The note this editor shows: its pane's, when the editor is registered to
+ *  one (a split can show a note other than the active one), else the active
+ *  note. */
+function paneNotePath(view: EditorView): string | null {
+  return noteEditorPath(view) ?? useStore.getState().activeNote?.path ?? null
+}
+
 function computeDecorations(view: EditorView): DecorationSet {
   const { state } = view
 
@@ -1103,6 +1261,18 @@ function computeDecorations(view: EditorView): DecorationSet {
 
   const pending: PendingDecoration[] = []
   const replacedLines = new Set<number>()
+
+  // While no file is over Cloud's per-file limit (the usual state) no embed
+  // is resolved for the notice at all.
+  const paneNote = paneNotePath(view)
+  const oversized = oversizedCloudFiles(useCloudSyncStatusStore.getState().lastSummary)
+  const cloudNotice = (href: string): string | null =>
+    oversized.size === 0
+      ? null
+      : oversizedCloudFileNotice(
+          oversized,
+          resolveAssetVaultRelativePath(useStore.getState().vault?.root, paneNote, href)
+        )
 
   for (const { from, to } of view.visibleRanges) {
     const firstLine = state.doc.lineAt(from).number
@@ -1142,7 +1312,8 @@ function computeDecorations(view: EditorView): DecorationSet {
               parsedImage.resolvedUrl,
               parsedImage.version,
               parsedImage.width,
-              parsedImage.height
+              parsedImage.height,
+              cloudNotice(parsedImage.href)
             )
           })
         })
@@ -1153,6 +1324,39 @@ function computeDecorations(view: EditorView): DecorationSet {
             deco: imageSourceHide
           })
           // Collapse the now text-less line's strut (see imageEmbedLine).
+          pending.push({
+            from: line.from,
+            to: line.from,
+            deco: imageEmbedLine
+          })
+        }
+        continue
+      }
+      const parsedMedia = parseStandaloneLocalMedia(line.text, paneNote)
+      if (parsedMedia) {
+        replacedLines.add(lineNo)
+        // Laid out as the image above: the player follows the line's text,
+        // which hides off the cursor line and shows above the player on it.
+        pending.push({
+          from: line.to,
+          to: line.to,
+          deco: Decoration.widget({
+            side: 1,
+            widget: new LocalMediaWidget(
+              parsedMedia.kind,
+              parsedMedia.href,
+              parsedMedia.resolvedUrl,
+              parsedMedia.assetPath,
+              oversizedCloudFileNotice(oversized, parsedMedia.assetPath)
+            )
+          })
+        })
+        if (!lineActive) {
+          pending.push({
+            from: line.from,
+            to: line.to,
+            deco: imageSourceHide
+          })
           pending.push({
             from: line.from,
             to: line.from,
@@ -1233,7 +1437,8 @@ function computeDecorations(view: EditorView): DecorationSet {
               parsedPdf.href,
               parsedPdf.resolvedUrl,
               compact,
-              isPinned
+              isPinned,
+              cloudNotice(parsedPdf.href)
             )
           })
         })
@@ -1254,7 +1459,8 @@ function computeDecorations(view: EditorView): DecorationSet {
             widget: new AttachmentChipWidget(
               parsedAttachment.href,
               parsedAttachment.resolvedUrl,
-              parsedAttachment.name
+              parsedAttachment.name,
+              cloudNotice(parsedAttachment.href)
             )
           })
         })
@@ -1518,9 +1724,21 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
   class {
     decorations: DecorationSet
     unsubscribe: (() => void) | null = null
+    unsubscribeCloud: (() => void) | null = null
 
     constructor(view: EditorView) {
       this.decorations = computeDecorations(view)
+      // An embed says when Cloud keeps its file back for its size, and stops
+      // saying it once a run no longer does. `oversizedCloudFiles` returns the
+      // same object while that set of files is unchanged, so a run that
+      // changes nothing here costs a comparison and redraws nothing.
+      let oversizedSeen = oversizedCloudFiles(useCloudSyncStatusStore.getState().lastSummary)
+      this.unsubscribeCloud = useCloudSyncStatusStore.subscribe((state) => {
+        const next = oversizedCloudFiles(state.lastSummary)
+        if (next === oversizedSeen) return
+        oversizedSeen = next
+        view.dispatch({ effects: refreshLivePreviewEffect.of(null) })
+      })
       // Recompute decorations whenever the pinned reference changes —
       // PDF widgets need to flip between full-iframe and compact modes
       // without requiring the user to type or scroll first.
@@ -1566,6 +1784,8 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
     destroy(): void {
       this.unsubscribe?.()
       this.unsubscribe = null
+      this.unsubscribeCloud?.()
+      this.unsubscribeCloud = null
     }
   },
   {

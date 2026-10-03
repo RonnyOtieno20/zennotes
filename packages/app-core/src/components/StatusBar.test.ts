@@ -3,8 +3,12 @@
 import { act, createElement, Fragment } from "react";
 import { createRoot } from "react-dom/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { formatRelativeSyncTime } from "../lib/cloud-auto-sync";
+import {
+  clearRemovedCloudVault,
+  formatRelativeSyncTime,
+} from "../lib/cloud-auto-sync";
 import { useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
+import { consumeSettingsTarget } from "../lib/settings-navigation";
 import { setHoveredLink, useHoveredLinkStore } from "../lib/hovered-link";
 import { StatusBar } from "./StatusBar";
 import { CloudConflictReviewHost } from "./CloudConflictReviewHost";
@@ -93,6 +97,39 @@ describe("cloud sync status time", () => {
       host.querySelector<HTMLButtonElement>("[data-cloud-sync-action]")
         ?.textContent,
     ).toBe("Connect");
+
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("names a file-size stop on the status row, where a phone cannot hover for the reason", () => {
+    useCloudSyncStatusStore.setState({
+      phase: "attention",
+      vaultName: "Notes",
+      lastSyncedAt: null,
+      error: "“IMG_2709.mov” is larger than the 10 MB Cloud file-size limit.",
+      lastSummary: {
+        cursor: 1, pulled: 0, pushed: 1, bootstrap_conflicts: [], local_conflicts: [],
+        conflicts: [{
+          operation_id: "op", item_id: "video", code: "FILE_SIZE_LIMIT_EXCEEDED",
+          current_revision: null, current_path: null, path: "assets/IMG_2709.mov",
+          capacity: { dimension: "sync_max_file_bytes", used: 0, reserved: 0,
+            limit: 10_000_000, projected: 151_250_581, can_retry_after_reduction: true },
+        }],
+      },
+    });
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+
+    act(() => root.render(createElement(StatusBar, { note: null })));
+
+    const status = host.querySelector<HTMLElement>("[data-cloud-sync-status]");
+    expect(status?.textContent).toContain("1 file too large for Cloud");
+    expect(status?.textContent).not.toContain("Sync incomplete");
+    expect(
+      host.querySelector<HTMLButtonElement>("[data-cloud-sync-action]")?.textContent,
+    ).toBe("Review");
 
     act(() => root.unmount());
     host.remove();
@@ -284,6 +321,142 @@ describe("cloud sync status time", () => {
     } finally {
       act(() => root.unmount());
       host.remove();
+    }
+  });
+
+  it("tells the phone shells the phase and whether a decision waits, apart from its tone classes", () => {
+    const pending = {
+      id: "item-hook",
+      item_id: "item-hook",
+      path: "Daily Notes/Today.md",
+      cloud_path: "Daily Notes/Today.md",
+      kind: "content" as const,
+      can_merge: true,
+      has_base: true,
+    };
+    const waiting = {
+      cursor: 7,
+      pulled: 1,
+      pushed: 0,
+      conflicts: [],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+      pending_conflicts: [pending],
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const status = (): HTMLElement =>
+      host.querySelector<HTMLElement>("[data-cloud-sync-status]")!;
+
+    try {
+      useCloudSyncStatusStore.setState({
+        phase: "attention",
+        vaultName: "Notes",
+        error: "Cloud sync needs attention: 1 file differs on this device and in Cloud.",
+        lastSummary: waiting,
+      });
+      act(() => root.render(createElement(StatusBar, { note: null })));
+      expect(status().dataset.cloudSyncPhase).toBe("attention");
+      expect(status().hasAttribute("data-cloud-sync-review")).toBe(true);
+
+      // Every run passes through ready and syncing; the waiting file does not
+      // go away for it, so neither does the flag.
+      act(() => useCloudSyncStatusStore.setState({ phase: "ready", error: null }));
+      expect(status().dataset.cloudSyncPhase).toBe("ready");
+      expect(status().hasAttribute("data-cloud-sync-review")).toBe(true);
+      act(() => useCloudSyncStatusStore.setState({ phase: "syncing" }));
+      expect(status().dataset.cloudSyncPhase).toBe("syncing");
+      expect(status().hasAttribute("data-cloud-sync-review")).toBe(true);
+
+      act(() =>
+        useCloudSyncStatusStore.setState({
+          phase: "error",
+          error: "Connection timed out",
+          lastSummary: { ...waiting, pending_conflicts: [] },
+        }),
+      );
+      expect(status().dataset.cloudSyncPhase).toBe("error");
+      expect(status().hasAttribute("data-cloud-sync-review")).toBe(false);
+
+      act(() =>
+        useCloudSyncStatusStore.setState({
+          phase: "ready",
+          error: null,
+          settingsConflict: {
+            path: ".zennotes/vault.json",
+            cloud_path: ".zennotes/vault.cloud-conflict.json",
+          },
+        }),
+      );
+      expect(status().hasAttribute("data-cloud-sync-review")).toBe(true);
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      useCloudSyncStatusStore.setState({ settingsConflict: null });
+    }
+  });
+
+  it("says a deleted Cloud vault in the attention phase the phone shells show, until it is cleared", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const status = (): HTMLElement =>
+      host.querySelector<HTMLElement>("[data-cloud-sync-status]")!;
+    const action = (): HTMLButtonElement =>
+      host.querySelector<HTMLButtonElement>("[data-cloud-sync-action]")!;
+
+    try {
+      useStore.setState({ settingsOpen: false });
+      useCloudSyncStatusStore.setState({
+        phase: "unlinked",
+        vaultName: null,
+        error: null,
+        removedVault: { vaultName: "Cloud QA iPhone", reason: "deleted" },
+      });
+      act(() => root.render(createElement(StatusBar, { note: null })));
+
+      expect(status().textContent).toBe("Cloud vault deleted");
+      expect(status().className).toContain("text-warning");
+      expect(status().className).not.toContain("text-success");
+      expect(status().dataset.cloudSyncPhase).toBe("attention");
+      expect(status().title).toBe(
+        "“Cloud QA iPhone” was deleted from ZenNotes Cloud, so this vault stopped syncing. Your notes on this device are untouched.",
+      );
+      expect(action().textContent).toBe("Review");
+
+      act(() => action().click());
+      expect(useStore.getState().settingsOpen).toBe(true);
+      expect(consumeSettingsTarget()).toBe("cloud");
+
+      act(() =>
+        useCloudSyncStatusStore.setState({
+          removedVault: { vaultName: "Work", reason: "unavailable" },
+        }),
+      );
+      expect(status().textContent).toBe("Cloud vault unavailable");
+      expect(status().title).toContain(
+        "“Work” is no longer available to this ZenNotes Cloud account",
+      );
+
+      // Signed out, the row asks to connect first.
+      act(() => useCloudSyncStatusStore.setState({ phase: "disconnected" }));
+      expect(status().textContent).toBe("ZenNotes Cloud");
+      expect(status().dataset.cloudSyncPhase).toBe("disconnected");
+      expect(action().textContent).toBe("Connect");
+
+      act(() => {
+        useCloudSyncStatusStore.setState({ phase: "unlinked" });
+        clearRemovedCloudVault();
+      });
+      expect(status().textContent).toBe("Cloud connected");
+      expect(status().dataset.cloudSyncPhase).toBe("unlinked");
+      expect(action().textContent).toBe("Set up");
+    } finally {
+      act(() => root.unmount());
+      host.remove();
+      useCloudSyncStatusStore.setState({ removedVault: null });
+      useStore.setState({ settingsOpen: false });
     }
   });
 

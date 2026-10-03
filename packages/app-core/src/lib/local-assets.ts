@@ -81,7 +81,7 @@ export function resolveAssetVaultRelativePath(
   return resolveAssetPathAmong(useStore.getState().assetFiles, notePath, href)
 }
 
-function localAssetLabel(href: string, fallback: string): string {
+export function localAssetLabel(href: string, fallback: string): string {
   const clean = href.split('#')[0]?.split('?')[0] ?? href
   const parts = clean.split('/').filter(Boolean)
   const last = parts[parts.length - 1]
@@ -200,12 +200,19 @@ function buildImageEmbed(
   return figure
 }
 
-function buildEmbed(
+/**
+ * The PDF, audio and video embed of the reading view. The editor's live
+ * preview draws a standalone audio or video line with this same builder, so
+ * the two surfaces show one player; it passes `onEdit` for the `</>` action
+ * that the editor's image and PDF blocks carry too.
+ */
+export function buildEmbed(
   kind: Exclude<LocalAssetKind, 'image' | 'file' | 'excalidraw'>,
   url: string,
   label: string,
   href: string,
-  onOpenAsset?: (() => void) | null
+  onOpenAsset?: (() => void) | null,
+  onEdit?: (() => void) | null
 ): HTMLElement {
   const figure = document.createElement('figure')
   figure.className = 'local-asset-embed not-prose'
@@ -244,6 +251,20 @@ function buildEmbed(
   }
 
   header.append(title, open)
+  if (onEdit) {
+    const edit = document.createElement('button')
+    edit.type = 'button'
+    edit.className = 'local-asset-embed-edit'
+    edit.textContent = '</>'
+    edit.title = 'Edit this block'
+    edit.setAttribute('aria-label', 'Edit this block')
+    edit.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onEdit()
+    })
+    header.append(edit)
+  }
   figure.append(header)
 
   if (kind === 'pdf') {
@@ -377,6 +398,36 @@ function buildPinnedRefPlaceholder(
   return figure
 }
 
+const CLOUD_SYNC_NOTICE_CLASS = 'local-asset-cloud-notice'
+
+/**
+ * Puts the line under an embed that says Cloud sync keeps its file on this
+ * device, or takes it away again (`text` null). The editor's widgets call it
+ * again when only that line changed, so a video playing above it keeps
+ * playing while the notice comes and goes.
+ */
+export function setCloudSyncNotice(host: HTMLElement, text: string | null): void {
+  let notice: HTMLElement | null = null
+  for (const child of Array.from(host.children)) {
+    if (child instanceof HTMLElement && child.classList.contains(CLOUD_SYNC_NOTICE_CLASS)) {
+      notice = child
+      break
+    }
+  }
+  if (!text) {
+    notice?.remove()
+    return
+  }
+  if (!notice) {
+    notice = document.createElement('div')
+    notice.className = 'local-asset-cloud-notice whitespace-normal break-words text-xs text-warning'
+    notice.setAttribute('role', 'note')
+    notice.dataset.cloudSyncNotice = ''
+    host.append(notice)
+  }
+  if (notice.textContent !== text) notice.textContent = text
+}
+
 export function enhanceLocalAssetNodes(
   root: HTMLElement,
   options: {
@@ -388,6 +439,10 @@ export function enhanceLocalAssetNodes(
     pinnedAssetPath?: string | null
     onActivatePinnedRef?: (() => void) | null
     onOpenAsset?: ((assetPath: string) => void) | null
+    /** The Cloud notice for the file at a vault-relative path, or null.
+     *  Left out while no file is over the limit, and then no embed is
+     *  looked up for it at all. */
+    cloudSyncNotice?: ((assetPath: string) => string | null) | null
   }
 ): void {
   const {
@@ -396,9 +451,14 @@ export function enhanceLocalAssetNodes(
     onRequestEdit,
     pinnedAssetPath,
     onActivatePinnedRef,
-    onOpenAsset
+    onOpenAsset,
+    cloudSyncNotice
   } = options
   if (!vaultRoot || !notePath) return
+  const withCloudNotice = (host: HTMLElement, assetPath: string | null): HTMLElement => {
+    if (cloudSyncNotice && assetPath) setCloudSyncNotice(host, cloudSyncNotice(assetPath))
+    return host
+  }
 
   root.querySelectorAll<HTMLImageElement>('img[src]').forEach((img) => {
     const raw = img.getAttribute('src') || ''
@@ -425,7 +485,27 @@ export function enhanceLocalAssetNodes(
       const standalone = isStandaloneImageParagraph(img)
       if (standalone && standalone.dataset.assetEmbed !== 'true') {
         standalone.dataset.assetEmbed = 'true'
-        standalone.replaceWith(buildAttachmentChip(resolved, raw, label, openAsset))
+        // Audio and video in image syntax (`![](clip.mp4)`, the Markdown
+        // spelling of `![[clip.mp4]]`) play here as the wikilink form does,
+        // and as the editor draws both. PDFs in this form still chip.
+        if (imgKind === 'audio' || imgKind === 'video') {
+          standalone.replaceWith(
+            withCloudNotice(
+              buildEmbed(
+                imgKind,
+                resolved,
+                label,
+                raw,
+                assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
+              ),
+              assetVaultRel
+            )
+          )
+          return
+        }
+        standalone.replaceWith(
+          withCloudNotice(buildAttachmentChip(resolved, raw, label, openAsset), assetVaultRel)
+        )
       } else {
         const link = document.createElement('a')
         link.className = 'local-file-attachment-inline'
@@ -458,13 +538,16 @@ export function enhanceLocalAssetNodes(
     paragraph.dataset.assetEmbed = 'true'
     const sourceLine = Number(paragraph.dataset.sourceLine)
     paragraph.replaceWith(
-      buildImageEmbed(
-        img,
-        raw,
-        resolved,
-        Number.isFinite(sourceLine) && sourceLine >= 1 ? sourceLine : null,
-        onRequestEdit,
-        assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
+      withCloudNotice(
+        buildImageEmbed(
+          img,
+          raw,
+          resolved,
+          Number.isFinite(sourceLine) && sourceLine >= 1 ? sourceLine : null,
+          onRequestEdit,
+          assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
+        ),
+        assetVaultRel
       )
     )
   })
@@ -504,20 +587,26 @@ export function enhanceLocalAssetNodes(
     if (kind === 'pdf' && pinnedAssetPath) {
       if (assetVaultRel === pinnedAssetPath) {
         paragraph.replaceWith(
-          buildPinnedRefPlaceholder(resolved, raw, label, () => {
-            onActivatePinnedRef?.()
-          })
+          withCloudNotice(
+            buildPinnedRefPlaceholder(resolved, raw, label, () => {
+              onActivatePinnedRef?.()
+            }),
+            assetVaultRel
+          )
         )
         return
       }
     }
     paragraph.replaceWith(
-      buildEmbed(
-        kind,
-        resolved,
-        label,
-        raw,
-        assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
+      withCloudNotice(
+        buildEmbed(
+          kind,
+          resolved,
+          label,
+          raw,
+          assetVaultRel && onOpenAsset ? () => onOpenAsset(assetVaultRel) : null
+        ),
+        assetVaultRel
       )
     )
   })

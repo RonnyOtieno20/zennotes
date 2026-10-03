@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   CloudAccountStatus,
+  CloudBackupItemsPage,
   CloudBackupNoteRestoreResult,
   CloudBackupRestoreResult,
   CloudBackupSchedule,
@@ -15,17 +16,25 @@ import type {
   CloudUsage,
   CloudVaultLink,
 } from "@zennotes/bridge-contract/cloud-sync";
-import { getZenBridge } from "@zennotes/bridge-contract/bridge";
+import { getZenBridge, type ZenBridge } from "@zennotes/bridge-contract/bridge";
 import { confirmApp } from "../lib/confirm-requests";
 import {
+  clearRemovedCloudVault,
   cloudSyncAttentionItems,
+  cloudSyncAttentionLabel,
+  cloudVaultGoneReason,
+  cloudVaultRemovalLabel,
+  cloudVaultRemovalMessage,
+  formatCloudBytes,
   cloudSyncAttentionMessage,
+  markCloudVaultDeleted,
   openCloudSettingsConflictPrompt,
   refreshCloudSettingsConflict,
   resolveCloudSettingsConflictWithStatus,
   useCloudSyncStatusStore,
   requestCloudAutoSync,
   syncCloudVaultWithStatus,
+  type CloudVaultRemoval,
 } from "../lib/cloud-auto-sync";
 import {
   describeVaultSettingsConflict,
@@ -38,6 +47,7 @@ import { Button } from "./ui/Button";
 import { useStore } from "../store";
 import { focusEditorNormalMode } from "../lib/editor-focus";
 import { CloudPendingConflictResolver } from "./CloudPendingConflictResolver";
+import { CloudVaultDeleteDialog } from "./CloudVaultDeleteDialog";
 
 type CloudAction =
   | "connect"
@@ -60,6 +70,19 @@ type CloudAction =
   | "settings-local"
   | "settings-cloud"
   | null;
+
+/**
+ * Actions whose controls live in This vault report their failures there. The
+ * page banner sits above the account and plan, a long scroll on a phone from
+ * the button that was pressed, so a failure there looked like nothing at all.
+ */
+const VAULT_SECTION_ACTIONS: ReadonlySet<CloudAction> = new Set<CloudAction>([
+  "link",
+  "unlink",
+  "vault-delete",
+  "settings-local",
+  "settings-cloud",
+]);
 
 export function CloudSettings({
   localVaultAvailable,
@@ -84,8 +107,8 @@ export function CloudSettings({
   const [backups, setBackups] = useState<CloudBackupSnapshot[]>([]);
   const [backupSchedule, setBackupSchedule] =
     useState<CloudBackupSchedule | null>(null);
-  const [expandedBackupId, setExpandedBackupId] = useState<string | null>(null);
-  const [backupItems, setBackupItems] = useState<CloudBackupSnapshotItem[]>([]);
+  const backupNotes = useBackupNotes(bridge);
+  const closeBackupNotes = backupNotes.close;
   const [publishedNotes, setPublishedNotes] = useState<CloudPublishedNote[]>(
     [],
   );
@@ -97,84 +120,155 @@ export function CloudSettings({
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [action, setAction] = useState<CloudAction>(null);
   const [error, setError] = useState<string | null>(null);
+  const [vaultError, setVaultError] = useState<string | null>(null);
+  const [deleteRequest, setDeleteRequest] = useState<CloudVaultLink | null>(
+    null,
+  );
+  // The list is the truth about what can be opened: a choice that is no
+  // longer in it falls back to the first vault that is.
+  const effectiveSelectedVaultId = cloudVaults.some(
+    (vault) => vault.id === selectedVaultId,
+  )
+    ? selectedVaultId
+    : (cloudVaults[0]?.id ?? "");
+
+  // Only the newest load may write: a sign-in can start a second load while
+  // the first is still waiting, and the first must not land on top of it.
+  const loadGeneration = useRef(0);
+
+  /**
+   * Read the account's vaults from Cloud again. Editing the old list here kept
+   * a vault deleted on another device on offer, and opening it failed.
+   * `goneId` names a vault this device knows is gone, so a failed read still
+   * stops offering that one.
+   */
+  const refreshCloudVaults = useCallback(
+    async (goneId?: string): Promise<void> => {
+      const generation = loadGeneration.current;
+      try {
+        const vaults = await bridge.listCloudVaults();
+        if (generation === loadGeneration.current) setCloudVaults(vaults);
+      } catch {
+        if (generation !== loadGeneration.current || !goneId) return;
+        setCloudVaults((current) =>
+          current.filter((vault) => vault.id !== goneId),
+        );
+      }
+    },
+    [bridge],
+  );
+
+  // The link as last drawn, for a store change that arrives between renders:
+  // deleting here drops the link from state just before it reports the
+  // deletion, and the vault that went is still the drawn one.
+  const drawnLink = useRef(link);
+  useEffect(() => {
+    drawnLink.current = link;
+  }, [link]);
 
   useEffect(() => {
+    // One subscription for the panel's whole life. One that was replaced
+    // whenever the link changed abandoned the deletion it was answering: the
+    // delete re-renders the panel before the host confirms the link is gone.
     let mounted = true;
     const unsubscribe = useCloudSyncStatusStore.subscribe((next, previous) => {
       // A saved decision updates this panel immediately, then the remaining
       // vault sync may finish later. Adopt that result (or a vault reset), but
       // keep explicit restore/manual summaries through unrelated status changes.
       if (next.lastSummary !== previous.lastSummary) setSummary(next.lastSummary);
-      if (next.phase === "unlinked" && next.error) {
+      // The link went away with its Cloud vault: a sync found it gone while
+      // this panel was open, or this panel deleted it. This vault's notice
+      // says why. The panel lets go of what belonged to the link and reads
+      // the list again, so the vault that is gone is not offered here.
+      if (
+        next.removedVault !== null &&
+        next.removedVault !== previous.removedVault
+      ) {
+        const goneId = drawnLink.current?.vault_id;
         void bridge.getCloudVaultLink().then((currentLink) => {
           if (!mounted || currentLink !== null) return;
           setLink(null);
-          const remainingVaults = cloudVaults.filter((vault) => vault.id !== link?.vault_id);
-          setCloudVaults(remainingVaults);
-          setSelectedVaultId((selected) => remainingVaults.some((vault) => vault.id === selected)
-            ? selected : (remainingVaults[0]?.id ?? ""));
           setSummary(null);
           setBackups([]);
           setBackupSchedule(null);
-          setExpandedBackupId(null);
-          setBackupItems([]);
+          closeBackupNotes();
           setRestoreResult(null);
-          setError(next.error);
+          void refreshCloudVaults(goneId);
         }).catch(() => {});
       }
     });
     return () => { mounted = false; unsubscribe(); };
-  }, [bridge, link, cloudVaults]);
+  }, [bridge, closeBackupNotes, refreshCloudVaults]);
 
   const loadStatus = useCallback(
     async (nextStatus?: CloudAccountStatus): Promise<void> => {
-      const next = nextStatus ?? (await bridge.getCloudAccountStatus());
-      setStatus(next);
-      setError(null);
+      const generation = ++loadGeneration.current;
+      const superseded = (): boolean => generation !== loadGeneration.current;
+      let statusHint = nextStatus;
+      for (let attempt = 0; ; attempt += 1) {
+        const next = statusHint ?? (await bridge.getCloudAccountStatus());
+        if (superseded()) return;
+        setStatus(next);
+        setError(null);
+        setVaultError(null);
 
-      if (next.state !== "connected") {
-        setServiceAccount(null);
-        setCloudVaults([]);
-        setLink(null);
-        setSummary(null);
-        setBackups([]);
-        setBackupSchedule(null);
-        setExpandedBackupId(null);
-        setBackupItems([]);
-        setPublishedNotes([]);
-        setRestoreResult(null);
-        return;
-      }
-
-      setLoadingDetails(true);
-      try {
-        const account = await bridge.getCloudServiceAccount();
-        setServiceAccount(account);
-
-        if (!account.features.sync.active || !localVaultAvailable) {
+        if (next.state !== "connected") {
+          setServiceAccount(null);
           setCloudVaults([]);
           setLink(null);
+          setSummary(null);
+          setBackups([]);
+          setBackupSchedule(null);
+          closeBackupNotes();
+          setPublishedNotes([]);
+          setRestoreResult(null);
           return;
         }
 
-        const [availableVaults, currentLink] = await Promise.all([
-          bridge.listCloudVaults(),
-          bridge.getCloudVaultLink(),
-        ]);
-        setCloudVaults(availableVaults);
-        setLink(currentLink);
-        setSelectedVaultId((current) =>
-          availableVaults.some((vault) => vault.id === current)
-            ? current
-            : (availableVaults[0]?.id ?? ""),
-        );
-      } catch (cause) {
-        setError(errorMessage(cause, "Could not load ZenNotes Cloud."));
-      } finally {
-        setLoadingDetails(false);
+        setLoadingDetails(true);
+        try {
+          const account = await bridge.getCloudServiceAccount();
+          if (superseded()) return;
+          setServiceAccount(account);
+
+          if (!account.features.sync.active || !localVaultAvailable) {
+            setCloudVaults([]);
+            setLink(null);
+            return;
+          }
+
+          const [availableVaults, currentLink] = await Promise.all([
+            bridge.listCloudVaults(),
+            bridge.getCloudVaultLink(),
+          ]);
+          if (superseded()) return;
+          setCloudVaults(availableVaults);
+          setLink(currentLink);
+          setSelectedVaultId((current) =>
+            availableVaults.some((vault) => vault.id === current)
+              ? current
+              : (availableVaults[0]?.id ?? ""),
+          );
+          return;
+        } catch (cause) {
+          if (superseded()) return;
+          // Signing in or out cancels every request in flight while the
+          // credential is swapped (the phones do this on purpose). That is not
+          // a failure to show: read the account again once the new one is in.
+          if (isCancelledRequest(cause) && attempt < CANCELLED_LOAD_RETRIES) {
+            statusHint = undefined;
+            await new Promise((resolve) => setTimeout(resolve, CANCELLED_LOAD_RETRY_MS));
+            if (superseded()) return;
+            continue;
+          }
+          setError(errorMessage(cause, "Could not load ZenNotes Cloud."));
+          return;
+        } finally {
+          if (!superseded()) setLoadingDetails(false);
+        }
       }
     },
-    [bridge, localVaultAvailable],
+    [bridge, closeBackupNotes, localVaultAvailable],
   );
 
   useEffect(() => {
@@ -225,6 +319,7 @@ export function CloudSettings({
       setPublishedNotes(await bridge.listCloudPublishedNotes());
       await refreshServiceAccount();
     } catch (cause) {
+      if (isCancelledRequest(cause)) return;
       setError(errorMessage(cause, "Could not load published notes."));
     } finally {
       setLoadingPublishedNotes(false);
@@ -239,8 +334,7 @@ export function CloudSettings({
     if (!backupIncluded || !activeLink) {
       setBackups([]);
       setBackupSchedule(null);
-      setExpandedBackupId(null);
-      setBackupItems([]);
+      closeBackupNotes();
       return;
     }
 
@@ -254,11 +348,18 @@ export function CloudSettings({
       setBackupSchedule(nextSchedule);
       await refreshServiceAccount();
     } catch (cause) {
+      if (isCancelledRequest(cause)) return;
       setError(errorMessage(cause, "Could not load cloud backups."));
     } finally {
       setLoadingBackups(false);
     }
-  }, [activeLink, backupIncluded, bridge, refreshServiceAccount]);
+  }, [
+    activeLink,
+    backupIncluded,
+    bridge,
+    closeBackupNotes,
+    refreshServiceAccount,
+  ]);
 
   useEffect(() => {
     void loadBackups();
@@ -282,15 +383,19 @@ export function CloudSettings({
   ): Promise<void> => {
     setAction(nextAction);
     setError(null);
+    setVaultError(null);
     try {
       await operation();
     } catch (cause) {
       // Sync errors already live in the shared status store. Duplicating one
       // here leaves it visible after a successful editor/background retry.
       if (nextAction !== "sync") {
-        setError(
-          errorMessage(cause, "ZenNotes Cloud could not complete that action."),
+        const message = errorMessage(
+          cause,
+          "ZenNotes Cloud could not complete that action.",
         );
+        if (VAULT_SECTION_ACTIONS.has(nextAction)) setVaultError(message);
+        else setError(message);
       }
     } finally {
       setAction(null);
@@ -310,10 +415,25 @@ export function CloudSettings({
 
   const linkSelectedVault = (): Promise<void> =>
     runAction("link", async () => {
-      if (!selectedVaultId) return;
-      setLink(await bridge.linkCloudVault(selectedVaultId));
+      const chosenId = effectiveSelectedVaultId;
+      if (!chosenId) return;
+      const chosen = cloudVaults.find((vault) => vault.id === chosenId);
+      let linked: CloudVaultLink;
+      try {
+        linked = await bridge.linkCloudVault(chosenId);
+      } catch (cause) {
+        if (cloudVaultGoneReason(cause) === null) throw cause;
+        // The list this choice came from is older than whatever took the
+        // vault away. Read it again first, so the answer arrives beside a
+        // list that no longer offers it.
+        await refreshCloudVaults(chosenId);
+        throw new Error(vaultGoneFromListMessage(chosen?.name ?? null));
+      }
+      setLink(linked);
       setSummary(null);
+      clearRemovedCloudVault();
       requestCloudAutoSync("vault-link");
+      await refreshCloudVaults();
     });
 
   const createAndLinkVault = (): Promise<void> =>
@@ -322,19 +442,11 @@ export function CloudSettings({
       if (!name) throw new Error("Enter a name for the cloud vault.");
       const createdLink = await bridge.createAndLinkCloudVault(name);
       setLink(createdLink);
-      setCloudVaults((current) => [
-        ...current,
-        {
-          id: createdLink.vault_id,
-          name: createdLink.vault_name,
-          cursor: 0,
-          created_at: createdLink.linked_at,
-          updated_at: createdLink.linked_at,
-        },
-      ]);
       setSelectedVaultId(createdLink.vault_id);
       setSummary(null);
+      clearRemovedCloudVault();
       requestCloudAutoSync("vault-link");
+      await refreshCloudVaults();
     });
 
   const clearLinkedVaultState = (): void => {
@@ -342,8 +454,7 @@ export function CloudSettings({
     setSummary(null);
     setBackups([]);
     setBackupSchedule(null);
-    setExpandedBackupId(null);
-    setBackupItems([]);
+    closeBackupNotes();
     setRestoreResult(null);
   };
 
@@ -363,29 +474,25 @@ export function CloudSettings({
     });
   };
 
-  const deleteVault = async (): Promise<void> => {
-    if (!link) return;
-    const deletedVault = link;
-    const confirmed = await confirmApp({
-      title: `Delete ${deletedVault.vault_name} from ZenNotes Cloud?`,
-      description:
-        "This permanently deletes the Cloud copy, its backups, and its exports. Local files on your devices stay in place, but this cannot be undone.",
-      confirmLabel: "Delete Cloud vault",
-      danger: true,
-    });
-    if (!confirmed) return;
+  const deleteVault = (): void => {
+    if (link) setDeleteRequest(link);
+  };
 
+  const confirmDeleteVault = async (
+    deletedVault: CloudVaultLink,
+  ): Promise<void> => {
+    setDeleteRequest(null);
     await runAction("vault-delete", async () => {
       await bridge.deleteCloudVault();
-      setCloudVaults((current) =>
-        current.filter((vault) => vault.id !== deletedVault.vault_id),
-      );
       clearLinkedVaultState();
+      // The status row and This vault keep saying why sync stopped, and the
+      // store change is also what reads the vault list again here.
+      markCloudVaultDeleted(deletedVault.vault_name);
       await refreshServiceAccount();
       useToastStore
         .getState()
         .addToast(
-          `${deletedVault.vault_name} was deleted from ZenNotes Cloud.`,
+          `“${deletedVault.vault_name}” was deleted from ZenNotes Cloud.`,
           "success",
         );
     });
@@ -435,16 +542,12 @@ export function CloudSettings({
     });
 
   const browseBackup = (backup: CloudBackupSnapshot): Promise<void> => {
-    if (expandedBackupId === backup.id) {
-      setExpandedBackupId(null);
-      setBackupItems([]);
+    if (backupNotes.view?.backupId === backup.id) {
+      closeBackupNotes();
       return Promise.resolve();
     }
 
-    return runAction("backup-browse", async () => {
-      setBackupItems(await bridge.listCloudBackupItems(backup.id));
-      setExpandedBackupId(backup.id);
-    });
+    return runAction("backup-browse", () => backupNotes.open(backup.id));
   };
 
   const refreshPublishedNotes = (): Promise<void> =>
@@ -628,8 +731,9 @@ export function CloudSettings({
                 linkMismatch={linkMismatch}
                 localVaultAvailable={localVaultAvailable}
                 newVaultName={newVaultName}
-                selectedVaultId={selectedVaultId}
+                selectedVaultId={effectiveSelectedVaultId}
                 summary={summary}
+                vaultError={vaultError}
                 onSummaryChange={setSummary}
                 onCreateAndLink={() => void createAndLinkVault()}
                 onLink={() => void linkSelectedVault()}
@@ -637,7 +741,8 @@ export function CloudSettings({
                 onSelectedVaultChange={setSelectedVaultId}
                 onSync={() => void syncVault()}
                 onUnlink={() => void unlinkVault()}
-                onDelete={() => void deleteVault()}
+                onDelete={deleteVault}
+                onDismissRemoval={clearRemovedCloudVault}
                 onUseAnotherAccount={() => void logout()}
                 settingsConflict={settingsConflict}
                 onResolveSettingsConflict={(choice) =>
@@ -663,9 +768,8 @@ export function CloudSettings({
                 action={action}
                 backupIncluded={backupIncluded}
                 backupLabel={backupLabel}
-                backupItems={backupItems}
+                backupNotes={backupNotes}
                 backups={backups}
-                expandedBackupId={expandedBackupId}
                 limits={serviceAccount.features.backup.limits}
                 link={activeLink}
                 loading={loadingBackups}
@@ -688,6 +792,14 @@ export function CloudSettings({
             </>
           ) : null}
         </>
+      )}
+
+      {deleteRequest && (
+        <CloudVaultDeleteDialog
+          vaultName={deleteRequest.vault_name}
+          onConfirm={() => void confirmDeleteVault(deleteRequest)}
+          onCancel={() => setDeleteRequest(null)}
+        />
       )}
     </div>
   );
@@ -1056,6 +1168,7 @@ function CloudVaultPanel({
   settingsConflict,
   summary,
   syncIncluded,
+  vaultError,
   onCreateAndLink,
   onLink,
   onNewVaultNameChange,
@@ -1064,6 +1177,7 @@ function CloudVaultPanel({
   onSync,
   onUnlink,
   onDelete,
+  onDismissRemoval,
   onUseAnotherAccount,
   onSummaryChange,
 }: {
@@ -1078,6 +1192,7 @@ function CloudVaultPanel({
   settingsConflict: CloudSyncSettingsConflict | null;
   summary: CloudSyncRunSummary | null;
   syncIncluded: boolean;
+  vaultError: string | null;
   onCreateAndLink: () => void;
   onLink: () => void;
   onNewVaultNameChange: (value: string) => void;
@@ -1086,12 +1201,14 @@ function CloudVaultPanel({
   onSync: () => void;
   onUnlink: () => void;
   onDelete: () => void;
+  onDismissRemoval: () => void;
   onUseAnotherAccount: () => void;
   onSummaryChange: (summary: CloudSyncRunSummary) => void;
 }): JSX.Element {
   const lastSummary = useCloudSyncStatusStore((s) => s.lastSummary);
   const syncPhase = useCloudSyncStatusStore((s) => s.phase);
   const syncError = useCloudSyncStatusStore((s) => s.error);
+  const removedVault = useCloudSyncStatusStore((s) => s.removedVault);
   const syncing = syncPhase === "syncing" || action === "sync";
   const syncFailed = syncPhase === "error";
   const currentResult = !syncing && !syncFailed;
@@ -1127,6 +1244,15 @@ function CloudVaultPanel({
           a destination.
         </p>
       </div>
+
+      {vaultError && <CloudSectionError message={vaultError} />}
+      {!link && removedVault && (
+        <CloudVaultRemovedNotice
+          removal={removedVault}
+          vaultsToChoose={cloudVaults.length > 0}
+          onDismiss={onDismissRemoval}
+        />
+      )}
 
       <div className="overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45">
         {link && linkMismatch ? (
@@ -1386,13 +1512,192 @@ function CloudVaultDestinationOptions({
   );
 }
 
+/** One expanded backup and its notes, as far as they have been loaded. */
+interface BackupNotesView {
+  backupId: string;
+  items: CloudBackupSnapshotItem[];
+  /** Null on a host that lists a backup's first page alone and cannot search. */
+  paging: Omit<CloudBackupItemsPage, "items"> | null;
+  /** Notes in the whole backup, whatever the search. */
+  notesTotal: number;
+}
+
+interface BackupNotes {
+  view: BackupNotesView | null;
+  search: string;
+  /** The service has not answered the search in the box yet. */
+  searching: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  open: (backupId: string) => Promise<void>;
+  close: () => void;
+  setSearch: (value: string) => void;
+  loadMore: () => Promise<void>;
+}
+
+const BACKUP_NOTES_SEARCH_DELAY_MS = 250;
+
+/**
+ * Browsing one backup's notes. The service lists a backup 50 notes at a time,
+ * so a search has to run there: filtering here could only ever find notes on
+ * the pages already loaded. Those rows are still filtered as the search is
+ * typed, so the list answers at once and the service's answer replaces it.
+ */
+function useBackupNotes(bridge: ZenBridge): BackupNotes {
+  const [view, setView] = useState<BackupNotesView | null>(null);
+  const [search, setSearchValue] = useState("");
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Only the newest backup opened may land, and not after it was closed. An
+  // open that fails leaves the backup already showing as it was.
+  const latestOpen = useRef(0);
+  // Only the newest answer about the backup on screen may land: one for an
+  // older search would show notes for words no longer in the box.
+  const latestRequest = useRef(0);
+  // What the newest request searched for, so words the list already answers
+  // (or is waiting on) are not asked again. A failure forgets them, so the
+  // same words can be asked again once the search changes.
+  const requestedSearch = useRef<string | null>("");
+
+  const close = useCallback((): void => {
+    latestOpen.current += 1;
+    latestRequest.current += 1;
+    requestedSearch.current = "";
+    setView(null);
+    setSearchValue("");
+    setLoadingMore(false);
+    setError(null);
+  }, []);
+
+  const open = async (backupId: string): Promise<void> => {
+    const opening = ++latestOpen.current;
+    let next: BackupNotesView;
+    if (bridge.listCloudBackupItemsPage) {
+      const { items, ...paging } = await bridge.listCloudBackupItemsPage(
+        backupId,
+        { page: 1 },
+      );
+      next = { backupId, items, paging, notesTotal: paging.total };
+    } else {
+      const items = await bridge.listCloudBackupItems(backupId);
+      next = { backupId, items, paging: null, notesTotal: items.length };
+    }
+    if (opening !== latestOpen.current) return;
+    latestRequest.current += 1;
+    requestedSearch.current = "";
+    setView(next);
+    setSearchValue("");
+    setLoadingMore(false);
+    setError(null);
+  };
+
+  const searchNotes = useCallback(
+    async (backupId: string, term: string): Promise<void> => {
+      if (!bridge.listCloudBackupItemsPage) return;
+      const request = ++latestRequest.current;
+      requestedSearch.current = term;
+      setLoadingMore(false);
+      setError(null);
+      try {
+        const { items, ...paging } = await bridge.listCloudBackupItemsPage(
+          backupId,
+          { page: 1, search: term },
+        );
+        if (request !== latestRequest.current) return;
+        setView((current) =>
+          current?.backupId === backupId
+            ? { ...current, items, paging }
+            : current,
+        );
+      } catch (cause) {
+        if (request !== latestRequest.current) return;
+        requestedSearch.current = null;
+        setError(errorMessage(cause, "Could not search this backup."));
+      }
+    },
+    [bridge],
+  );
+
+  const backupId = view?.backupId ?? null;
+  const searchable = view !== null && view.paging !== null;
+  const searchTerm = search.trim();
+  useEffect(() => {
+    if (backupId === null || !searchable) return;
+    if (searchTerm === requestedSearch.current) return;
+    const timer = window.setTimeout(() => {
+      if (searchTerm !== requestedSearch.current) {
+        void searchNotes(backupId, searchTerm);
+      }
+    }, BACKUP_NOTES_SEARCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [backupId, searchable, searchTerm, searchNotes]);
+
+  const loadMore = async (): Promise<void> => {
+    if (!view?.paging || view.paging.page >= view.paging.lastPage) return;
+    if (!bridge.listCloudBackupItemsPage) return;
+    const { backupId: loadingId, paging } = view;
+    const request = ++latestRequest.current;
+    requestedSearch.current = paging.search;
+    setLoadingMore(true);
+    setError(null);
+    try {
+      const { items, ...nextPaging } = await bridge.listCloudBackupItemsPage(
+        loadingId,
+        { page: paging.page + 1, search: paging.search },
+      );
+      if (request !== latestRequest.current) return;
+      setView((current) => {
+        if (current?.backupId !== loadingId) return current;
+        // Pages are offsets, so a note can come back twice when the order
+        // shifts between two requests. The list keeps each note once.
+        const loaded = new Set(current.items.map((item) => item.id));
+        return {
+          ...current,
+          items: [
+            ...current.items,
+            ...items.filter((item) => !loaded.has(item.id)),
+          ],
+          paging: nextPaging,
+        };
+      });
+    } catch (cause) {
+      if (request !== latestRequest.current) return;
+      setError(errorMessage(cause, "Could not load more notes."));
+    } finally {
+      if (request === latestRequest.current) setLoadingMore(false);
+    }
+  };
+
+  const setSearch = (value: string): void => {
+    setSearchValue(value);
+    // Nothing is asked again until the words change, so a failure stays on
+    // screen until they do.
+    if (value.trim() !== searchTerm) setError(null);
+  };
+
+  return {
+    view,
+    search,
+    searching:
+      view !== null &&
+      view.paging !== null &&
+      searchTerm !== view.paging.search &&
+      error === null,
+    loadingMore,
+    error,
+    open,
+    close,
+    setSearch,
+    loadMore,
+  };
+}
+
 function CloudBackupPanel({
   action,
   backupIncluded,
   backupLabel,
-  backupItems,
+  backupNotes,
   backups,
-  expandedBackupId,
   limits,
   link,
   loading,
@@ -1411,9 +1716,8 @@ function CloudBackupPanel({
   action: CloudAction;
   backupIncluded: boolean;
   backupLabel: string;
-  backupItems: CloudBackupSnapshotItem[];
+  backupNotes: BackupNotes;
   backups: CloudBackupSnapshot[];
-  expandedBackupId: string | null;
   limits: Record<string, unknown> | null;
   link: CloudVaultLink | null;
   loading: boolean;
@@ -1432,19 +1736,8 @@ function CloudBackupPanel({
   ) => void;
   onScheduleChange: (enabled: boolean) => void;
 }): JSX.Element {
-  const [noteSearch, setNoteSearch] = useState("");
   const [recoveryDate, setRecoveryDate] = useState("");
-
-  useEffect(() => {
-    setNoteSearch("");
-  }, [expandedBackupId]);
-
-  const normalizedNoteSearch = noteSearch.trim().toLowerCase();
-  const filteredBackupItems = normalizedNoteSearch
-    ? backupItems.filter((item) =>
-        item.path.toLowerCase().includes(normalizedNoteSearch),
-      )
-    : backupItems;
+  const expandedNotes = backupNotes.view;
   const latestRecoveryDate = localDateKey(new Date().toISOString());
   const recoveryDateIsFuture = recoveryDate > latestRecoveryDate;
   const recoverySelection = recoveryDateIsFuture
@@ -1626,7 +1919,7 @@ function CloudBackupPanel({
         ) : (
           <div className="divide-y divide-paper-300/45">
             {recoverySelection.backups.map((backup) => {
-              const expanded = expandedBackupId === backup.id;
+              const expanded = expandedNotes?.backupId === backup.id;
 
               return (
                 <div key={backup.id}>
@@ -1696,65 +1989,19 @@ function CloudBackupPanel({
                     </div>
                   </div>
 
-                  {expanded && (
-                    <div className="border-t border-paper-300/45 bg-paper-100/35 px-5 py-4">
-                      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
-                          Notes in this backup
-                        </div>
-                        {backupItems.length > 0 && (
-                          <input
-                            type="search"
-                            aria-label="Search notes in this backup"
-                            value={noteSearch}
-                            autoComplete="off"
-                            spellCheck={false}
-                            onChange={(event) =>
-                              setNoteSearch(event.target.value)
-                            }
-                            className="w-full rounded-lg border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent sm:w-72"
-                            placeholder="Search by name or path"
-                          />
-                        )}
-                      </div>
-                      {backupItems.length === 0 ? (
-                        <div className="text-sm text-ink-500">
-                          This backup contains no notes.
-                        </div>
-                      ) : filteredBackupItems.length === 0 ? (
-                        <div className="rounded-xl border border-paper-300/50 bg-paper-50/70 px-4 py-8 text-center text-sm text-ink-500">
-                          No notes match &quot;{noteSearch.trim()}&quot;.
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-paper-300/45 overflow-hidden rounded-xl border border-paper-300/50 bg-paper-50/70">
-                          {filteredBackupItems.map((item) => (
-                            <div
-                              key={item.id}
-                              className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                            >
-                              <div className="min-w-0">
-                                <div className="truncate text-sm font-medium text-ink-800">
-                                  {item.path}
-                                </div>
-                                <div className="mt-0.5 text-xs text-ink-500">
-                                  {formatBytes(item.byte_length)} · Revision{" "}
-                                  {item.revision}
-                                </div>
-                              </div>
-                              <Button
-                                variant="secondary"
-                                disabled={action !== null}
-                                onClick={() => onRestoreNote(backup, item)}
-                              >
-                                {action === "backup-note-restore"
-                                  ? "Restoring…"
-                                  : "Restore note"}
-                              </Button>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                  {expanded && expandedNotes && (
+                    <CloudBackupNotes
+                      action={action}
+                      backup={backup}
+                      notes={expandedNotes}
+                      search={backupNotes.search}
+                      searching={backupNotes.searching}
+                      loadingMore={backupNotes.loadingMore}
+                      error={backupNotes.error}
+                      onSearchChange={backupNotes.setSearch}
+                      onLoadMore={backupNotes.loadMore}
+                      onRestoreNote={onRestoreNote}
+                    />
                   )}
                 </div>
               );
@@ -1763,6 +2010,141 @@ function CloudBackupPanel({
         )}
       </div>
     </section>
+  );
+}
+
+function CloudBackupNotes({
+  action,
+  backup,
+  notes,
+  search,
+  searching,
+  loadingMore,
+  error,
+  onSearchChange,
+  onLoadMore,
+  onRestoreNote,
+}: {
+  action: CloudAction;
+  backup: CloudBackupSnapshot;
+  notes: BackupNotesView;
+  search: string;
+  searching: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  onSearchChange: (value: string) => void;
+  onLoadMore: () => Promise<void>;
+  onRestoreNote: (
+    backup: CloudBackupSnapshot,
+    item: CloudBackupSnapshotItem,
+  ) => void;
+}): JSX.Element {
+  const searchTerm = search.trim();
+  const normalizedSearch = searchTerm.toLowerCase();
+  // The rows always match the box: while the service is still answering, and
+  // from a service that predates search and sends every note regardless.
+  const visibleItems = normalizedSearch
+    ? notes.items.filter((item) =>
+        item.path.toLowerCase().includes(normalizedSearch),
+      )
+    : notes.items;
+  // Counts and further pages belong to the service's answer, so they show
+  // only once that answer is for the words in the box.
+  const answer =
+    notes.paging !== null && notes.paging.search === searchTerm
+      ? notes.paging
+      : null;
+  const canLoadMore = answer !== null && answer.page < answer.lastPage;
+  const loadedCount =
+    answer !== null && notes.items.length < answer.total
+      ? `Showing ${notes.items.length.toLocaleString()} of ${answer.total.toLocaleString()} ${answer.search ? "matches" : "notes"}`
+      : null;
+  const footer =
+    searching && visibleItems.length > 0 ? "Searching…" : loadedCount;
+
+  return (
+    <div className="border-t border-paper-300/45 bg-paper-100/35 px-5 py-4">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="text-xs font-medium uppercase tracking-[0.16em] text-ink-500">
+          Notes in this backup
+        </div>
+        {notes.notesTotal > 0 && (
+          <input
+            type="search"
+            aria-label="Search notes in this backup"
+            value={search}
+            maxLength={200}
+            autoComplete="off"
+            spellCheck={false}
+            onChange={(event) => onSearchChange(event.target.value)}
+            className="w-full rounded-lg border border-paper-300 bg-paper-50 px-3 py-2 text-sm text-ink-900 outline-none placeholder:text-ink-400 focus:border-accent sm:w-72"
+            placeholder="Search by name or path"
+          />
+        )}
+      </div>
+      {error && (
+        <p
+          role="alert"
+          className="mb-3 rounded-lg border border-danger/35 bg-danger/10 px-3 py-2 text-xs leading-5 text-danger"
+        >
+          {error}
+        </p>
+      )}
+      {notes.notesTotal === 0 ? (
+        <div className="text-sm text-ink-500">
+          This backup contains no notes.
+        </div>
+      ) : visibleItems.length > 0 ? (
+        <div className="divide-y divide-paper-300/45 overflow-hidden rounded-xl border border-paper-300/50 bg-paper-50/70">
+          {visibleItems.map((item) => (
+            <div
+              key={item.id}
+              className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium text-ink-800">
+                  {item.path}
+                </div>
+                <div className="mt-0.5 text-xs text-ink-500">
+                  {formatBytes(item.byte_length)} · Revision {item.revision}
+                </div>
+              </div>
+              <Button
+                variant="secondary"
+                disabled={action !== null}
+                onClick={() => onRestoreNote(backup, item)}
+              >
+                {action === "backup-note-restore"
+                  ? "Restoring…"
+                  : "Restore note"}
+              </Button>
+            </div>
+          ))}
+        </div>
+      ) : error ? null : (
+        <div className="rounded-xl border border-paper-300/50 bg-paper-50/70 px-4 py-8 text-center text-sm text-ink-500">
+          {searching ? (
+            "Searching…"
+          ) : (
+            <>No notes match &quot;{searchTerm}&quot;.</>
+          )}
+        </div>
+      )}
+      {(footer || canLoadMore) && (
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <p className="text-xs text-ink-500">{footer}</p>
+          {canLoadMore && (
+            <Button
+              variant="ghost"
+              disabled={action !== null || loadingMore}
+              onClick={() => void onLoadMore()}
+            >
+              {loadingMore ? "Loading…" : "Load more"}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1893,15 +2275,12 @@ function formatCloudVaultDate(value: string): string {
   return date.toLocaleDateString();
 }
 
+// Plans are sold in decimal units (10 GB is 10,000,000,000 bytes), and the
+// sync messages count that way too. Dividing by 1024 showed a 10 GB plan as
+// "9.3 GB", which read as if the allowance had shrunk.
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
-  const units = ["B", "KB", "MB", "GB", "TB"];
-  const unitIndex = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
-  if (unitIndex === 0) return `${Math.round(bytes)} B`;
-  return `${(bytes / 1024 ** unitIndex).toFixed(1)} ${units[unitIndex]}`;
+  return formatCloudBytes(Math.round(bytes));
 }
 
 function pluralize(value: number, singular: string): string {
@@ -2038,7 +2417,7 @@ function CloudSyncSummary({
         <>
           <div className="font-medium">
             {attention
-              ? "Sync incomplete"
+              ? (cloudSyncAttentionLabel(summary) ?? "Sync incomplete")
               : summary.pulled === 0 && summary.pushed === 0
                 ? "Everything is up to date"
                 : `Downloaded ${summary.pulled} · Uploaded ${summary.pushed}`}
@@ -2167,6 +2546,75 @@ function CloudSyncSummary({
   );
 }
 
+/**
+ * Why this vault stopped syncing when nobody here unlinked it. Review on the
+ * status row opens the Cloud page at its top, and on a phone This vault sits
+ * a long scroll below the account and plan, so the notice brings itself into
+ * view.
+ */
+function CloudVaultRemovedNotice({
+  removal,
+  vaultsToChoose,
+  onDismiss,
+}: {
+  removal: CloudVaultRemoval;
+  vaultsToChoose: boolean;
+  onDismiss: () => void;
+}): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ block: "nearest" });
+  }, []);
+  return (
+    <div
+      ref={ref}
+      role="status"
+      data-cloud-vault-removed=""
+      className="flex flex-col gap-3 rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
+    >
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-ink-900">
+          {cloudVaultRemovalLabel(removal)}
+        </div>
+        <p className="mt-1 break-words text-sm leading-6 text-ink-700">
+          {cloudVaultRemovalMessage(removal)}{" "}
+          {vaultsToChoose
+            ? "Choose a cloud vault or start a new one."
+            : "Create a new cloud vault to sync it again."}
+        </p>
+      </div>
+      <Button variant="ghost" className="self-start" onClick={onDismiss}>
+        Dismiss
+      </Button>
+    </div>
+  );
+}
+
+/** A failed action from This vault, said in This vault and brought into view:
+ *  the button that failed can sit a screen below the section's top. */
+function CloudSectionError({ message }: { message: string }): JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    ref.current?.scrollIntoView?.({ block: "nearest" });
+  }, [message]);
+  return (
+    <div
+      ref={ref}
+      role="alert"
+      data-cloud-vault-error=""
+      className="rounded-xl border border-danger/35 bg-danger/10 px-4 py-3 text-sm leading-6 text-danger"
+    >
+      {message}
+    </div>
+  );
+}
+
+/** The vault chosen from the list was gone by the time it was opened. */
+function vaultGoneFromListMessage(vaultName: string | null): string {
+  const vault = vaultName ? `“${vaultName}”` : "That cloud vault";
+  return `${vault} is no longer in your ZenNotes Cloud account. It may have been deleted on another device. The list below is up to date.`;
+}
+
 function CloudNotice({ children }: { children: React.ReactNode }): JSX.Element {
   return (
     <div className="rounded-2xl border border-paper-300/60 bg-paper-50/45 px-5 py-4 text-sm leading-6 text-ink-500">
@@ -2192,12 +2640,26 @@ function CloudLoadingState({
   );
 }
 
+/** Long enough for a phone to finish saving the new credential. */
+const CANCELLED_LOAD_RETRY_MS = 300;
+const CANCELLED_LOAD_RETRIES = 3;
+
+function isCancelledRequest(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    (error as { name?: unknown }).name === "AbortError"
+  );
+}
+
 function errorMessage(error: unknown, fallback: string): string {
   if (!(error instanceof Error) || !error.message.trim()) return fallback;
 
+  // Electron hands the renderer "<ClassName>: <message>" for a main-process
+  // rejection; the class name ("CloudServiceRequestError") is not for people.
   const message = error.message
     .replace(/^Error invoking remote method '[^']+':\s*/i, "")
-    .replace(/^Error:\s*/i, "")
+    .replace(/^(?:[A-Z][A-Za-z]*)?Error:\s*/, "")
     .trim();
 
   return message || fallback;

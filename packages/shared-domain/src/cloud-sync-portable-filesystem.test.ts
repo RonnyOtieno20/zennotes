@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CloudSyncChange } from '@zennotes/bridge-contract/cloud-sync'
+import { CloudSyncCoordinator, type CloudSyncRemote } from './cloud-sync-coordinator'
+import type { CloudSyncState } from './cloud-sync-engine'
 import {
   CloudSyncLocalEditConflictError,
   PortableCloudSyncRepository,
@@ -89,6 +91,98 @@ class FailingMemoryFileSystem extends MemoryFileSystem {
 }
 
 describe('PortableCloudSyncRepository', () => {
+  it('does not upload its own state or scan cache when the vault contains app storage', async () => {
+    const statePath = 'zennotes-cloud-sync/states/vault/account/state.json'
+    const cachePath = 'zennotes-cloud-sync/scan-cache/vault.json'
+    const fs = new MemoryFileSystem({
+      'note.md': 'User-authored note',
+      'zennotes-cloud-sync/links/vault.json': '{"vault_id":"vault-1"}',
+      [cachePath]: '{}'
+    })
+    let scans = 0
+    class Repository extends PortableCloudSyncRepository {
+      override async scan() {
+        const items = await super.scan()
+        await fs.writeText(cachePath, JSON.stringify({ scans: ++scans }))
+        return items
+      }
+    }
+    const changes: CloudSyncChange[] = []
+    const remote: CloudSyncRemote = {
+      manifest: async () => ({ data: [], cursor: 0, next_page: null }),
+      changes: async (_vault, after) => ({ data: changes.filter(change => change.sequence > after), cursor: changes.length, has_more: false }),
+      mutate: async (_vault, { mutations }) => ({
+        acknowledged: mutations.map(mutation => {
+          if (mutation.type !== 'upsert') throw new Error('Unexpected mutation in unchanged vault')
+          const sequence = changes.length + 1
+          const revision = (mutation.base_revision ?? 0) + 1
+          changes.push({ sequence, revision, type: 'upsert', item_id: mutation.item_id,
+            path: mutation.path, previous_path: null, content: mutation.content })
+          return { sequence, revision, item_id: mutation.item_id, operation_id: mutation.operation_id }
+        }),
+        cursor: changes.length,
+        conflicts: []
+      })
+    }
+    let id = 0
+    const summaries = []
+    for (let run = 0; run < 3; run++) {
+      summaries.push(await new CloudSyncCoordinator('vault-1', remote, new Repository(fs), {
+        load: async () => fs.text(statePath) ? JSON.parse(fs.text(statePath)!) as CloudSyncState : null,
+        save: async state => { await fs.writeText(statePath, JSON.stringify(state)) }
+      }, { itemId: () => `item-${++id}`, operationId: () => `operation-${++id}` }).sync())
+    }
+    expect(summaries.map(summary => summary.pushed)).toEqual([1, 0, 0])
+    expect(changes.map(change => change.path)).toEqual(['note.md'])
+    expect(fs.text('note.md')).toBe('User-authored note')
+    expect(fs.text(statePath)).not.toBeNull()
+    expect(fs.text(cachePath)).not.toBeNull()
+  })
+
+  it.each(['upsert', 'move', 'delete'] as const)('never applies remote %s to device-local runtime storage', async type => {
+    const path = 'zennotes-cloud-sync/states/vault.json'
+    const current = await textContent('Local state')
+    const fs = new MemoryFileSystem({ [path]: current.data })
+    await new PortableCloudSyncRepository(fs).apply({
+      item_id: 'runtime', sequence: 2, revision: 2, type,
+      path: type === 'move' ? 'moved.json' : path, previous_path: path,
+      ...(type === 'upsert' ? { content: await textContent('Remote state') } : {})
+    }, { item_id: 'runtime', revision: 1, path, kind: 'text', sha256: current.sha256,
+      byte_length: current.byte_length, media_type: current.media_type })
+    expect(fs.text(path)).toBe('Local state')
+    expect(fs.text('moved.json')).toBeNull()
+  })
+
+  it('rejects unrecognized metadata before creating any conflict files', async () => {
+    const fs = new MemoryFileSystem({ 'note.md': 'original' })
+    const repository = new PortableCloudSyncRepository(fs)
+    const original = await textContent('original')
+    const missing = { ...await textContent('missing'), data: '' }
+    await expect(repository.applyConflictResolutionFiles({
+      expected_path: 'note.md', expected_sha256: original.sha256,
+      files: [{ path: 'copy.md', content: original }, { path: 'note.md', content: missing }]
+    })).rejects.toThrow('source bytes')
+    expect([...fs.files.keys()]).toEqual(['note.md'])
+    expect(fs.text('note.md')).toBe('original')
+  })
+
+  it('uses native content hooks for inherited reads, validation and writes', async () => {
+    const fs = new MemoryFileSystem({ 'note.md': 'original' })
+    const original = await textContent('original')
+    const incoming = await textContent('incoming')
+    const validated: string[] = []
+    const sourceAware: PortableCloudSyncFileSystem = fs
+    sourceAware.readItem = async (path) => ({ path, kind: 'text', content: { ...original, data: '' } })
+    sourceAware.validateContent = async (content) => { validated.push(content.sha256) }
+    sourceAware.writeContent = async (path, content) => { await fs.writeText(path, content.data) }
+    fs.readBase64 = async () => { throw new Error('A native fingerprint must not read inline bytes') }
+    await new PortableCloudSyncRepository(sourceAware).replaceConflictFile({
+      path: 'note.md', expectedSha256: original.sha256, content: incoming
+    })
+    expect(fs.text('note.md')).toBe('incoming')
+    expect(validated).toContain(incoming.sha256)
+  })
+
   it('scans portable user files with text/binary encoding and excludes local state', async () => {
     const fs = new MemoryFileSystem({
       'inbox/Plan.md': '# Plan',

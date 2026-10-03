@@ -164,6 +164,7 @@ import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
 import { shouldShowSelectionToolbar } from '../lib/cm-selection-toolbar'
 import { editorCursorPosition } from '../lib/editor-cursor-position'
 import { EditorSelectionToolbar } from './EditorSelectionToolbar'
+import { CloudConflictNoteBanner } from './CloudConflictNoteBanner'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
@@ -4695,90 +4696,96 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               isObsidianExcalidrawMarkdown(content.body)) ? (
             <ObsidianExcalidrawPrompt path={activeTab} />
           ) : content ? (
-            <div
-              className={[
-                'min-h-0 min-w-0 flex-1 overflow-hidden',
-                splitMode ? 'flex flex-row' : 'flex flex-col'
-              ].join(' ')}
-            >
+            <>
+              {/* Above both surfaces, so Edit, Preview and split all show it; a
+                  sibling that renders nothing keeps the editor's DOM in place
+                  when it comes and goes. */}
+              <CloudConflictNoteBanner path={content.path} />
               <div
-                ref={editorSurfaceRef}
                 className={[
-                  'relative min-h-0 min-w-0',
-                  splitMode
-                    ? 'flex min-w-0 flex-[1.05] flex-col border-r border-paper-300/70'
-                    : 'flex flex-1 flex-col'
+                  'min-h-0 min-w-0 flex-1 overflow-hidden',
+                  splitMode ? 'flex flex-row' : 'flex flex-col'
                 ].join(' ')}
-                style={{ display: showEditor ? 'flex' : 'none' }}
-                onContextMenu={(e) => {
-                  // Native browser context menu in Electron is threadbare
-                  // (no Copy/Cut/Paste unless dev tools are open), so we
-                  // roll our own using CodeMirror's selection state.
-                  const view = viewRef.current
-                  if (!view) return
-                  e.preventDefault()
-                  view.focus()
-                  const sel = view.state.selection.main
-                  setSelectionCommentAction(null)
-                  setEditorMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    hasSelection: !sel.empty,
-                    selFrom: sel.from,
-                    selTo: sel.to,
-                    link: copyableLinkAtPointer(view, e.clientX, e.clientY)
-                  })
-                }}
-                >
-                  {imageDropIndicatorTop != null && (
-                  <div
-                    className="pointer-events-none absolute inset-x-4 z-20"
-                    style={{ top: imageDropIndicatorTop }}
-                  >
-                    <div className="relative h-0.5 rounded-full bg-accent shadow-[0_0_0_1px_rgb(var(--z-accent)/0.18)]">
-                      <div className="absolute -left-1.5 -top-1 h-2.5 w-2.5 rounded-full border border-paper-50/70 bg-accent" />
-                      </div>
-                    </div>
-                  )}
-                  {editorReady ? (
-                    <div
-                      ref={setContainerRef}
-                      className={[
-                        'min-h-0 min-w-0 flex-1',
-                        // WYSIWYG styling (code-block cards, etc.) is gated on
-                        // the same `livePreview` condition that loads the
-                        // wysiwyg plugins, so CSS and plugins stay in lockstep.
-                        livePreview ? 'cm-wysiwyg' : ''
-                      ].join(' ')}
-                    />
-                  ) : (
-                    <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm text-ink-400">
-                      Preparing editor…
-                    </div>
-                  )}
-                </div>
-              {showPreview && (
+              >
                 <div
-                  ref={previewScrollRef}
-                  data-preview-scroll
-                  tabIndex={0}
-                  aria-label="Note preview"
+                  ref={editorSurfaceRef}
                   className={[
-                    'min-h-0 min-w-0 overflow-y-auto outline-none focus:outline-none focus-visible:outline-none',
+                    'relative min-h-0 min-w-0',
                     splitMode
-                      ? 'flex min-w-0 flex-1 flex-col bg-paper-50/10'
-                      : 'flex-1'
+                      ? 'flex min-w-0 flex-[1.05] flex-col border-r border-paper-300/70'
+                      : 'flex flex-1 flex-col'
                   ].join(' ')}
-                >
-                  <Preview
-                    markdown={previewMarkdown}
-                    notePath={content.path}
-                    onRequestEdit={handlePreviewRequestEdit}
-                    onRendered={handlePreviewRendered}
-                  />
-                </div>
-              )}
-            </div>
+                  style={{ display: showEditor ? 'flex' : 'none' }}
+                  onContextMenu={(e) => {
+                    // Native browser context menu in Electron is threadbare
+                    // (no Copy/Cut/Paste unless dev tools are open), so we
+                    // roll our own using CodeMirror's selection state.
+                    const view = viewRef.current
+                    if (!view) return
+                    e.preventDefault()
+                    view.focus()
+                    const sel = view.state.selection.main
+                    setSelectionCommentAction(null)
+                    setEditorMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      hasSelection: !sel.empty,
+                      selFrom: sel.from,
+                      selTo: sel.to,
+                      link: copyableLinkAtPointer(view, e.clientX, e.clientY)
+                    })
+                  }}
+                  >
+                    {imageDropIndicatorTop != null && (
+                    <div
+                      className="pointer-events-none absolute inset-x-4 z-20"
+                      style={{ top: imageDropIndicatorTop }}
+                    >
+                      <div className="relative h-0.5 rounded-full bg-accent shadow-[0_0_0_1px_rgb(var(--z-accent)/0.18)]">
+                        <div className="absolute -left-1.5 -top-1 h-2.5 w-2.5 rounded-full border border-paper-50/70 bg-accent" />
+                        </div>
+                      </div>
+                    )}
+                    {editorReady ? (
+                      <div
+                        ref={setContainerRef}
+                        className={[
+                          'min-h-0 min-w-0 flex-1',
+                          // WYSIWYG styling (code-block cards, etc.) is gated on
+                          // the same `livePreview` condition that loads the
+                          // wysiwyg plugins, so CSS and plugins stay in lockstep.
+                          livePreview ? 'cm-wysiwyg' : ''
+                        ].join(' ')}
+                      />
+                    ) : (
+                      <div className="flex min-h-0 min-w-0 flex-1 items-center justify-center text-sm text-ink-400">
+                        Preparing editor…
+                      </div>
+                    )}
+                  </div>
+                {showPreview && (
+                  <div
+                    ref={previewScrollRef}
+                    data-preview-scroll
+                    tabIndex={0}
+                    aria-label="Note preview"
+                    className={[
+                      'min-h-0 min-w-0 overflow-y-auto outline-none focus:outline-none focus-visible:outline-none',
+                      splitMode
+                        ? 'flex min-w-0 flex-1 flex-col bg-paper-50/10'
+                        : 'flex-1'
+                    ].join(' ')}
+                  >
+                    <Preview
+                      markdown={previewMarkdown}
+                      notePath={content.path}
+                      onRequestEdit={handlePreviewRequestEdit}
+                      onRendered={handlePreviewRendered}
+                    />
+                  </div>
+                )}
+              </div>
+            </>
           ) : loading ? (
             <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-ink-400">
               Loading…

@@ -43,6 +43,8 @@ import type { CustomTemplateFile, WriteTemplateInput } from './templates.js'
 import type {
   CloudAccountConnectResult,
   CloudAccountStatus,
+  CloudBackupItemsPage,
+  CloudBackupItemsQuery,
   CloudBackupNoteRestoreResult,
   CloudBackupRestoreResult,
   CloudBackupSchedule,
@@ -202,6 +204,12 @@ export interface ZenBridge {
   getCloudBackupSchedule(): Promise<CloudBackupSchedule>
   updateCloudBackupSchedule(enabled: boolean): Promise<CloudBackupSchedule>
   listCloudBackupItems(backupId: string): Promise<CloudBackupSnapshotItem[]>
+  /** One page of a backup's notes, searched by path on the service. Hosts
+   *  without it list the first page alone, and Settings filters that page. */
+  listCloudBackupItemsPage?(
+    backupId: string,
+    query: CloudBackupItemsQuery
+  ): Promise<CloudBackupItemsPage>
   createCloudBackup(label?: string): Promise<CloudBackupSnapshot>
   downloadCloudBackup(backupId: string): Promise<void>
   deleteCloudBackup(backupId: string): Promise<void>

@@ -3412,7 +3412,10 @@ function cleanDeletedAssetToken(token: string): string {
 
 /**
  * The link written for a file dragged or attached into a note, by VAULT-relative
- * path: an image as a wikilink, anything else as a markdown link.
+ * path: an image, PDF, audio or video file as an embed, which the note shows in
+ * place (a picture, a document, a player), anything else as a markdown link.
+ * Media used to land as a bare link, so a video attached on a phone showed up
+ * as its file name instead of something you could play.
  *
  * This is the one rule every route now follows, on every platform: paste here,
  * an existing asset dragged in from the sidebar
@@ -3429,9 +3432,16 @@ function markdownForImportedAsset(
   filename: string,
   kind: ImportedAssetKind
 ): string {
-  if (kind === 'image') return `![[${vaultRelPath}]]`
+  if (EMBEDDED_ASSET_KINDS.has(kind)) return `![[${vaultRelPath}]]`
   return `[${filename}](${markdownDestination(vaultRelPath)})`
 }
+
+const EMBEDDED_ASSET_KINDS: ReadonlySet<ImportedAssetKind> = new Set([
+  'image',
+  'pdf',
+  'audio',
+  'video'
+])
 
 /** A raw OS filename can contain characters that terminate or retarget a
  * wikilink. Apply the same scrub used for pasted-image names before the file is

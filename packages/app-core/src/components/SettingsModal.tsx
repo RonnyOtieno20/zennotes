@@ -5806,6 +5806,10 @@ export function SettingsModal(): JSX.Element {
           aria-modal="true"
           aria-label="Settings"
           tabIndex={-1}
+          // The page another surface asked for (Review on the status bar).
+          // The phone shells page this dialog list-first and read it to open
+          // on that page instead of making the person find it again.
+          data-settings-target={initialSettingsTarget ?? undefined}
           className="grid h-[min(92vh,980px)] w-[min(1120px,96vw)] grid-cols-[252px_minmax(0,1fr)] overflow-hidden rounded-3xl border border-paper-300/70 bg-paper-100 shadow-float outline-none"
           onClick={(e) => e.stopPropagation()}
           onKeyDown={(e) => {

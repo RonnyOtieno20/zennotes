@@ -25,6 +25,7 @@ import { createRequire } from "node:module";
 import { IPC } from "@shared/ipc";
 import { openExternalUrl } from "./external-urls";
 import type {
+  CloudBackupItemsQuery,
   CloudPublishNoteInput,
   CloudSyncBootstrapConflict,
   CloudSyncBootstrapConflictResolution,
@@ -462,7 +463,8 @@ function getCloudSyncService(): DesktopCloudSyncService {
     storageDirectory: path.join(app.getPath("userData"), "cloud-sync"),
     accountStatus: () => getCloudAuthManager().status(),
     getSecret: getCloudServiceSecret,
-    createClient: createCloudSyncClient,
+    createClient: (baseUrl, token, options) =>
+      createCloudSyncClient(baseUrl, token, fetch, options),
     withWindowSync: (root, run) => cloudSyncWindowBarrier.run(root, run),
   });
   return cloudSyncService;
@@ -481,9 +483,35 @@ function requireLocalCloudVaultRoot(): string {
   return vault.root;
 }
 
+/**
+ * The renderer's question about a backup's notes, rebuilt from fields checked
+ * here. The service refuses a search longer than 200 characters as well.
+ */
+function cloudBackupItemsQuery(raw: unknown): CloudBackupItemsQuery {
+  if (typeof raw !== "object" || raw === null) {
+    throw new Error("Invalid backup notes query.");
+  }
+  const { page, search } = raw as { page?: unknown; search?: unknown };
+  if (
+    page !== undefined &&
+    !(typeof page === "number" && Number.isSafeInteger(page) && page > 0)
+  ) {
+    throw new Error("Invalid backup notes page.");
+  }
+  if (
+    search !== undefined &&
+    (typeof search !== "string" || search.length > 200)
+  ) {
+    throw new Error("Invalid backup notes search.");
+  }
+  return { page, search };
+}
+
 function broadcastCloudAccountChange(
   status: Awaited<ReturnType<CloudAuthManager["status"]>>,
 ): void {
+  if (status.state === "connected") cloudSyncService?.resume();
+  else cloudSyncService?.stop();
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed())
       win.webContents.send(IPC.CLOUD_ACCOUNT_ON_CHANGE, status);
@@ -3027,6 +3055,7 @@ function registerIpc(): void {
     },
   );
   handle(IPC.CLOUD_ACCOUNT_LOGOUT, async () => {
+    cloudSyncService?.stop();
     await cloudAuthLoopbackServer?.stop();
     const status = await getCloudAuthManager().logout();
     broadcastCloudAccountChange(status);
@@ -3165,6 +3194,19 @@ function registerIpc(): void {
       requireLocalCloudVaultRoot(),
       backupId,
     ),
+  );
+  handle(
+    IPC.CLOUD_BACKUP_ITEMS_PAGE,
+    (_event, backupId: unknown, query: unknown) => {
+      if (typeof backupId !== "string" || !backupId || backupId.length > 200) {
+        throw new Error("That backup identifier is invalid.");
+      }
+      return getCloudSyncService().listBackupItemsPage(
+        requireLocalCloudVaultRoot(),
+        backupId,
+        cloudBackupItemsQuery(query),
+      );
+    },
   );
   handle(IPC.CLOUD_BACKUP_CREATE, (_event, label?: string) =>
     getCloudSyncService().createBackup(requireLocalCloudVaultRoot(), label),
@@ -5814,6 +5856,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  cloudSyncService?.stop();
   void cloudAuthLoopbackServer?.stop();
   windowVaults.stopAll();
   stopRemoteWatch();

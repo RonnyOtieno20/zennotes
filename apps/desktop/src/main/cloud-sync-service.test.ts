@@ -4,6 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import type {
   CloudAccountStatus,
+  CloudBackupSnapshotItemCollection,
   CloudSyncManifestResponse,
   CloudSyncMutationRequest,
   CloudSyncVault
@@ -125,7 +126,7 @@ async function setup(
         last_backup_at: null
       }
     })),
-    listBackupItems: vi.fn(async () => ({ data: [] })),
+    listBackupItems: vi.fn(async (): Promise<CloudBackupSnapshotItemCollection> => ({ data: [] })),
     createBackup: vi.fn(async (_vaultId: string, label?: string) => ({
       data: {
         id: 'backup-1',
@@ -622,6 +623,24 @@ describe('DesktopCloudSyncService', () => {
       enabled: true
     })
     await expect(service.listBackupItems(localRoot, 'backup-1')).resolves.toEqual([])
+    client.listBackupItems.mockResolvedValueOnce({
+      data: [],
+      meta: { current_page: 3, last_page: 4, per_page: 50, total: 180 }
+    })
+    await expect(
+      service.listBackupItemsPage(localRoot, 'backup-1', { page: 3, search: 'plan' })
+    ).resolves.toEqual({ items: [], page: 3, lastPage: 4, total: 180, search: 'plan' })
+    expect(client.listBackupItems).toHaveBeenLastCalledWith('vault-1', 'backup-1', {
+      page: 3,
+      search: 'plan'
+    })
+    await expect(service.listBackupItemsPage(localRoot, 'backup-1', {})).resolves.toEqual({
+      items: [],
+      page: 1,
+      lastPage: 1,
+      total: 0,
+      search: ''
+    })
     await expect(service.createBackup(localRoot, 'Release day')).resolves.toMatchObject({
       id: 'backup-1',
       label: 'Release day'

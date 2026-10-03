@@ -263,6 +263,17 @@ describe("SettingsModal date note directories", () => {
     }
   });
 
+  it("marks the dialog with the page another surface asked for, so phones open on it", async () => {
+    requestSettingsTarget("cloud");
+    await act(async () => root.render(createElement(SettingsModal)));
+    expect(host.querySelector('[role="dialog"]')?.getAttribute("data-settings-target")).toBe("cloud");
+
+    await act(async () => root.unmount());
+    root = createRoot(host);
+    await act(async () => root.render(createElement(SettingsModal)));
+    expect(host.querySelector('[role="dialog"]')?.hasAttribute("data-settings-target")).toBe(false);
+  });
+
   it("opens application link settings and saves normalized prefixes", async () => {
     requestSettingsTarget("external-links");
     await act(async () => root.render(createElement(SettingsModal)));

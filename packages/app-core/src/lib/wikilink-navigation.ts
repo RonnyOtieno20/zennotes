@@ -1,6 +1,7 @@
 import { captureNavigationContext } from './navigation-context'
 import { useStore } from '../store'
 import { findBlockAnchor } from './block-anchors'
+import { findHeadingForAnchor } from './heading-anchor'
 import { parseOutline } from './outline'
 import { listDatabaseLinkTargets, resolveDatabaseWikilink } from './database-links'
 import { wikilinkBlockAnchor, wikilinkHeadingAnchor } from './wikilinks'
@@ -24,7 +25,8 @@ export function openDatabaseFromWikilink(target: string): boolean {
 
 /**
  * Open `path` and scroll to the heading matching `headingAnchor`
- * (case-insensitive, like Obsidian). Falls back to opening the note at the top
+ * (case-insensitive, like Obsidian, plus the URL-encoded and slug forms
+ * Markdown links use; see findHeadingForAnchor). Falls back to opening the note at the top
  * when the heading isn't found. Shared by the editor's wikilink click and the
  * preview pane so `[[Doc#Heading]]` lands on the heading. (#196)
  */
@@ -33,8 +35,7 @@ export async function openWikilinkHeading(path: string, headingAnchor: string): 
   if (!isCurrent()) return false
   const body = await noteBody(path)
   if (!isCurrent()) return false
-  const needle = headingAnchor.trim().toLowerCase()
-  const heading = parseOutline(body).find((h) => h.text.trim().toLowerCase() === needle)
+  const heading = findHeadingForAnchor(parseOutline(body), headingAnchor)
   if (heading) {
     await useStore.getState().openNoteAtOffset(path, heading.from, { scrollMode: 'start' })
   } else {

@@ -143,6 +143,7 @@ export const IPC = {
   CLOUD_BACKUP_SCHEDULE_GET: 'cloud-backup-schedule:get',
   CLOUD_BACKUP_SCHEDULE_UPDATE: 'cloud-backup-schedule:update',
   CLOUD_BACKUP_ITEMS_LIST: 'cloud-backup-items:list',
+  CLOUD_BACKUP_ITEMS_PAGE: 'cloud-backup-items:page',
   CLOUD_BACKUP_CREATE: 'cloud-backup:create',
   CLOUD_BACKUP_DOWNLOAD: 'cloud-backup:download',
   CLOUD_BACKUP_DELETE: 'cloud-backup:delete',

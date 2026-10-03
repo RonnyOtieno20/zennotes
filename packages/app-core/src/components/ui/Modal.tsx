@@ -57,8 +57,11 @@ export interface ModalProps {
    * element in the panel takes focus, and the panel itself when there is
    * none. Content that focuses itself (palettes focusing their input) keeps
    * that focus: the shell never moves focus already inside the panel.
+   * 'panel' lands on the panel itself even when it holds an input: on a touch
+   * device a focused input raises the on-screen keyboard, which tap-first
+   * content (a picker whose list is the point) must not do.
    */
-  initialFocus?: RefObject<HTMLElement | null>
+  initialFocus?: RefObject<HTMLElement | null> | 'panel'
   /** data-* hooks set on the backdrop, preserved for existing selectors. */
   data?: Record<string, string>
   children: ReactNode
@@ -78,7 +81,7 @@ function ModalRoot({
   children
 }: ModalProps): JSX.Element {
   const panel = useRef<HTMLDivElement>(null)
-  useDialogFocus(panel, initialFocus)
+  useDialogFocus(panel, initialFocus === 'panel' ? panel : initialFocus)
 
   useEffect(() => {
     if (!closeOnEsc) return

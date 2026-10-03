@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import type {
+  CloudBackupSnapshotItemCollection,
   CloudSyncContent,
   CloudSyncManifestResponse,
   CloudSyncMutationRequest,
@@ -135,7 +136,7 @@ function setup(vaults: CloudSyncVault[] = [], localItems: CloudSyncLocalItem[] =
         last_backup_at: null
       }
     })),
-    listBackupItems: vi.fn(async () => ({
+    listBackupItems: vi.fn(async (): Promise<CloudBackupSnapshotItemCollection> => ({
       data: [
         {
           id: 42,
@@ -504,6 +505,48 @@ describe('CloudSyncHostService', () => {
     expect(client.restoreBackupNote).toHaveBeenCalledWith('vault-1', 'backup-1', 42, {
       idempotency_key: 'operation-1',
       expected_cursor: 0
+    })
+  })
+
+  it('pages and searches backup notes, reading an answer without paging as one page', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { client, hostVault, service } = setup([remoteVault])
+    await service.link(hostVault, remoteVault.id)
+    const plan = {
+      id: 77,
+      item_id: 'item-77',
+      path: 'Projects/Launch plan.md',
+      kind: 'text',
+      byte_length: 12,
+      revision: 2,
+      content_hash: 'def456',
+      media_type: 'text/markdown'
+    }
+    client.listBackupItems.mockResolvedValueOnce({
+      data: [plan],
+      meta: { current_page: 2, last_page: 5, per_page: 50, total: 230 }
+    })
+
+    await expect(
+      service.listBackupItemsPage(hostVault, 'backup-1', { page: 2, search: '  launch  ' })
+    ).resolves.toEqual({ items: [plan], page: 2, lastPage: 5, total: 230, search: 'launch' })
+    expect(client.listBackupItems).toHaveBeenLastCalledWith('vault-1', 'backup-1', {
+      page: 2,
+      search: '  launch  '
+    })
+
+    await expect(service.listBackupItemsPage(hostVault, 'backup-1', { page: 1 })).resolves.toEqual({
+      items: [expect.objectContaining({ id: 42, path: 'Notes/Launch.md' })],
+      page: 1,
+      lastPage: 1,
+      total: 1,
+      search: ''
     })
   })
 

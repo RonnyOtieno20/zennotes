@@ -139,7 +139,7 @@ describe('Workflows feature switch', () => {
   })
 
   it('offers the Cloud conflict queue only while files are waiting', async () => {
-    const { buildCommands } = await loadCommands()
+    const { buildCommands, useStore } = await loadCommands()
     const { useCloudSyncStatusStore } = await import('./cloud-auto-sync')
     const summary = {
       cursor: 3,
@@ -164,6 +164,11 @@ describe('Workflows feature switch', () => {
     useCloudSyncStatusStore.setState({ lastSummary: summary })
     const command = buildCommands().find((c) => c.id === 'app.cloud.reviewConflicts')
     expect(command?.title).toBe('Review Cloud Sync Conflicts')
+    // The leader only works with Vim on, so the palette names it only then.
+    useStore.setState({ vimMode: true })
+    expect(buildCommands().find((c) => c.id === 'app.cloud.reviewConflicts')?.shortcut).toBe('Space r')
+    useStore.setState({ vimMode: false })
+    expect(buildCommands().find((c) => c.id === 'app.cloud.reviewConflicts')?.shortcut).toBeUndefined()
 
     command?.run()
     expect(useCloudSyncStatusStore.getState().conflictReviewOpen).toBe(true)
@@ -173,6 +178,27 @@ describe('Workflows feature switch', () => {
       conflictReviewOpen: false
     })
     expect(buildCommands().some((c) => c.id === 'app.cloud.reviewConflicts')).toBe(false)
+  })
+
+  it("opens Settings → Cloud while this vault's Cloud vault is gone and nothing else waits", async () => {
+    const { buildCommands, useStore } = await loadCommands()
+    const { useCloudSyncStatusStore } = await import('./cloud-auto-sync')
+    const { consumeSettingsTarget } = await import('./settings-navigation')
+    useStore.setState({ settingsOpen: false })
+    useCloudSyncStatusStore.setState({
+      phase: 'unlinked',
+      removedVault: { vaultName: 'Cloud QA iPhone', reason: 'deleted' }
+    })
+
+    const command = buildCommands().find((c) => c.id === 'app.cloud.reviewVaultRemoval')
+    expect(command?.title).toBe('Review Cloud Vault')
+    expect(buildCommands().some((c) => c.id === 'app.cloud.reviewConflicts')).toBe(false)
+    command?.run()
+    expect(useStore.getState().settingsOpen).toBe(true)
+    expect(consumeSettingsTarget()).toBe('cloud')
+
+    useCloudSyncStatusStore.setState({ removedVault: null })
+    expect(buildCommands().some((c) => c.id === 'app.cloud.reviewVaultRemoval')).toBe(false)
   })
 })
 

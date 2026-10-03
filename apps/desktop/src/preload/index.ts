@@ -13,6 +13,8 @@ import type {
 import type {
   CloudAccountConnectResult,
   CloudAccountStatus,
+  CloudBackupItemsPage,
+  CloudBackupItemsQuery,
   CloudBackupNoteRestoreResult,
   CloudBackupRestoreResult,
   CloudBackupSchedule,
@@ -349,6 +351,11 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.CLOUD_BACKUP_SCHEDULE_UPDATE, enabled),
   listCloudBackupItems: (backupId: string): Promise<CloudBackupSnapshotItem[]> =>
     ipcRenderer.invoke(IPC.CLOUD_BACKUP_ITEMS_LIST, backupId),
+  listCloudBackupItemsPage: (
+    backupId: string,
+    query: CloudBackupItemsQuery
+  ): Promise<CloudBackupItemsPage> =>
+    ipcRenderer.invoke(IPC.CLOUD_BACKUP_ITEMS_PAGE, backupId, query),
   createCloudBackup: (label?: string): Promise<CloudBackupSnapshot> =>
     ipcRenderer.invoke(IPC.CLOUD_BACKUP_CREATE, label),
   downloadCloudBackup: (backupId: string): Promise<void> =>

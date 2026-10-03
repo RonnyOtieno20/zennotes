@@ -34,13 +34,14 @@ import { convertTableToDatabase } from './table-to-database'
 import { canRenameVault, renameVaultWithPrompt } from './rename-vault'
 import { promptImageWidth } from './image-resize'
 import { copyLinkAtCursor } from './link-copy'
-import { getKeymapDisplay, type KeymapId } from './keymaps'
+import { getKeymapDisplay, getLeaderChordDisplay, type KeymapId } from './keymaps'
 import { dispatchKeyboardContextMenu, findTabContextMenuTarget } from './keyboard-context-menu'
 import { resolveSystemFolderLabels } from './system-folder-labels'
 import { isCalendarToggleAvailable, noteFolderSubpath } from './vault-layout'
 import { runWorkflowById } from './workflow-trigger'
 import { requestPublishNote } from './publish-note-requests'
 import {
+  hasCloudVaultRemovalNotice,
   hasPendingCloudReview,
   openPendingCloudReview
 } from './cloud-auto-sync'
@@ -98,7 +99,8 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     const parts = ids.map(shortcut)
     return parts.every(Boolean) ? parts.join(' ') : ''
   }
-  const leaderShortcut = (id: KeymapId): string => chord('vim.leaderPrefix', id)
+  const leaderShortcut = (id: KeymapId): string =>
+    getLeaderChordDisplay(getState().keymapOverrides, id)
   const paneShortcut = (id: KeymapId): string => chord('vim.panePrefix', id)
   const searchShortcut = (): string => {
     const state = getState()
@@ -1878,12 +1880,26 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Review Cloud Sync Conflicts',
       category: 'Vault',
       keywords: 'cloud sync conflict merge review resolve queue two devices differ settings',
-      shortcut: leaderShortcut('vim.leaderCloudConflicts'),
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderCloudConflicts') : undefined,
       // Hidden while nothing waits: the same dialogs the status bar's Review
       // opens (the file queue first, then the vault settings question), and
       // there is nothing to review without one of them.
       when: () => hasPendingCloudReview(),
-      run: () => openPendingCloudReview()
+      run: () => openPendingCloudReview(getState().activeNote?.path)
+    },
+    {
+      id: 'app.cloud.reviewVaultRemoval',
+      title: 'Review Cloud Vault',
+      category: 'Vault',
+      keywords: 'cloud sync vault deleted unavailable gone stopped syncing link choose new',
+      shortcut: getState().vimMode ? leaderShortcut('vim.leaderCloudConflicts') : undefined,
+      // While this vault's Cloud vault is gone the key opens Settings → Cloud,
+      // as the status bar's Review does. A waiting decision keeps the key.
+      when: () => !hasPendingCloudReview() && hasCloudVaultRemovalNotice(),
+      run: () => {
+        requestSettingsTarget('cloud')
+        getState().setSettingsOpen(true)
+      }
     },
     {
       id: 'app.vault.switch',

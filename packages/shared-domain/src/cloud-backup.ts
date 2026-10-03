@@ -1,8 +1,11 @@
 import type {
+  CloudBackupItemsPage,
+  CloudBackupItemsQuery,
   CloudBackupRestore,
   CloudBackupRestoreRequest,
   CloudBackupRestoreResponse,
   CloudBackupRestoreResult,
+  CloudBackupSnapshotItemCollection,
   CloudSyncRunSummary,
   CloudSyncVaultCollection
 } from '@zennotes/bridge-contract/cloud-sync'
@@ -78,6 +81,24 @@ export async function restoreCloudBackup({
   return {
     restore,
     sync: restore.status === 'completed' ? await sync() : null
+  }
+}
+
+/**
+ * A backup's notes as the service paged them. An answer without `meta` has
+ * nothing further to page through, so it is one page holding all it listed.
+ */
+export function cloudBackupItemsPage(
+  collection: CloudBackupSnapshotItemCollection,
+  query: CloudBackupItemsQuery = {}
+): CloudBackupItemsPage {
+  const meta = collection.meta
+  return {
+    items: collection.data,
+    page: meta?.current_page ?? 1,
+    lastPage: meta?.last_page ?? 1,
+    total: meta?.total ?? collection.data.length,
+    search: query.search?.trim() ?? ''
   }
 }
 

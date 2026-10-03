@@ -422,7 +422,7 @@ function App(): JSX.Element {
 
   useEffect(() => {
     if (!vault) return undefined
-    ensureCloudAutoSyncStarted()
+    ensureCloudAutoSyncStarted(vault.root)
     return stopCloudAutoSync
   }, [vault?.root])
   useEffect(() => installHarperRuntime(), [])

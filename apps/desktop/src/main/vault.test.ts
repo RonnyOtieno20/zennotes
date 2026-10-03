@@ -530,6 +530,25 @@ describe('importFiles', () => {
     )
   })
 
+  it('embeds dropped media so the note shows a player, and links other files', async () => {
+    const root = await makeTempDir('zennotes-import-files-media-')
+    await ensureVaultLayout(root)
+    const srcDir = await makeTempDir('zennotes-import-src-media-')
+    const sources = ['Clip.mov', 'Talk.mp3', 'Year end.pdf', 'Archive.zip'].map((name) =>
+      path.join(srcDir, name)
+    )
+    for (const src of sources) await writeFile(src, Buffer.from([1, 2, 3]))
+
+    const imported = await importFiles(root, 'Note.md', sources)
+
+    expect(imported.map((asset) => [asset.kind, asset.markdown])).toEqual([
+      ['video', '![[assets/Clip.mov]]'],
+      ['audio', '![[assets/Talk.mp3]]'],
+      ['pdf', '![[assets/Year end.pdf]]'],
+      ['file', '[Archive.zip](<assets/Archive.zip>)']
+    ])
+  })
+
   it('scrubs dropped image names that would break or retarget the wikilink', async () => {
     const root = await makeTempDir('zennotes-import-files-wikilink-name-')
     await ensureVaultLayout(root)

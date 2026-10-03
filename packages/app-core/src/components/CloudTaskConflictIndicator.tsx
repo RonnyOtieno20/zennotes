@@ -1,18 +1,15 @@
-import { cloudSyncPathKey } from "@zennotes/shared-domain/cloud-sync";
-import { useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
+import {
+  pendingCloudConflictForPath,
+  useCloudSyncStatusStore,
+} from "../lib/cloud-auto-sync";
 
 export function CloudTaskConflictIndicator({
   path,
 }: {
   path: string;
 }): JSX.Element | null {
-  const pending = useCloudSyncStatusStore((state) =>
-    (state.lastSummary?.pending_conflicts ?? []).some((conflict) =>
-      [conflict.path, conflict.cloud_path].some(
-        (candidate) =>
-          candidate && cloudSyncPathKey(candidate) === cloudSyncPathKey(path),
-      ),
-    ),
+  const pending = useCloudSyncStatusStore(
+    (state) => pendingCloudConflictForPath(state.lastSummary, path) !== null,
   );
   if (!pending) return null;
   return (
