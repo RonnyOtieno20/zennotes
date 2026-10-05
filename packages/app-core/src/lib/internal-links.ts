@@ -143,6 +143,32 @@ export function externalLinkUrl(href: string): string | null {
   return `https://${h}`
 }
 
+/** Which way a link is followed: a wikilink resolves a note name first, while
+ *  a Markdown link or a bare URL is an href. */
+export type LineLinkKind = 'wikilink' | 'markdown' | 'url'
+
+export interface LineLink {
+  kind: LineLinkKind
+  target: string
+  /** Span of the whole link source, in offsets into the line. */
+  from: number
+  to: number
+}
+
+// The link shapes the editor follows, in the order they claim a position, so
+// `linkRangeAtCursor` and `linkRangesInLine` can never disagree about a target.
+// Angle-bracketed URLs can contain `)`, so they match ahead of the plain form.
+const LINK_SHAPES: ReadonlyArray<{
+  kind: LineLinkKind
+  re: RegExp
+  target: (m: RegExpMatchArray) => string
+}> = [
+  { kind: 'wikilink', re: /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g, target: (m) => m[1] },
+  { kind: 'markdown', re: /\[([^\]]*)\]\(<([^>]+)>\)/g, target: (m) => m[2] },
+  { kind: 'markdown', re: /\[([^\]]*)\]\(([^)]+)\)/g, target: (m) => unwrapMdUrl(m[2]) },
+  { kind: 'url', re: /https?:\/\/[^\s)>\]]+/g, target: (m) => m[0] }
+]
+
 /**
  * The link at a document offset — a `[[wikilink]]` name, a Markdown link's
  * URL, or a bare URL — with its full source range in `doc` offsets. The range
@@ -159,33 +185,38 @@ export function linkRangeAtCursor(
   const lineEnd = doc.indexOf('\n', pos)
   const line = doc.slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
   const col = pos - lineStart
-  const hit = (m: RegExpExecArray, target: string) =>
-    col >= m.index && col < m.index + m[0].length
-      ? { target, from: lineStart + m.index, to: lineStart + m.index + m[0].length }
-      : null
-  const wikiRe = /\[\[([^\]|]+?)(?:\|[^\]]+)?\]\]/g
-  let m: RegExpExecArray | null
-  while ((m = wikiRe.exec(line)) !== null) {
-    const found = hit(m, m[1])
-    if (found) return found
-  }
-  // Angle-bracketed URLs can contain `)` so match them specifically first.
-  const mdAngleRe = /\[([^\]]*)\]\(<([^>]+)>\)/g
-  while ((m = mdAngleRe.exec(line)) !== null) {
-    const found = hit(m, m[2])
-    if (found) return found
-  }
-  const mdRe = /\[([^\]]*)\]\(([^)]+)\)/g
-  while ((m = mdRe.exec(line)) !== null) {
-    const found = hit(m, unwrapMdUrl(m[2]))
-    if (found) return found
-  }
-  const urlRe = /https?:\/\/[^\s)>\]]+/g
-  while ((m = urlRe.exec(line)) !== null) {
-    const found = hit(m, m[0])
-    if (found) return found
+  for (const shape of LINK_SHAPES) {
+    for (const m of line.matchAll(shape.re)) {
+      const start = m.index ?? 0
+      if (col >= start && col < start + m[0].length) {
+        return {
+          target: shape.target(m),
+          from: lineStart + start,
+          to: lineStart + start + m[0].length
+        }
+      }
+    }
   }
   return null
+}
+
+/**
+ * Every link in one line of source, in reading order, with the same targets
+ * `linkRangeAtCursor` reports for a position inside each. A link inside
+ * another (the URL of `[label](https://…)`) belongs to the outer one and is
+ * not listed on its own.
+ */
+export function linkRangesInLine(line: string): LineLink[] {
+  const links: LineLink[] = []
+  for (const shape of LINK_SHAPES) {
+    for (const m of line.matchAll(shape.re)) {
+      const from = m.index ?? 0
+      const to = from + m[0].length
+      if (links.some((link) => from < link.to && to > link.from)) continue
+      links.push({ kind: shape.kind, target: shape.target(m), from, to })
+    }
+  }
+  return links.sort((a, b) => a.from - b.from)
 }
 
 /**

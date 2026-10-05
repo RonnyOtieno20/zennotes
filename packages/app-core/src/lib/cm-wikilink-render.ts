@@ -240,8 +240,15 @@ const wikilinkRenderPlugin = ViewPlugin.fromClass(
  * target carries one (`[[Doc#Heading]]`). (#196) A dead link asks before
  * creating the note, unless `createWithoutAsking` (a modifier click) says the
  * suggested path is fine as it is (#768).
+ *
+ * Hint mode follows an editor wikilink through here too (#894). The note name
+ * has to resolve before any href reading: `followLinkTarget` tries a URL first
+ * and would send `[[2024.01.15]]` to https://2024.01.15.
  */
-function openWikilink(target: string, options: { createWithoutAsking?: boolean } = {}): void {
+export function openWikilink(
+  target: string,
+  options: { createWithoutAsking?: boolean } = {}
+): void {
   const state = useStore.getState()
   const focusEditorSoon = (): void => {
     useStore.getState().setFocusedPanel('editor')

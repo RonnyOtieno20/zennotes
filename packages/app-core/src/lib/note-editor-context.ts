@@ -17,3 +17,8 @@ export function noteEditorMatches(view: EditorView, path: string, paneId: string
 export function noteEditorPath(view: EditorView): string | null {
   return noteEditors.get(view)?.path() ?? null
 }
+
+/** The pane a registered note editor lives in, or null for any other editor. */
+export function noteEditorPaneId(view: EditorView): string | null {
+  return noteEditors.get(view)?.paneId ?? null
+}

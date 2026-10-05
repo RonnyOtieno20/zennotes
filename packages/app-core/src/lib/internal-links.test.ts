@@ -3,6 +3,7 @@ import {
   externalLinkUrl,
   extractLinkAtCursor,
   linkRangeAtCursor,
+  linkRangesInLine,
   markdownLinkAt,
   resolveInternalNoteHref
 } from './internal-links'
@@ -203,5 +204,50 @@ describe('markdownLinkAt with a title', () => {
     const doc = 'see ![chart](assets/chart.png "chart.png") here'
     expect(markdownLinkAt(doc, 8)?.href).toBe('assets/chart.png')
     expect(markdownLinkAt('[x](<a b.pdf> "t")', 2)?.href).toBe('a b.pdf')
+  })
+})
+
+// #894: hint mode labels every link in the Edit view, so it needs them all at
+// once, with the targets a click or `gd` on each would follow.
+describe('linkRangesInLine', () => {
+  it('lists each link shape in reading order, with its kind, target and span', () => {
+    const line =
+      'see https://example.net and [[Plan#Goals|the plan]], [GitHub](https://github.com) ' +
+      'and ![diagram](assets/d.png) or [a b](<my file.md>)'
+    const links = linkRangesInLine(line)
+
+    expect(links.map(({ kind, target }) => ({ kind, target }))).toEqual([
+      { kind: 'url', target: 'https://example.net' },
+      { kind: 'wikilink', target: 'Plan#Goals' },
+      { kind: 'markdown', target: 'https://github.com' },
+      { kind: 'markdown', target: 'assets/d.png' },
+      { kind: 'markdown', target: 'my file.md' }
+    ])
+    expect(line.slice(links[1].from, links[1].to)).toBe('[[Plan#Goals|the plan]]')
+    expect(line.slice(links[2].from, links[2].to)).toBe('[GitHub](https://github.com)')
+  })
+
+  it('does not list the URL inside a Markdown link or a wikilink as a link of its own', () => {
+    expect(linkRangesInLine('[GitHub](https://github.com)')).toHaveLength(1)
+    expect(linkRangesInLine('[[https://example.net]]')).toEqual([
+      { kind: 'wikilink', target: 'https://example.net', from: 0, to: 23 }
+    ])
+  })
+
+  it('agrees with linkRangeAtCursor on every link it lists', () => {
+    const line = 'a [[Note|alias]] b [t](<x y.md> "title") c ![i](img.png "t") d http://x.test/a)'
+    for (const link of linkRangesInLine(line)) {
+      for (let col = link.from; col < link.to; col++) {
+        expect(linkRangeAtCursor(line, col), `col ${col}`).toEqual({
+          target: link.target,
+          from: link.from,
+          to: link.to
+        })
+      }
+    }
+  })
+
+  it('finds nothing in bracket text that is not a link', () => {
+    expect(linkRangesInLine('Ask [EE] or [label][missing] for details.')).toEqual([])
   })
 })
