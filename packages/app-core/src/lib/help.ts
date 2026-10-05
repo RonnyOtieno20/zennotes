@@ -167,6 +167,11 @@ export const HELP_HOW_TO_GUIDES: HelpCard[] = [
       'Install the `zn` CLI from Settings → CLI, then use the Raycast Extension section on the same page to install ZenNotes for Raycast locally. Raycast can search notes, filter by folder or tag, open a note in the app, open it in a floating window, archive or unarchive, move to Trash, reveal in Finder, copy the note path, and copy a wikilink.'
   },
   {
+    title: 'Preview a note in Finder with Quick Look',
+    body:
+      'On macOS, select a Markdown file in Finder and press Space: Quick Look shows it the way ZenNotes renders it, in your theme and fonts, with callouts, tasks, tables, code, math, Mermaid diagrams and the images the note embeds. Press Open in ZenNotes to open it in the app: a note inside a vault you use opens there, any other file in its own window. Once you click into the preview, Enter does the same, and with Vim mode on `o` opens it too while `j` / `k`, Ctrl+D / Ctrl+U, `gg` and `G` move through the note. The preview is read-only and never goes online: links to websites open in your browser, wikilinks and tags stay plain text, and pictures on the web are not loaded. The preview comes with the app and turns on after you open ZenNotes once; to use another app\'s preview, turn ZenNotes off in System Settings → General → Login Items & Extensions → Quick Look.'
+  },
+  {
     title: 'Check for updates and install them',
     body:
       'Use Check for Updates from the app menu, the command palette, or Settings → About. ZenNotes also checks on its own shortly after launch. If that check finds no network (Settings → About then says "Waiting for network"), nothing needs doing: it checks again by itself once the connection is back, and keeps trying at growing intervals if GitHub stays out of reach. When a release is available, ZenNotes can download it in the background and then prompt you to install and relaunch. A copy installed by a package manager (the AUR package, or a tarball unpacked by hand) is only told that a newer version exists; install it the way you installed ZenNotes, since the package manager owns those files. On Arch, a `.pacman` build installs through a graphical polkit prompt; dismissing it keeps the download ready to retry, and if no graphical agent can run, Details in Settings → About shows the manual install command.'

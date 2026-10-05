@@ -36,6 +36,21 @@ async function rewriteAsFreshFiles(dir) {
   }
 }
 
+/**
+ * The identity the app will be signed with, decided the way electron-builder
+ * decides it for the app itself (MacPackager.sign), so the Quick Look
+ * extension carries the same one; null when the app is not signed, and the
+ * extension is then signed ad hoc.
+ */
+async function quickLookSigning(context) {
+  const { findIdentity, isSignAllowed } = require('app-builder-lib/out/codeSign/macCodeSign')
+  const config = context.packager.platformSpecificBuildOptions
+  if (!isSignAllowed(false) || config.identity === null) return null
+  const { keychainFile } = await context.packager.codeSigningInfo.value
+  const identity = await findIdentity('Developer ID Application', config.identity, keychainFile)
+  return identity ? { identity: identity.hash, keychain: keychainFile, timestamp: config.timestamp || undefined } : null
+}
+
 exports.default = async function afterPack(context) {
   const platform = context.electronPlatformName
   if (platform === 'darwin' || platform === 'linux') {
@@ -54,6 +69,21 @@ exports.default = async function afterPack(context) {
     // mode, and the old folder is removed with the old package's files.
     // cli-install.ts reads the same name.
     await stageTerminalArtifact({ platform, arch, localDirectory, allowLocal, output: path.join(resources, 'zn-cli') })
+  }
+  if (platform === 'darwin') {
+    // The Quick Look preview for Markdown files (apps/quicklook). It lands in
+    // Contents/PlugIns, which electron-builder never signs, so it is signed
+    // here, before the app's own signature seals it in.
+    const arch = { 1: 'x64', 3: 'arm64' }[context.arch]
+    const { buildQuickLookExtension } = await import(pathToFileURL(path.resolve(__dirname, '../../quicklook/scripts/build-extension.mjs')).href)
+    await buildQuickLookExtension({
+      appPath: path.join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`),
+      arch,
+      appId: context.packager.appInfo.id,
+      version: context.packager.appInfo.version,
+      signing: await quickLookSigning(context),
+      selfTest: process.env.ZENNOTES_QUICKLOOK_SELFTEST === '1' && !process.env.CI
+    })
   }
   if (platform !== 'linux') return
   await rewriteAsFreshFiles(path.join(context.appOutDir, 'resources', 'arch-extras'))

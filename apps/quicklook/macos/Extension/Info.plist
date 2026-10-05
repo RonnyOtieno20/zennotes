@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>en</string>
+  <key>CFBundleDisplayName</key>
+  <string>ZenNotes</string>
+  <key>CFBundleExecutable</key>
+  <string>ZenNotesQuickLook</string>
+  <key>CFBundleIdentifier</key>
+  <string>__APP_ID__.QuickLook</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleName</key>
+  <string>ZenNotesQuickLook</string>
+  <key>CFBundlePackageType</key>
+  <string>XPC!</string>
+  <key>CFBundleShortVersionString</key>
+  <string>__VERSION__</string>
+  <key>CFBundleVersion</key>
+  <string>__VERSION__</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>12.0</string>
+  <key>NSExtension</key>
+  <dict>
+    <key>NSExtensionAttributes</key>
+    <dict>
+      <key>QLSupportedContentTypes</key>
+      <array>
+        <string>net.daringfireball.markdown</string>
+      </array>
+      <key>QLSupportsSearchableItems</key>
+      <false/>
+    </dict>
+    <key>NSExtensionPointIdentifier</key>
+    <string>com.apple.quicklook.preview</string>
+    <key>NSExtensionPrincipalClass</key>
+    <string>PreviewViewController</string>
+  </dict>
+</dict>
+</plist>

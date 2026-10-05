@@ -8,6 +8,7 @@ import {
   initOverrides
 } from './store'
 import { resolveAuto, findTheme } from './lib/themes'
+import { applyTypographyVariables } from './lib/typography-variables'
 import {
   injectActiveTheme,
   injectOverrides,
@@ -655,39 +656,22 @@ function App(): JSX.Element {
   }, [themeTweaks])
 
   // Apply editor font size + line height + all three font families as
-  // CSS variables. Each family has its own fallback stack so leaving it
-  // unset gracefully uses the platform default.
+  // CSS variables (shared with the Quick Look preview).
   useEffect(() => {
-    const html = document.documentElement
-    html.style.setProperty('--z-editor-font-size', `${editorFontSize}px`)
-    html.style.setProperty('--z-math-scale', String(mathFontScale / 100))
-    html.style.setProperty('--z-editor-line-height', String(editorLineHeight))
-    html.style.setProperty('--z-preview-max-width', `${previewMaxWidth}px`)
-    html.style.setProperty('--z-editor-max-width', `${editorMaxWidth}px`)
-    html.dataset.contentAlign = contentAlign
-    html.dataset.completedTaskStyle = completedTaskStyle
-    html.dataset.mathRenderer = mathRenderer
-    html.dataset.lineNumberPosition = lineNumberPosition
-
-    const setFont = (name: string, value: string | null, fallback: string): void => {
-      if (value) html.style.setProperty(name, `"${value}", ${fallback}`)
-      else html.style.removeProperty(name)
-    }
-    setFont(
-      '--z-interface-font',
+    applyTypographyVariables(document.documentElement, {
+      editorFontSize,
+      mathFontScale,
+      editorLineHeight,
+      previewMaxWidth,
+      editorMaxWidth,
+      contentAlign,
+      completedTaskStyle,
+      mathRenderer,
+      lineNumberPosition,
       interfaceFont,
-      '-apple-system, BlinkMacSystemFont, "SF Pro Text", Inter, system-ui, sans-serif'
-    )
-    setFont(
-      '--z-text-font',
       textFont,
-      '"SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace'
-    )
-    setFont(
-      '--z-mono-font',
-      monoFont,
-      '"SF Mono", "SFMono-Regular", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace'
-    )
+      monoFont
+    })
   }, [editorFontSize, mathFontScale, editorLineHeight, previewMaxWidth, editorMaxWidth, contentAlign, completedTaskStyle, mathRenderer, lineNumberPosition, interfaceFont, textFont, monoFont])
 
   // Keep the markdown/preview pipeline pointed at the active math engine, even

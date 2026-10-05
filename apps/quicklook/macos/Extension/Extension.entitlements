@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Quick Look loads only sandboxed extensions. -->
+  <key>com.apple.security.app-sandbox</key>
+  <true/>
+  <!-- WebKit's helper processes refuse to start without it, even for a page
+       that loads nothing remote. The page's Content-Security-Policy allows
+       only the extension's own zenql: scheme, so it never reaches the network. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <!-- Read-only: the images a note embeds sit next to it in the vault, and the
+       theme comes from ~/.config/zennotes/config.toml. -->
+  <key>com.apple.security.temporary-exception.files.absolute-path.read-only</key>
+  <array>
+    <string>/</string>
+  </array>
+</dict>
+</plist>
