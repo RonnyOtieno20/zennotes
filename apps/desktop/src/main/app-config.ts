@@ -751,13 +751,11 @@ let watcher: FSWatcher | null = null
 let writeQueue: Promise<void> = Promise.resolve()
 
 // Texts we've written ourselves. The watcher's loop-guard compares the file
-// against `lastKnownText` (our latest write), but rapid writes — two
-// setPortableConfig calls in a row — can make the watcher observe an EARLIER
-// own-write out of order, especially on Windows where atomic-rename events
-// don't coalesce as cleanly. Remembering the last several own-writes lets the
-// watcher recognize a stale read of any of them and skip it, instead of
-// clobbering the freshly-merged in-memory cache (which reverted settings to
-// their defaults). Bounded so it can't grow unbounded.
+// against `lastKnownText` (our latest write), but with two setPortableConfig
+// calls in a row the watcher can read the file around the second write and see
+// the FIRST (a Windows CI flake). Treating that stale read as an edit clobbered
+// the freshly-merged in-memory cache and reverted settings to their defaults.
+// Bounded so it can't grow unbounded.
 const ownWrites = new Set<string>()
 const MAX_OWN_WRITES = 16
 function rememberOwnWrite(text: string): void {
@@ -767,6 +765,36 @@ function rememberOwnWrite(text: string): void {
     if (oldest === undefined) break
     ownWrites.delete(oldest)
   }
+}
+
+// A stale read can only happen while our writes are landing, so an earlier
+// own-write counts as one only then: during a write, or briefly after the last
+// one, for a read that began before it finished. Outside that window the same
+// text is someone putting it back (a hand edit, a dotfile sync), and the file
+// wins. Remembering the texts forever swallowed exactly that edit.
+const OWN_WRITE_SETTLE_MS = 1500
+let ownWritesInFlight = 0
+let ownWritesSettledAt = 0
+let recheckTimer: ReturnType<typeof setTimeout> | null = null
+
+function ownWritesSettling(): boolean {
+  return ownWritesInFlight > 0 || Date.now() - ownWritesSettledAt < OWN_WRITE_SETTLE_MS
+}
+
+/** writeFileAtomic for a text this module wrote, counted while it lands. */
+async function writeOwnText(text: string): Promise<void> {
+  ownWritesInFlight += 1
+  try {
+    await writeFileAtomic(getConfigFilePath(), text)
+  } finally {
+    ownWritesInFlight -= 1
+    ownWritesSettledAt = Date.now()
+  }
+}
+
+function clearRecheck(): void {
+  if (recheckTimer) clearTimeout(recheckTimer)
+  recheckTimer = null
 }
 
 const WATCH_DEBOUNCE_MS = 150
@@ -807,19 +835,34 @@ function debounce<Args extends unknown[]>(
 function startWatching(): void {
   const file = getConfigFilePath()
   watcher?.close().catch(() => {})
-  watcher = chokidar.watch(file, {
+  clearRecheck()
+  const active = chokidar.watch(file, {
     ignoreInitial: true,
     awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 }
   })
+  watcher = active
   const handle = debounce(() => {
     void (async () => {
       const res = await readConfigFile()
-      if (!res) return
-      // Our own writes (and no-op saves) match lastKnownText — skip them so we
-      // never feed our writes back into the renderer. Also skip a stale read of
-      // any recent own-write the watcher observed out of order, so it can't
-      // clobber the in-memory cache with an older serialized state.
-      if (res.text === lastKnownText || ownWrites.has(res.text)) return
+      // A read that outlived its watcher answers for a file nobody watches.
+      if (!res || watcher !== active) return
+      // Our latest write, or a save that changed nothing: never fed back.
+      if (res.text === lastKnownText) return
+      // An earlier own-write while ours are still landing may be a stale read
+      // (see OWN_WRITE_SETTLE_MS): look again once they settle. If the text is
+      // still there then, nothing of ours explains it, and it applies below.
+      if (ownWrites.has(res.text) && ownWritesSettling()) {
+        clearRecheck()
+        const wait =
+          ownWritesInFlight > 0
+            ? OWN_WRITE_SETTLE_MS
+            : ownWritesSettledAt + OWN_WRITE_SETTLE_MS - Date.now()
+        recheckTimer = setTimeout(() => {
+          recheckTimer = null
+          handle()
+        }, Math.max(0, wait))
+        return
+      }
       cache = res.portable
       lastKnownText = res.text
       onChangeCb?.({ ...cache })
@@ -851,7 +894,7 @@ export async function initAppConfig(
       lastKnownText = canonical
       rememberOwnWrite(canonical)
       try {
-        await writeFileAtomic(getConfigFilePath(), canonical)
+        await writeOwnText(canonical)
       } catch (err) {
         console.error('Failed to normalize config.toml', err)
         lastKnownText = res.text
@@ -884,7 +927,7 @@ export function setPortableConfig(partial: AppConfigPortable): Promise<void> {
       lastKnownText = text
       rememberOwnWrite(text)
       try {
-        await writeFileAtomic(getConfigFilePath(), text)
+        await writeOwnText(text)
       } catch (err) {
         console.error('Failed to write config.toml', err)
       }
@@ -906,6 +949,7 @@ export async function ensureConfigFile(): Promise<string> {
 
 /** Test/teardown hook: stop the file watcher. */
 export async function stopAppConfigWatcher(): Promise<void> {
+  clearRecheck()
   await watcher?.close().catch(() => {})
   watcher = null
 }
