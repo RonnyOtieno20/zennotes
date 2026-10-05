@@ -34,7 +34,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Compartment, EditorState, Prec } from '@codemirror/state'
 import {
   EditorView,
-  drawSelection,
   highlightActiveLine,
   keymap,
   placeholder
@@ -85,6 +84,7 @@ import { isImeComposing } from '../lib/ime'
 import { PinIcon } from './icons'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
+import { storedCursorDrawSelection } from '../lib/cm-cursor-blink'
 
 const PREFS_KEY = 'zen:prefs:v2'
 
@@ -100,6 +100,7 @@ interface QuickCapturePrefs {
   editorLineHeight: number
   editorTabSize: number
   showHeadingLevelLabels: boolean
+  cursorBlink: boolean
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
@@ -118,6 +119,7 @@ function loadPrefs(): QuickCapturePrefs {
     editorLineHeight: 1.6,
     editorTabSize: 4,
     showHeadingLevelLabels: false,
+    cursorBlink: true,
     interfaceFont: null,
     textFont: null,
     monoFont: null
@@ -132,6 +134,7 @@ function loadPrefs(): QuickCapturePrefs {
       vimWrappedLineMotions:
         parsed.vimWrappedLineMotions === 'logical' ? 'logical' : 'display',
       vimBlockImeInNormalMode: parsed.vimBlockImeInNormalMode !== false,
+      cursorBlink: parsed.cursorBlink !== false,
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
       editorTabSize: normalizeEditorTabSize(parsed.editorTabSize)
@@ -475,7 +478,7 @@ export function QuickCaptureApp(): JSX.Element {
             ])
           ),
           history(),
-          drawSelection(),
+          storedCursorDrawSelection(PREFS_KEY, () => loadPrefs().cursorBlink),
           editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           EditorView.lineWrapping,

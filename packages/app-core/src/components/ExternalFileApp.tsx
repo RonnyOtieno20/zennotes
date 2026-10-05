@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Annotation, Compartment, EditorState, type Transaction } from '@codemirror/state'
-import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemirror/view'
+import { EditorView, highlightActiveLine, keymap } from '@codemirror/view'
 import { Vim, vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
@@ -32,6 +32,7 @@ import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, InboxIcon } from './icons'
 import {
   applyTheme,
+  floatingCursorDrawSelection,
   lineNumberExtension,
   loadFloatingPrefs,
   paperHighlight
@@ -165,7 +166,7 @@ export function ExternalFileApp(): JSX.Element {
           new Compartment().of(prefs.vimMode ? vim() : []),
           vimVisualHighlightExtension,
           history(),
-          drawSelection(),
+          floatingCursorDrawSelection(),
           editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           prefs.wordWrap ? EditorView.lineWrapping : [],

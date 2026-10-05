@@ -31,7 +31,6 @@ import {
   type DecorationSet,
   EditorView,
   WidgetType,
-  drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -339,6 +338,7 @@ import {
 } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 import { editorTabSize } from '../lib/editor-tab-size'
+import { cursorDrawSelection } from '../lib/cm-cursor-blink'
 
 const MODE_OPTIONS: Array<{
   mode: PaneMode
@@ -2017,9 +2017,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               initialBody
             )
           ),
-          drawSelectionCompartment.of(
-            drawSelection({ cursorBlinkRate: s0.cursorBlink ? 1200 : 0 })
-          ),
+          drawSelectionCompartment.of(cursorDrawSelection(s0.cursorBlink)),
           tabSizeCompartment.of([
             editorTabSize(s0.editorTabSize),
             listIndentWidth(s0.editorTabSize),
@@ -2685,13 +2683,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const view = viewRef.current
     const comp = drawSelectionCompartmentRef.current
     if (!view || !comp) return
-    // 0 disables blinking for both the drawn caret and the Vim block cursor
-    // (both read cursorBlinkRate from the drawSelection config). (#160)
-    view.dispatch({
-      effects: comp.reconfigure(
-        drawSelection({ cursorBlinkRate: cursorBlink ? 1200 : 0 })
-      )
-    })
+    view.dispatch({ effects: comp.reconfigure(cursorDrawSelection(cursorBlink)) })
   }, [cursorBlink])
   useEffect(() => {
     const view = viewRef.current

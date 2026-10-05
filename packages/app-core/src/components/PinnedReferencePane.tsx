@@ -19,7 +19,6 @@ import {
 } from '@codemirror/state'
 import {
   EditorView,
-  drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -64,6 +63,7 @@ import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, PanelLeftIcon, PinIcon } from './icons'
 import { editorTabSize } from '../lib/editor-tab-size'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
+import { cursorDrawSelection } from '../lib/cm-cursor-blink'
 
 const PINNED_REF_PANE_ID = 'pinned-ref'
 export const pinnedRefPaneId = PINNED_REF_PANE_ID
@@ -188,6 +188,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   const showHeadingLevelLabels = useStore((s) => s.showHeadingLevelLabels)
   const lineNumberMode = useStore((s) => s.lineNumberMode)
   const editorTabSizeValue = useStore((s) => s.editorTabSize)
+  const cursorBlink = useStore((s) => s.cursorBlink)
   const listIndentGuidesOn = useStore((s) => s.listIndentGuides)
   const editorFontSize = useStore((s) => s.editorFontSize)
   const editorLineHeight = useStore((s) => s.editorLineHeight)
@@ -202,6 +203,7 @@ export function PinnedReferencePane(): JSX.Element | null {
   const lineNumbersCompartmentRef = useRef<Compartment | null>(null)
   const headingCompartmentRef = useRef<Compartment | null>(null)
   const tabSizeCompartmentRef = useRef<Compartment | null>(null)
+  const drawSelectionCompartmentRef = useRef<Compartment | null>(null)
 
   const [resizing, setResizing] = useState(false)
 
@@ -221,12 +223,14 @@ export function PinnedReferencePane(): JSX.Element | null {
       const lineNumbersCompartment = new Compartment()
       const headingCompartment = new Compartment()
       const tabSizeCompartment = new Compartment()
+      const drawSelectionCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
       keymapCompartmentRef.current = keymapCompartment
       livePreviewCompartmentRef.current = livePreviewCompartment
       lineNumbersCompartmentRef.current = lineNumbersCompartment
       headingCompartmentRef.current = headingCompartment
       tabSizeCompartmentRef.current = tabSizeCompartment
+      drawSelectionCompartmentRef.current = drawSelectionCompartment
       const s0 = useStore.getState()
       const initialPath = s0.pinnedRefPath
       const initialContent = initialPath ? s0.noteContents[initialPath] ?? null : null
@@ -239,7 +243,7 @@ export function PinnedReferencePane(): JSX.Element | null {
           vimCompartment.of(s0.vimMode ? vim() : []),
           vimVisualHighlightExtension,
           history(),
-          drawSelection(),
+          drawSelectionCompartment.of(cursorDrawSelection(s0.cursorBlink)),
           tabSizeCompartment.of([
             editorTabSize(s0.editorTabSize),
             listIndentWidth(s0.editorTabSize),
@@ -373,6 +377,12 @@ export function PinnedReferencePane(): JSX.Element | null {
       ])
     })
   }, [editorTabSizeValue, listIndentGuidesOn])
+  useEffect(() => {
+    const view = viewRef.current
+    const comp = drawSelectionCompartmentRef.current
+    if (!view || !comp) return
+    view.dispatch({ effects: comp.reconfigure(cursorDrawSelection(cursorBlink)) })
+  }, [cursorBlink])
 
   /* -------- Re-measure on font changes -------- */
   useEffect(() => {

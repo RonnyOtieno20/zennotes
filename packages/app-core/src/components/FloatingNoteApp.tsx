@@ -19,7 +19,6 @@ import {
 } from '@codemirror/state'
 import {
   EditorView,
-  drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -58,6 +57,7 @@ import {
   type ThemeMode
 } from '../lib/themes'
 import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
+import { storedCursorDrawSelection } from '../lib/cm-cursor-blink'
 
 const PREFS_KEY = 'zen:prefs:v2'
 const SAVE_DEBOUNCE_MS = 350
@@ -113,6 +113,7 @@ export interface FloatingPrefs {
   showHeadingLevelLabels: boolean
   lineNumberMode: LineNumberMode
   wordWrap: boolean
+  cursorBlink: boolean
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
@@ -134,6 +135,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
     showHeadingLevelLabels: false,
     lineNumberMode: 'off',
     wordWrap: true,
+    cursorBlink: true,
     interfaceFont: null,
     textFont: null,
     monoFont: null
@@ -154,6 +156,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
       vimWrappedLineMotions:
         parsed.vimWrappedLineMotions === 'logical' ? 'logical' : 'display',
       vimBlockImeInNormalMode: parsed.vimBlockImeInNormalMode !== false,
+      cursorBlink: parsed.cursorBlink !== false,
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
       lineNumberMode,
@@ -176,6 +179,12 @@ export function lineNumberExtension(mode: LineNumberMode): Extension {
     }),
     highlightActiveLineGutter()
   ]
+}
+
+/** drawSelection for the floating and external-file windows: the Blinking
+ *  cursor preference at open, and again whenever Settings saves it. */
+export function floatingCursorDrawSelection(): Extension {
+  return storedCursorDrawSelection(PREFS_KEY, () => loadFloatingPrefs().cursorBlink)
 }
 
 export function applyTheme(prefs: FloatingPrefs): void {
@@ -338,7 +347,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           vimImeGuard(() => prefs.vimBlockImeInNormalMode && !isTouchPrimaryDevice()),
           vimVisualHighlightExtension,
           history(),
-          drawSelection(),
+          floatingCursorDrawSelection(),
           editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           prefs.wordWrap ? EditorView.lineWrapping : [],

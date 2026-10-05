@@ -7,7 +7,7 @@
  */
 import { useCallback, useMemo, useRef, useState } from 'react'
 import { Compartment, EditorState, type Transaction } from '@codemirror/state'
-import { EditorView, drawSelection, highlightActiveLine, keymap, tooltips } from '@codemirror/view'
+import { EditorView, highlightActiveLine, keymap, tooltips } from '@codemirror/view'
 import { vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-default-keymap'
@@ -27,6 +27,7 @@ import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { editorTabSize } from '../lib/editor-tab-size'
+import { cursorDrawSelection } from '../lib/cm-cursor-blink'
 import { templateVariableSource, TEMPLATE_VARIABLES } from '../lib/cm-template-variables'
 import { templateSlashCommandSource, slashCommandRender } from '../lib/cm-slash-commands'
 import { calloutTypeSource } from '../lib/cm-callouts'
@@ -122,7 +123,7 @@ export function TemplateEditorModal({
         new Compartment().of(vimModeRef.current ? vim() : []),
         vimVisualHighlightExtension,
         history(),
-        drawSelection(),
+        cursorDrawSelection(useStore.getState().cursorBlink),
         editorTabSize(useStore.getState().editorTabSize),
         highlightActiveLine(),
         EditorView.lineWrapping,
