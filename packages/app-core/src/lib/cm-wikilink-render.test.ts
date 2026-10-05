@@ -149,4 +149,17 @@ describe('wikilinkRenderExtension: unresolved links (#768)', () => {
     expect(offerCreateNoteFromLink).toHaveBeenCalledWith('Nope')
     view.destroy()
   })
+
+  it('follows on the primary button only, so a right or middle click stays in the note', () => {
+    const doc = 'see [[Nope]] end'
+    const view = mount(doc, doc.length)
+    const link = view.dom.querySelector<HTMLElement>('.cm-wikilink')!
+
+    for (const button of [1, 2]) {
+      link.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button }))
+    }
+    expect(offerCreateNoteFromLink).not.toHaveBeenCalled()
+    expect(createNoteFromLinkNow).not.toHaveBeenCalled()
+    view.destroy()
+  })
 })
