@@ -28,6 +28,7 @@ import type {
   DateNotePatternSettings,
   DeletedAsset,
   FolderEntry,
+  ImportedAsset,
   LocalVaultEntry,
   NoteComment,
   NoteCommentInput,
@@ -2896,6 +2897,12 @@ interface Store {
   typstPreambleNotes: TypstPreambleNote[]
   folders: FolderEntry[]
   assetFiles: AssetMeta[]
+  /** True once `refreshAssets` has read the open vault's files into
+   *  `assetFiles`, so an empty list means a vault with no files rather than
+   *  one not listed yet. Only that listing may call an embedded file missing:
+   *  the share viewer and PDF export seed `assetFiles` themselves and leave
+   *  this false. */
+  assetFilesListed: boolean
   assetUndoStack: AssetUndoEntry[]
   hasAssetsDir: boolean
   view: View
@@ -3445,6 +3452,11 @@ interface Store {
   /** Dismiss the vault-root notice for the current vault, persisted (#216). */
   dismissRootContentBanner: () => void
   refreshAssets: () => Promise<void>
+  /** Put files the app has just saved into `assetFiles` at once, ahead of the
+   *  listing that will carry them, and start that listing. Called before the
+   *  note gains their embeds, which would otherwise read as files this device
+   *  does not have until the listing lands. */
+  indexImportedAssets: (assets: readonly ImportedAsset[]) => void
   /** Rename an asset file in place. Every note referencing it is rewritten on
    *  disk (#785), so open buffers are flushed first and notes re-listed after. */
   renameAsset: (relPath: string, nextName: string) => Promise<AssetMeta>
@@ -5585,6 +5597,7 @@ export const useStore = create<Store>((set, get) => {
         folders: [],
         hasAssetsDir: false,
         assetFiles: [],
+        assetFilesListed: false,
         assetUndoStack: [],
         closedTabStack: [],
         workflowRunRecord: null,
@@ -5628,6 +5641,7 @@ export const useStore = create<Store>((set, get) => {
           folders: [],
           hasAssetsDir: false,
           assetFiles: [],
+          assetFilesListed: false,
           assetUndoStack: [],
           closedTabStack: [],
           workflowRunRecord: null,
@@ -5664,6 +5678,7 @@ export const useStore = create<Store>((set, get) => {
         folders: [],
         hasAssetsDir: false,
         assetFiles: [],
+        assetFilesListed: false,
         assetUndoStack: [],
         closedTabStack: [],
         workflowRunRecord: null,
@@ -5707,6 +5722,7 @@ export const useStore = create<Store>((set, get) => {
   typstPreambleNotes: [],
   folders: [],
   assetFiles: [],
+  assetFilesListed: false,
   assetUndoStack: [],
   hasAssetsDir: false,
   view: { kind: 'folder', folder: 'inbox', subpath: '' },
@@ -7516,6 +7532,7 @@ export const useStore = create<Store>((set, get) => {
       const assetFiles = rawAssets.filter((a) => !isDatabaseInternalPath(a.path))
       set({
         assetFiles,
+        assetFilesListed: true,
         hasAssetsDir: hasAssetsDirOnDisk || assetFiles.length > 0
       })
       recordRendererPerf('store.refreshAssets.fetch', performance.now() - startedAt, {
@@ -7525,6 +7542,27 @@ export const useStore = create<Store>((set, get) => {
     } catch (err) {
       console.error('refresh assets failed', err)
     }
+  },
+
+  indexImportedAssets: (assets) => {
+    const s = get()
+    // Before the first listing there is nothing to add to, and that listing
+    // is already on its way with these files in it.
+    if (!s.assetFilesListed || assets.length === 0) return
+    const listed = new Set(s.assetFiles.map((asset) => asset.path))
+    const updatedAt = Date.now()
+    const added: AssetMeta[] = []
+    for (const asset of assets) {
+      if (listed.has(asset.path)) continue
+      listed.add(asset.path)
+      added.push({ path: asset.path, name: asset.name, kind: asset.kind, siblingOrder: 0, size: 0, updatedAt })
+    }
+    if (added.length === 0) return
+    set({ assetFiles: [...added, ...s.assetFiles], hasAssetsDir: true })
+    // A listing already in flight may have been read before these files were
+    // written, and landing after this would drop them again. A fresh one
+    // supersedes it and brings their real size and time.
+    void get().refreshAssets()
   },
 
   deleteAsset: async (relPath) => {
@@ -10656,6 +10694,7 @@ export const useStore = create<Store>((set, get) => {
       folders: [],
       hasAssetsDir: false,
       assetFiles: [],
+      assetFilesListed: false,
       assetUndoStack: [],
       closedTabStack: [],
       workflowRunRecord: null,
@@ -10747,6 +10786,7 @@ export const useStore = create<Store>((set, get) => {
           folders: [],
           hasAssetsDir: false,
           assetFiles: [],
+          assetFilesListed: false,
           assetUndoStack: [],
           closedTabStack: [],
           workflowRunRecord: null,
@@ -10784,6 +10824,7 @@ export const useStore = create<Store>((set, get) => {
         folders: [],
         hasAssetsDir: false,
         assetFiles: [],
+        assetFilesListed: false,
         assetUndoStack: [],
         closedTabStack: [],
         workflowRunRecord: null,
@@ -10916,6 +10957,7 @@ export const useStore = create<Store>((set, get) => {
         folders: [],
         hasAssetsDir: false,
         assetFiles: [],
+        assetFilesListed: false,
         assetUndoStack: [],
         closedTabStack: [],
         workflowRunRecord: null,
@@ -11000,6 +11042,7 @@ export const useStore = create<Store>((set, get) => {
         folders: [],
         hasAssetsDir: false,
         assetFiles: [],
+        assetFilesListed: false,
         assetUndoStack: [],
         closedTabStack: [],
         workflowRunRecord: null,
@@ -11084,6 +11127,7 @@ export const useStore = create<Store>((set, get) => {
         folders: [],
         hasAssetsDir: false,
         assetFiles: [],
+        assetFilesListed: false,
         assetUndoStack: [],
         closedTabStack: [],
         workflowRunRecord: null,

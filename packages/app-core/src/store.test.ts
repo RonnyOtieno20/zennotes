@@ -670,13 +670,25 @@ describe('local vault shortcuts', () => {
     })
 
     const { useStore } = await loadStore()
-    useStore.setState({ vault: { root: '/Users/test/Notes', name: 'Notes' } })
+    useStore.setState({
+      vault: { root: '/Users/test/Notes', name: 'Notes' },
+      assetFilesListed: true
+    })
+    // The previous vault's listing must not vouch for the next vault's empty
+    // list, or every embed there would read as missing until its files land.
+    const listedWhenVaultChanged: boolean[] = []
+    const unsubscribe = useStore.subscribe((state, prev) => {
+      if (state.vault !== prev.vault) listedWhenVaultChanged.push(state.assetFilesListed)
+    })
 
     await useStore.getState().openLocalVault('/Users/test/Work')
+    unsubscribe()
 
     expect(listAssets).toHaveBeenCalledTimes(1)
     expect(useStore.getState().assetFiles).toEqual(assetFiles)
     expect(useStore.getState().hasAssetsDir).toBe(true)
+    expect(listedWhenVaultChanged).toEqual([false])
+    expect(useStore.getState().assetFilesListed).toBe(true)
   })
 
   it('switches from a remote workspace to a local vault that shares the server path', async () => {
@@ -747,6 +759,7 @@ describe('local vault shortcuts', () => {
           updatedAt: 1
         }
       ],
+      assetFilesListed: true,
       selectedPath: 'inbox/Note.md',
       activeNote: makeNote('Body')
     })
@@ -759,6 +772,7 @@ describe('local vault shortcuts', () => {
     expect(useStore.getState().notes).toEqual([])
     expect(useStore.getState().folders).toEqual([])
     expect(useStore.getState().assetFiles).toEqual([])
+    expect(useStore.getState().assetFilesListed).toBe(false)
     expect(useStore.getState().selectedPath).toBeNull()
     expect(useStore.getState().activeNote).toBeNull()
     expect(useStore.getState().workspaceRestored).toBe(true)
@@ -949,6 +963,91 @@ describe('asset undo', () => {
     expect(restoreDeletedAsset).toHaveBeenCalledWith(deleted)
     expect(useStore.getState().assetUndoStack).toEqual([])
     expect(listAssets).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('asset index', () => {
+  const listedClip = {
+    path: 'assets/clip.mp4',
+    name: 'clip.mp4',
+    kind: 'video' as const,
+    siblingOrder: 0,
+    size: 42,
+    updatedAt: 1
+  }
+
+  it('marks the listing read once it lands, even when the vault holds no files', async () => {
+    installZen({ listAssets: vi.fn().mockResolvedValue([]) })
+    const { useStore } = await loadStore()
+    expect(useStore.getState().assetFilesListed).toBe(false)
+
+    await useStore.getState().refreshAssets()
+
+    expect(useStore.getState().assetFiles).toEqual([])
+    expect(useStore.getState().assetFilesListed).toBe(true)
+  })
+
+  it('lists files the app just imported at once, and no listing read before the import drops them', async () => {
+    const pasted = {
+      name: 'paste.png',
+      path: 'assets/paste.png',
+      markdown: '![[assets/paste.png]]',
+      kind: 'image' as const
+    }
+    const settled = {
+      path: 'assets/paste.png',
+      name: 'paste.png',
+      kind: 'image' as const,
+      siblingOrder: 3,
+      size: 512,
+      updatedAt: 9
+    }
+    const landings: Array<(assets: unknown[]) => void> = []
+    const listAssets = vi.fn(
+      () => new Promise<unknown[]>((resolve) => { landings.push(resolve) })
+    )
+    installZen({ listAssets })
+    const { useStore } = await loadStore()
+    useStore.setState({ assetFiles: [listedClip], assetFilesListed: true })
+    const paths = (): string[] => useStore.getState().assetFiles.map((asset) => asset.path)
+    // A listing already on its way, read before the paste was written.
+    const earlier = useStore.getState().refreshAssets()
+
+    useStore.getState().indexImportedAssets([pasted, { ...pasted }])
+
+    // At once, before any listing: the embed about to go into the note finds it.
+    expect(paths()).toEqual(['assets/paste.png', 'assets/clip.mp4'])
+    landings[0]!([listedClip])
+    await earlier
+    expect(paths()).toEqual(['assets/paste.png', 'assets/clip.mp4'])
+
+    // The listing started for the import settles the file's real details.
+    expect(listAssets).toHaveBeenCalledTimes(2)
+    landings[1]!([settled, listedClip])
+    await vi.waitFor(() => expect(useStore.getState().assetFiles).toEqual([settled, listedClip]))
+  })
+
+  it('adds nothing for files already listed, or before the first listing lands', async () => {
+    const listAssets = vi.fn().mockResolvedValue([])
+    installZen({ listAssets })
+    const { useStore } = await loadStore()
+    const imported = {
+      name: 'clip.mp4',
+      path: 'assets/clip.mp4',
+      markdown: '![[assets/clip.mp4]]',
+      kind: 'video' as const
+    }
+
+    useStore.setState({ assetFiles: [listedClip], assetFilesListed: true })
+    const listed = useStore.getState().assetFiles
+    useStore.getState().indexImportedAssets([imported])
+    expect(useStore.getState().assetFiles).toBe(listed)
+
+    // That first listing is on its way, and it carries the new file too.
+    useStore.setState({ assetFiles: [], assetFilesListed: false })
+    useStore.getState().indexImportedAssets([{ ...imported, path: 'assets/new.mp4' }])
+    expect(useStore.getState().assetFiles).toEqual([])
+    expect(listAssets).not.toHaveBeenCalled()
   })
 })
 

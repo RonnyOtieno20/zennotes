@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { EditorSelection, EditorState } from '@codemirror/state'
+import { EditorSelection, EditorState, type TransactionSpec } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ImportedAsset } from '@bridge-contract/ipc'
@@ -53,6 +53,23 @@ describe('public editor attachment insertion', () => {
     ])
     expect(s.view.state.doc.toString()).toBe('before \n\n![[assets/one.pdf]]\n\n![[assets/two.pdf]]\n\nafter')
     expect(s.view.hasFocus).toBe(true)
+  })
+
+  it('lists the saved files before their embeds go in, so none reads as not on this device', async () => {
+    const s = await setup()
+    Object.assign(window.zen, { listAssets: vi.fn(async () => []), hasAssetsDir: vi.fn(async () => true) })
+    s.useStore.setState({ assetFiles: [], assetFilesListed: true })
+    const listedAtInsert: string[][] = []
+    const dispatch = s.view.dispatch.bind(s.view)
+    vi.spyOn(s.view, 'dispatch').mockImplementation((...specs: TransactionSpec[]) => {
+      listedAtInsert.push(s.useStore.getState().assetFiles.map((listed) => listed.path))
+      dispatch(...specs)
+    })
+
+    await s.attachFiles(s.captureEditorInsertion(s.importer)!, [file(), file('two.pdf')])
+
+    expect(listedAtInsert).toEqual([['assets/one.pdf', 'assets/two.pdf']])
+    expect(s.view.state.doc.toString()).toContain('![[assets/two.pdf]]')
   })
 
   it('preserves selected text for file attachment and replaces it for image paste', async () => {

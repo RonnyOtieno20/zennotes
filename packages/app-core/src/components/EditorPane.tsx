@@ -909,6 +909,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const vault = useStore((s) => s.vault)
   const refreshNotes = useStore((s) => s.refreshNotes)
   const refreshAssets = useStore((s) => s.refreshAssets)
+  const indexImportedAssets = useStore((s) => s.indexImportedAssets)
   const loading = useStore((s) => s.loadingNote && isActive)
 
   const setActivePane = useStore((s) => s.setActivePane)
@@ -3011,6 +3012,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const before = insertAt > 0 ? doc.sliceString(insertAt - 1, insertAt) : ''
       const after = insertAt < doc.length ? doc.sliceString(insertAt, insertAt + 1) : ''
       const insert = formatImportedAssetsForInsertion(imported, before, after)
+      // The files are on disk, but the listing that would carry them lands
+      // after the embeds; until then each embed would say its file is not on
+      // this device.
+      indexImportedAssets(imported)
       view.dispatch({
         changes: { from: insertAt, to: insertAt, insert },
         selection: { anchor: insertAt + insert.length }
@@ -3019,7 +3024,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setFocusedPanel('editor')
       view.focus()
     },
-    [refreshNotes, setFocusedPanel]
+    [indexImportedAssets, refreshNotes, setFocusedPanel]
   )
 
   const insertExistingVaultAssets = useCallback(

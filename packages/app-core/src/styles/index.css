@@ -3681,6 +3681,30 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   border-top: 0;
 }
 
+/* An embed whose file is not on this device (`buildMissingAssetNotice`): the
+   embed's card around one line, in place of the picture, document or player.
+   As on the Cloud notice, the line's colour and size are tokens on the
+   element. The editor drops the host line's strut (`cm-image-embed-line`), so
+   the card brings its own line-height. */
+:is(.prose-zen, .cm-editor) .local-asset-missing {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0.6rem 0.85rem;
+  line-height: 1.4;
+}
+
+:is(.prose-zen, .cm-editor) .local-asset-missing-notice {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cm-editor .cm-local-missing-embed {
+  max-width: min(100%, 980px);
+  margin: 0.5rem 0 0.6rem;
+}
+
 /* #463 — attachment chip: denotes a non-previewable file (`.tldraw`, `.zip`, …)
    embedded with image syntax `![](file.ext)`. Shared by the reading preview and
    the editor's live-preview widget so they look identical. */

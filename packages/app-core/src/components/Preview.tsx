@@ -214,6 +214,9 @@ export const Preview = memo(function Preview({
     [folders, vaultSettings],
   );
   const assetFiles = useStore((s) => s.assetFiles);
+  // An empty listing landing leaves `assetFilesKey` as it was, and is still
+  // what lets an embed in a vault with no files say it is not on this device.
+  const assetFilesListed = useStore((s) => s.assetFilesListed);
   const customCodeLanguagesRevision = useStore((s) => s.customCodeLanguagesRevision);
   const refreshAssets = useStore((s) => s.refreshAssets);
   const renameAsset = useStore((s) => s.renameAsset);
@@ -986,6 +989,7 @@ export const Preview = memo(function Preview({
     };
   }, [
     assetFilesKey,
+    assetFilesListed,
     diagramTheme.key,
     diagramTheme.mode,
     databaseTargets,
