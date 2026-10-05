@@ -40,6 +40,7 @@ import type { VaultTask } from '@shared/tasks'
 import { groupTasks, isOverdue as isTaskOverdue, toIsoDateLocal } from '@shared/tasks'
 import { normalizeKanbanFolderRoot, useStore, type KanbanGroupBy, type TaskMutation } from '../store'
 import { filterTasks } from '../lib/tasks-filter'
+import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 import { ArrowUpRightIcon, PencilIcon } from './icons'
@@ -1600,6 +1601,11 @@ export function TasksKanban({ tasks, filter, today, onOpenTask, onToggleTask }: 
   // beat VimNav's global handler (which otherwise hijacks h/j/k/l).
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
+      // A menu or dialog owns the keyboard while it is open. The card's own
+      // right-click menu filters as you type, and without this a filter like
+      // "prio" reached the board first: its `i` marked the card in progress.
+      // Settings and the palettes are dialogs too.
+      if (isOverlayOrDialogOpen()) return
       // While the Vim hint overlay is open it owns the keyboard; yield to it. (#151)
       if (document.querySelector('[data-vim-hint-overlay]')) return
       const active = document.activeElement as HTMLElement | null

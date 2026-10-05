@@ -12,7 +12,7 @@ import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 import { isImeComposing } from '../lib/ime'
-import { isAppOverlayOpen } from '../lib/overlay-open'
+import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { promptApp } from '../lib/prompt-requests'
 import { useToastStore } from '../lib/toast'
 import { findSavedTaskFilterName, savedTaskFilterNameForQuery } from '../lib/saved-task-filters'
@@ -563,9 +563,10 @@ export function TasksView(): JSX.Element {
   useEffect(() => {
     if (!isActivePanel) return
     const handler = (e: KeyboardEvent): void => {
-      // A modal/menu owns the keyboard while open — don't fire list shortcuts
-      // through it. (songgenqing report)
-      if (isAppOverlayOpen()) return
+      // A modal or menu owns the keyboard while open, so list shortcuts never
+      // fire through it (songgenqing report). Settings counts: `1`/`2`/`3`
+      // switched the view behind it, and `a` opened the new-task prompt.
+      if (isOverlayOrDialogOpen()) return
       // While the Vim hint overlay is open it owns the keyboard; don't let
       // task navigation (or Esc closing the view) steal its keys. (#151)
       if (document.querySelector('[data-vim-hint-overlay]')) return
