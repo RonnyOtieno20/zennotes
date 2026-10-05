@@ -118,6 +118,8 @@ function unwrapMdUrl(url: string): string {
   return trimmed
 }
 
+const EXPLICIT_EXTERNAL_RE = /^(https?:|mailto:|tel:)/i
+
 const LOCAL_FILE_EXT_RE =
   /\.(md|markdown|txt|png|apng|avif|gif|jpe?g|svg|webp|pdf|mp3|m4a|aac|flac|ogg|wav|mp4|m4v|mov|ogv|webm|canvas|excalidraw)$/i
 
@@ -131,7 +133,7 @@ const LOCAL_FILE_EXT_RE =
 export function externalLinkUrl(href: string): string | null {
   const h = href.trim()
   if (!h) return null
-  if (/^(https?:|mailto:|tel:)/i.test(h)) return h
+  if (EXPLICIT_EXTERNAL_RE.test(h)) return h
   if (/^[a-zA-Z][a-zA-Z\d+.-]*:/.test(h)) return null // another scheme — not ours
   if (h.startsWith('#') || h.startsWith('/') || h.startsWith('.') || h.startsWith('//')) return null
   // Bare domain heuristic: `host.tld` (one or more labels) optionally followed
@@ -147,10 +149,23 @@ export function externalLinkUrl(href: string): string | null {
  *  a Markdown link or a bare URL is an href. */
 export type LineLinkKind = 'wikilink' | 'markdown' | 'url'
 
+/**
+ * The address a link of this kind opens in the browser, or null. A wikilink
+ * names a note, so only an explicit scheme (`[[https://…]]`) sends one there:
+ * read as an href, `[[2024.01.15]]` passed the bare-domain guess and opened
+ * https://2024.01.15.
+ */
+export function externalUrlForLink(target: string, kind: LineLinkKind): string | null {
+  if (kind !== 'wikilink') return externalLinkUrl(target)
+  const name = target.trim()
+  return EXPLICIT_EXTERNAL_RE.test(name) ? name : null
+}
+
 export interface LineLink {
   kind: LineLinkKind
   target: string
-  /** Span of the whole link source, in offsets into the line. */
+  /** Span of the whole link source, in offsets into the text searched: the
+   *  line for `linkRangesInLine`, the document for `linkRangeAtCursor`. */
   from: number
   to: number
 }
@@ -170,17 +185,16 @@ const LINK_SHAPES: ReadonlyArray<{
 ]
 
 /**
- * The link at a document offset — a `[[wikilink]]` name, a Markdown link's
- * URL, or a bare URL — with its full source range in `doc` offsets. The range
- * lets pointer-driven callers confirm the mouse actually sits on the link's
- * rendered glyphs: a position alone cannot tell "on the link" from "clamped to
- * the link", which is how blank space beside a line once hovered and followed
- * a line-ending link (#587). Returns null when the offset isn't inside a link.
+ * The link at a document offset (a `[[wikilink]]` name, a Markdown link's
+ * URL, or a bare URL), with its kind and its full source range in `doc`
+ * offsets. The range lets pointer-driven callers confirm the mouse actually
+ * sits on the link's rendered glyphs: a position alone cannot tell "on the
+ * link" from "clamped to the link", which is how blank space beside a line
+ * once hovered and followed a line-ending link (#587). The kind is what tells
+ * a note name from an href when the link is followed. Returns null when the
+ * offset isn't inside a link.
  */
-export function linkRangeAtCursor(
-  doc: string,
-  pos: number
-): { target: string; from: number; to: number } | null {
+export function linkRangeAtCursor(doc: string, pos: number): LineLink | null {
   const lineStart = doc.lastIndexOf('\n', pos - 1) + 1
   const lineEnd = doc.indexOf('\n', pos)
   const line = doc.slice(lineStart, lineEnd === -1 ? undefined : lineEnd)
@@ -190,6 +204,7 @@ export function linkRangeAtCursor(
       const start = m.index ?? 0
       if (col >= start && col < start + m[0].length) {
         return {
+          kind: shape.kind,
           target: shape.target(m),
           from: lineStart + start,
           to: lineStart + start + m[0].length
@@ -217,14 +232,6 @@ export function linkRangesInLine(line: string): LineLink[] {
     }
   }
   return links.sort((a, b) => a.from - b.from)
-}
-
-/**
- * The link target at a document offset — a `[[wikilink]]` name, a Markdown
- * link's URL, or a bare URL. Returns null when the offset isn't inside a link.
- */
-export function extractLinkAtCursor(doc: string, pos: number): string | null {
-  return linkRangeAtCursor(doc, pos)?.target ?? null
 }
 
 /**

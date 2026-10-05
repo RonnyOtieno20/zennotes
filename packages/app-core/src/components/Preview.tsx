@@ -521,6 +521,7 @@ export const Preview = memo(function Preview({
           // the note is created at once at the suggested path (#768).
           followLinkTarget(anchor.dataset.wikilink, {
             createWithoutAsking: e.metaKey || e.ctrlKey,
+            kind: "wikilink",
           });
         }
         return;

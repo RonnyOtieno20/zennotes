@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   externalLinkUrl,
-  extractLinkAtCursor,
+  externalUrlForLink,
   linkRangeAtCursor,
   linkRangesInLine,
   markdownLinkAt,
@@ -93,31 +93,15 @@ describe('resolveInternalNoteHref', () => {
   })
 })
 
-describe('extractLinkAtCursor', () => {
-  it('pulls a Markdown link url under the cursor', () => {
-    const doc = 'see [the plan](Work/Projects/plan.md) here'
-    expect(extractLinkAtCursor(doc, doc.indexOf('plan.md'))).toBe('Work/Projects/plan.md')
-  })
-
-  it('pulls a wikilink target under the cursor', () => {
-    const doc = 'see [[Another Note]] here'
-    expect(extractLinkAtCursor(doc, doc.indexOf('Another'))).toBe('Another Note')
-  })
-
-  it('unwraps an angle-bracketed url with spaces', () => {
-    const doc = '[x](<a b.md>)'
-    expect(extractLinkAtCursor(doc, 2)).toBe('a b.md')
-  })
-
-  it('returns null when not inside a link', () => {
-    expect(extractLinkAtCursor('just text', 3)).toBeNull()
-  })
-})
-
 describe('linkRangeAtCursor', () => {
+  it('unwraps an angle-bracketed url with spaces', () => {
+    expect(linkRangeAtCursor('[x](<a b.md>)', 2)?.target).toBe('a b.md')
+  })
+
   it('returns the target and source range of a Markdown link', () => {
     const doc = 'see [the plan](Work/Projects/plan.md) here'
     expect(linkRangeAtCursor(doc, doc.indexOf('plan.md'))).toEqual({
+      kind: 'markdown',
       target: 'Work/Projects/plan.md',
       from: 4,
       to: 4 + '[the plan](Work/Projects/plan.md)'.length
@@ -128,6 +112,7 @@ describe('linkRangeAtCursor', () => {
     const doc = 'first line\n2. courses on [[Another Note]] end'
     const at = linkRangeAtCursor(doc, doc.indexOf('Another'))
     expect(at).toEqual({
+      kind: 'wikilink',
       target: 'Another Note',
       from: doc.indexOf('[[Another'),
       to: doc.indexOf(']]') + 2
@@ -137,6 +122,7 @@ describe('linkRangeAtCursor', () => {
   it('covers a bare url up to its last character, exclusive of line end', () => {
     const doc = 'ends with https://x.test/a'
     expect(linkRangeAtCursor(doc, doc.indexOf('https'))).toEqual({
+      kind: 'url',
       target: 'https://x.test/a',
       from: doc.indexOf('https'),
       to: doc.length
@@ -173,6 +159,36 @@ describe('externalLinkUrl', () => {
     ]) {
       expect(externalLinkUrl(href), href).toBeNull()
     }
+  })
+})
+
+// A wikilink names a note. Read as an href, `[[2024.01.15]]` passed the
+// bare-domain guess and `gd`, Cmd-click on its source, `gy` and the table
+// cells sent it to https://2024.01.15.
+describe('externalUrlForLink', () => {
+  it('never reads a wikilink name as a bare domain', () => {
+    for (const name of ['2024.01.15', 'v1.2', 'notes.v2', 'google.com', '2024.01.15#Agenda']) {
+      expect(externalUrlForLink(name, 'wikilink'), name).toBeNull()
+    }
+  })
+
+  it('still sends a wikilink written with a scheme to the browser', () => {
+    expect(externalUrlForLink('https://example.net', 'wikilink')).toBe('https://example.net')
+    expect(externalUrlForLink(' mailto:a@b.com ', 'wikilink')).toBe('mailto:a@b.com')
+  })
+
+  it('reads a Markdown href and a bare URL as externalLinkUrl does (#201)', () => {
+    expect(externalUrlForLink('google.com', 'markdown')).toBe('https://google.com')
+    expect(externalUrlForLink('https://x.test/a', 'url')).toBe('https://x.test/a')
+    expect(externalUrlForLink('Note.md', 'markdown')).toBeNull()
+  })
+
+  it('pairs with the kind linkRangeAtCursor reports', () => {
+    const doc = 'see [[example.com]] and [site](example.com)'
+    const wikilink = linkRangeAtCursor(doc, doc.indexOf('example'))!
+    const markdown = linkRangeAtCursor(doc, doc.indexOf('[site]'))!
+    expect(externalUrlForLink(wikilink.target, wikilink.kind)).toBeNull()
+    expect(externalUrlForLink(markdown.target, markdown.kind)).toBe('https://example.com')
   })
 })
 
@@ -239,6 +255,7 @@ describe('linkRangesInLine', () => {
     for (const link of linkRangesInLine(line)) {
       for (let col = link.from; col < link.to; col++) {
         expect(linkRangeAtCursor(line, col), `col ${col}`).toEqual({
+          kind: link.kind,
           target: link.target,
           from: link.from,
           to: link.to

@@ -2105,7 +2105,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     if (
                       link &&
                       pointerOverRange(view, link.from, link.to, event.clientX, event.clientY) &&
-                      followLinkTarget(link.target, { createWithoutAsking: true })
+                      followLinkTarget(link.target, { createWithoutAsking: true, kind: link.kind })
                     ) {
                       // Following the link ends its status-bar hover; a tap
                       // never sends the mouseleave that would (#820).
@@ -4682,7 +4682,7 @@ function copyableLinkAtPointer(view: EditorView, x: number, y: number): Copyable
   if (pos == null) return null
   const range = linkRangeAtCursor(view.state.doc.toString(), pos)
   if (!range || !pointerOverRange(view, range.from, range.to, x, y)) return null
-  return copyableLink(range.target)
+  return copyableLink(range.target, range.kind)
 }
 
 function buildEditorContextItems(

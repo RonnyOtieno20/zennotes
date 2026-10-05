@@ -49,14 +49,18 @@ import { undo, redo } from '@codemirror/commands'
 import { useStore } from '../store'
 import { matchesSequenceToken, matchesShortcutBinding } from './keymaps'
 import { followLinkTarget } from './follow-link'
-import { extractLinkAtCursor } from './internal-links'
+import { linkRangeAtCursor, type LineLinkKind } from './internal-links'
 
-/** The follow target for a rendered link anchor inside a table cell: a
- *  wikilink's name (`data-wikilink`) or a plain link's href. Returns null for
- *  anchors that carry neither. */
-function linkTargetFromAnchor(anchor: HTMLAnchorElement): string | null {
-  if (anchor.classList.contains('wikilink')) return anchor.dataset.wikilink?.trim() || null
-  return anchor.getAttribute('href')?.trim() || null
+/** The follow target for a rendered link anchor inside a table cell, with its
+ *  kind: a wikilink's name (`data-wikilink`) or a plain link's href. Returns
+ *  null for anchors that carry neither. */
+function linkFromAnchor(anchor: HTMLAnchorElement): { target: string; kind: LineLinkKind } | null {
+  if (anchor.classList.contains('wikilink')) {
+    const target = anchor.dataset.wikilink?.trim()
+    return target ? { target, kind: 'wikilink' } : null
+  }
+  const href = anchor.getAttribute('href')?.trim()
+  return href ? { target: href, kind: 'markdown' } : null
 }
 
 /** True when the editor is in Vim mode — gates the table's modal (normal /
@@ -679,11 +683,11 @@ class TableWidget extends WidgetType {
       if (editable.dataset.rendered !== 'true') return
       const anchor = (event.target as HTMLElement | null)?.closest<HTMLAnchorElement>('a')
       if (!anchor || !editable.contains(anchor)) return
-      const target = linkTargetFromAnchor(anchor)
-      if (!target) return
+      const link = linkFromAnchor(anchor)
+      if (!link) return
       event.preventDefault()
       event.stopPropagation()
-      followLinkTarget(target)
+      followLinkTarget(link.target, { kind: link.kind })
     })
     editable.addEventListener('input', () => {
       this.dirty = true
@@ -976,8 +980,8 @@ class TableWidget extends WidgetType {
           event.preventDefault()
           this.pendingG = false
           if (event.key === 'd') {
-            const target = extractLinkAtCursor(cellText, this.cursorOffset)
-            if (target) followLinkTarget(target)
+            const link = linkRangeAtCursor(cellText, this.cursorOffset)
+            if (link) followLinkTarget(link.target, { kind: link.kind })
           }
           return
         }

@@ -1358,7 +1358,7 @@ function NoteCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: C
               title={note ? `Open ${note.title}` : `No note matches "${target}"`}
               onClick={(e) => {
                 e.stopPropagation()
-                followLinkTarget(target)
+                followLinkTarget(target, { kind: 'wikilink' })
               }}
               className={[
                 'cursor-pointer rounded-full px-2 py-0.5 text-2xs font-medium ring-1',

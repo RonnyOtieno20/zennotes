@@ -2,7 +2,7 @@ import { followApplicationLink } from './application-link-open'
 import { useStore } from '../store'
 import { createNoteFromLinkNow, offerCreateNoteFromLink } from './create-note-from-link'
 import { externalFileLink, openExternalFileLink } from './external-file-link'
-import { externalLinkUrl, resolveInternalNoteHref } from './internal-links'
+import { externalUrlForLink, resolveInternalNoteHref, type LineLinkKind } from './internal-links'
 import { openWikilinkAttachment } from './open-wikilink-attachment'
 import { resolveWikilinkPath } from './wikilinks'
 import {
@@ -24,14 +24,19 @@ import {
  * With `createWithoutAsking`, a dead link creates its note at the suggested
  * path right away instead of asking first: the modifier-click and `gD` fast
  * path (#768).
+ *
+ * `kind` says how the target was written; an href unless told otherwise. A
+ * caller holding a `[[wikilink]]` passes 'wikilink', so a note name that looks
+ * like a domain (`[[2024.01.15]]`) opens its note instead of the browser.
  */
 export interface FollowLinkOptions {
   createWithoutAsking?: boolean
+  kind?: LineLinkKind
 }
 
 export function followLinkTarget(target: string, options: FollowLinkOptions = {}): boolean {
   if (followApplicationLink(target)) return true
-  const external = externalLinkUrl(target)
+  const external = externalUrlForLink(target, options.kind ?? 'markdown')
   if (external) {
     window.open(external, '_blank')
     return true
