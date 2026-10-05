@@ -655,6 +655,190 @@ describe('PortableCloudSyncRepository: an upsert that only changes the case of i
   })
 })
 
+// The case-only rename above takes two steps on a case-insensitive volume. The
+// app can stop between them, leaving the note under a name sync ignores, and a
+// save can land between them, which the second step used to rename over.
+describe('PortableCloudSyncRepository: an interrupted case-only rename', () => {
+  const RECORDS = '.zennotes/zennotes-cloud-sync/respellings'
+
+  class InterruptibleFileSystem extends CaseInsensitiveMemoryFileSystem {
+    stopAtSecondStep = false
+    afterFirstStep?: () => Promise<void>
+
+    override async rename(from: string, to: string): Promise<void> {
+      if (from.endsWith('.tmp') && this.stopAtSecondStep) throw new Error('the app stopped')
+      await super.rename(from, to)
+      if (to.endsWith('.tmp')) await this.afterFirstStep?.()
+    }
+
+    names(): string[] {
+      return [...this.files.keys()].sort()
+    }
+
+    detour(): string {
+      const detour = this.names().find((name) => name.endsWith('.tmp'))
+      if (!detour) throw new Error('no detour on the volume')
+      return detour
+    }
+  }
+
+  async function stopBetweenSteps(fs: InterruptibleFileSystem, incoming: string): Promise<string> {
+    fs.stopAtSecondStep = true
+    await expect(
+      new PortableCloudSyncRepository(fs).apply(
+        await upsertFrom('note.md', 'Note.md', incoming),
+        await tracked('note.md', 'agreed')
+      )
+    ).rejects.toThrow('the app stopped')
+    fs.stopAtSecondStep = false
+    return fs.detour()
+  }
+
+  it('finishes the rename on the next run, from the record written before the first step', async () => {
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    const detour = await stopBetweenSteps(fs, 'remote edit')
+    expect(fs.names()).toEqual([`${RECORDS}/${detour.slice('Note.md.'.length, -'.tmp'.length)}.json`, detour].sort())
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+
+    expect(fs.names()).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('remote edit')
+  })
+
+  it('keeps both files when the name was taken before the next run', async () => {
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    const detour = await stopBetweenSteps(fs, 'remote edit')
+    await fs.writeText('note.md', 'typed after relaunch')
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+
+    expect(fs.names()).toEqual([detour, 'note.md'])
+    expect(fs.text('note.md')).toBe('typed after relaunch')
+    expect(fs.text(detour)).toBe('remote edit')
+  })
+
+  it('drops the parked copy once the same bytes are back under the name', async () => {
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    await stopBetweenSteps(fs, 'remote edit')
+    // A replay that ran before recovery wrote the Cloud bytes there again.
+    await fs.writeText('Note.md', 'remote edit')
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+
+    expect(fs.names()).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('remote edit')
+  })
+
+  it('never renames over a save that landed between the two steps', async () => {
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    // The editor still holds the note under its old spelling and saves.
+    fs.afterFirstStep = () => fs.writeText('note.md', 'typed between the steps')
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'remote edit'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect(fs.text('note.md')).toBe('typed between the steps')
+    expect(fs.text(fs.detour())).toBe('remote edit')
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+    expect(fs.names()).toEqual([fs.detour(), 'note.md'])
+    expect(fs.text('note.md')).toBe('typed between the steps')
+  })
+
+  it('clears a record it cannot trust without touching any file', async () => {
+    const id = '0f8fad5b-d9cb-469f-a165-70867728950e'
+    const fs = new InterruptibleFileSystem({
+      'note.md': 'agreed',
+      [`other.md.${id}.tmp`]: 'parked elsewhere',
+      [`${RECORDS}/torn.json`]: '{"path":',
+      [`${RECORDS}/${id}.json`]: JSON.stringify({ path: 'note.md', detour: `other.md.${id}.tmp` })
+    })
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+
+    expect(fs.names()).toEqual(['note.md', `other.md.${id}.tmp`])
+    expect(fs.text('note.md')).toBe('agreed')
+  })
+
+  it('never fails a run over a record it cannot settle yet, and keeps it for the next run', async () => {
+    class UnreadyFileSystem extends InterruptibleFileSystem {
+      ready = false
+      override async readBase64(path: string): Promise<string> {
+        if (!this.ready && path.endsWith('.tmp')) throw new Error('native storage is not ready')
+        return super.readBase64(path)
+      }
+    }
+    const fs = new UnreadyFileSystem({ 'note.md': 'agreed' })
+    fs.stopAtSecondStep = true
+    await expect(
+      new PortableCloudSyncRepository(fs).apply(
+        await upsertFrom('note.md', 'Note.md', 'remote edit'),
+        await tracked('note.md', 'agreed')
+      )
+    ).rejects.toThrow('the app stopped')
+    fs.stopAtSecondStep = false
+    await fs.writeText('Note.md', 'remote edit')
+    const parked = [...fs.files.keys()]
+
+    await expect(new PortableCloudSyncRepository(fs).recoverInterruptedWork()).resolves.toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(parked)
+
+    fs.ready = true
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+  })
+
+  it('finishes an interrupted rename before the next sync run pulls or scans', async () => {
+    const statePath = 'zennotes-cloud-sync/state.json'
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    const changes: CloudSyncChange[] = []
+    const mutations: string[] = []
+    const remote: CloudSyncRemote = {
+      manifest: async () => ({ data: [], cursor: 0, next_page: null }),
+      changes: async (_vault, after) => ({ data: changes.filter((change) => change.sequence > after), cursor: changes.length, has_more: false }),
+      mutate: async (_vault, body) => ({
+        acknowledged: body.mutations.map((mutation) => {
+          mutations.push(`${mutation.type} ${'path' in mutation ? mutation.path : ''}`)
+          const sequence = changes.length + 1
+          const revision = (mutation.base_revision ?? 0) + 1
+          if (mutation.type !== 'upsert') throw new Error(`Unexpected ${mutation.type}`)
+          changes.push({ sequence, revision, type: 'upsert', item_id: mutation.item_id,
+            path: mutation.path, previous_path: null, content: mutation.content })
+          return { sequence, revision, item_id: mutation.item_id, operation_id: mutation.operation_id }
+        }),
+        cursor: changes.length,
+        conflicts: []
+      })
+    }
+    let id = 0
+    const sync = () => new CloudSyncCoordinator('vault-1', remote, new PortableCloudSyncRepository(fs), {
+      load: async () => (fs.text(statePath) ? JSON.parse(fs.text(statePath)!) as CloudSyncState : null),
+      save: async (state) => {
+        if (fs.stopAtSecondStep) throw new Error('the app stopped')
+        await fs.writeText(statePath, JSON.stringify(state))
+      }
+    }, { itemId: () => `item-${++id}`, operationId: () => `operation-${++id}` }).sync()
+
+    await sync()
+    const [created] = changes
+    const edit = await textContent('remote edit')
+    changes.push({ sequence: 2, revision: 2, type: 'upsert', item_id: created.item_id,
+      path: 'Note.md', previous_path: 'note.md', content: edit })
+
+    fs.stopAtSecondStep = true
+    await expect(sync()).rejects.toThrow('the app stopped')
+    fs.stopAtSecondStep = false
+    await sync()
+
+    expect(fs.names().filter((name) => !name.startsWith('zennotes-cloud-sync/'))).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('remote edit')
+    expect(mutations).toEqual(['upsert note.md'])
+  })
+})
+
 async function tracked(path: string, data: string) {
   const content = await textContent(data)
   return {

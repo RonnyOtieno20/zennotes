@@ -94,6 +94,9 @@ export interface CloudSyncRepository {
   applyStagedCloudContent?(change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined, file: CloudSyncStagedFile): Promise<CloudSyncRepositoryConflict | void>
   resolveStagedCloudConflict?(input: CloudSyncStagedConflict): Promise<void>
   scan(): Promise<CloudSyncLocalItem[]>
+  /** Finish filesystem work an earlier run was stopped in the middle of. Runs
+   *  first in every sync run, before anything is pulled or scanned. */
+  recoverInterruptedWork?(): Promise<void>
   /** Paths with a durable user decision still pending. The coordinator leaves
    *  both their tracked and local versions out of mutation planning until the
    *  host removes the pending marker. */
@@ -444,6 +447,9 @@ export class CloudSyncCoordinator {
   }
 
   private async run(): Promise<CloudSyncRunResult> {
+    // An app stopped mid-rename leaves the note under a name scans skip; it
+    // goes back under its own name before this run looks at the vault.
+    await this.repository.recoverInterruptedWork?.()
     await this.ensureReferences()
     const bootstrap = await this.loadOrBootstrap()
     if (bootstrap.conflicts.length > 0) {

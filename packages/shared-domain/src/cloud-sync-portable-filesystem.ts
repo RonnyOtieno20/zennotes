@@ -61,6 +61,12 @@ const MEDIA_TYPES: Record<string, string> = {
   '.yml': 'application/yaml'
 }
 
+/** Where matchCase notes a respelling in progress. `zennotes-cloud-sync` is a
+ *  local-only folder name, so scans never list it and it never syncs. */
+const RESPELLING_RECORDS = '.zennotes/zennotes-cloud-sync/respellings'
+const RESPELLING_RECORD_NAME =
+  /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.json$/i
+
 export interface CloudSyncFileEntry {
   name: string
   type: 'file' | 'directory'
@@ -378,16 +384,99 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
    * that and push the rename back. A native rename that overwrites removes an
    * existing destination before moving onto it, and here that destination is
    * the file itself, so the rename detours through a name nothing else holds
-   * and that sync ignores should a crash strand the file there.
+   * and that sync ignores. A record written before the first step lets the
+   * next run finish the rename if the app stops between the two
+   * (recoverInterruptedWork); without it the note sat under the detour name
+   * for good, out of sight of the app and of sync.
    */
   private async matchCase(path: string): Promise<void> {
     const slash = path.lastIndexOf('/')
     const name = path.slice(slash + 1)
     const entries = await this.fs.readdir(slash < 0 ? '' : path.slice(0, slash))
     if (entries.some((entry) => entry.name.normalize('NFC') === name)) return
-    const detour = `${path}.${crypto.randomUUID()}.tmp`
-    await this.fs.rename(path, detour)
+    const id = crypto.randomUUID()
+    const detour = `${path}.${id}.tmp`
+    const record = `${RESPELLING_RECORDS}/${id}.json`
+    await this.fs.writeText(record, JSON.stringify({ path, detour }))
+    try {
+      await this.fs.rename(path, detour)
+    } catch (error) {
+      await this.fs.deleteFile(record).catch(() => undefined)
+      throw error
+    }
+    // A save that landed under the old spelling since the first step is the
+    // note's newest version, and the second step would remove it as an
+    // existing destination. It stays where it is, and the record is left for
+    // the next run to settle the parked copy against it.
+    if ((await this.fs.stat(path)) !== null) return
     await this.fs.rename(detour, path)
+    await this.fs.deleteFile(record).catch(() => undefined)
+  }
+
+  /**
+   * Finish the case-only renames (matchCase) an earlier run was stopped in
+   * the middle of. The coordinator calls this before a run pulls or scans.
+   * A parked note whose name is free goes back under it; one whose name holds
+   * the same bytes again (a replay wrote them back) is a duplicate and goes;
+   * anything else stays, since it may be the only copy of one side. A record
+   * that cannot be trusted is dropped without touching any file.
+   *
+   * Never fails a run. The change that was being applied when the app stopped
+   * was not saved as applied, so the run replays it and writes the note again
+   * on its own; this only spares that rewrite and the parked duplicate. A
+   * record that cannot be settled now is kept for the next run.
+   */
+  async recoverInterruptedWork(): Promise<void> {
+    let entries: CloudSyncFileEntry[]
+    try {
+      if ((await this.fs.stat(RESPELLING_RECORDS)) !== 'directory') return
+      entries = await this.fs.readdir(RESPELLING_RECORDS)
+    } catch {
+      return
+    }
+    for (const entry of entries) {
+      if (entry.type !== 'file') continue
+      const recordPath = `${RESPELLING_RECORDS}/${entry.name}`
+      try {
+        const respelling = await this.readRespelling(recordPath, entry.name)
+        if (respelling) await this.finishRespelling(respelling)
+        await this.fs.deleteFile(recordPath)
+      } catch {
+        // Kept for the next run.
+      }
+    }
+  }
+
+  private async readRespelling(
+    recordPath: string,
+    fileName: string
+  ): Promise<{ path: string; detour: string } | null> {
+    const id = RESPELLING_RECORD_NAME.exec(fileName)?.[1]
+    if (!id) return null
+    try {
+      const value: unknown = JSON.parse(
+        new TextDecoder().decode(base64ToBytes(await this.fs.readBase64(recordPath)))
+      )
+      if (!value || typeof value !== 'object') return null
+      const { path, detour } = value as Record<string, unknown>
+      if (typeof path !== 'string' || detour !== `${path}.${id}.tmp`) return null
+      if (!shouldSyncVaultPath(path) || this.path(path) !== path) return null
+      return { path, detour }
+    } catch {
+      return null
+    }
+  }
+
+  private async finishRespelling({ path, detour }: { path: string; detour: string }): Promise<void> {
+    if ((await this.fs.stat(detour)) !== 'file') return
+    const current = await this.fs.stat(path)
+    if (current === null) {
+      await this.fs.rename(detour, path)
+      return
+    }
+    if (current !== 'file') return
+    const [kept, parked] = await Promise.all([this.readItem(path), this.readItem(detour)])
+    if (kept.content.sha256 === parked.content.sha256) await this.fs.deleteFile(detour)
   }
 
   /** Park the incoming version beside the local file rather than over it. */
