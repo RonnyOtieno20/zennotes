@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsModal } from "./SettingsModal";
 import { requestSettingsTarget } from "../lib/settings-navigation";
+import { clearCloudSyncStatus, useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
 import {
   getSettingsSearchResults,
   type SettingsSearchCategory,
@@ -22,6 +23,9 @@ const cloudMocks = vi.hoisted(() => ({
     .fn()
     .mockResolvedValue({ state: "disconnected", account: null }),
   onCloudAccountChange: vi.fn(() => vi.fn()),
+  getCloudServiceAccount: vi.fn(),
+  listCloudVaults: vi.fn(),
+  getCloudVaultLink: vi.fn(),
 }));
 
 const mocks = vi.hoisted(() => {
@@ -619,6 +623,65 @@ describe("SettingsModal date note directories", () => {
 
     expect(host.textContent).toContain("Keep your vault available everywhere");
     expect(host.textContent).toContain("Connect ZenNotes Cloud");
+  });
+
+  it("opens a Cloud request on This vault and hands what waits there the keyboard", async () => {
+    const account = {
+      base_url: "https://zennotes.org",
+      user: { name: "Ada", email: "ada@example.com" },
+      device: { id: "device-1", name: "Ada’s Mac", platform: "desktop" },
+      connected_at: "2026-08-10T12:00:00.000Z",
+    };
+    cloudMocks.getCloudAccountStatus.mockResolvedValueOnce({ state: "connected", account });
+    cloudMocks.getCloudServiceAccount.mockResolvedValueOnce({
+      user: account.user,
+      device: { ...account.device, app_version: "2.62.0" },
+      features: {
+        sync: { active: true, limits: null },
+        backup: { active: false, limits: null },
+        publish: { active: false, limits: null },
+      },
+    });
+    cloudMocks.listCloudVaults.mockResolvedValueOnce([]);
+    cloudMocks.getCloudVaultLink.mockResolvedValueOnce({
+      base_url: account.base_url,
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    useCloudSyncStatusStore.setState({
+      phase: "attention",
+      vaultName: "Cloud Notes",
+      lastSummary: {
+        cursor: 7,
+        pulled: 0,
+        pushed: 0,
+        conflicts: [],
+        bootstrap_conflicts: [],
+        local_conflicts: [
+          {
+            code: "LOCAL_EDIT_CONFLICT",
+            path: "inbox/Plan.md",
+            conflict_copy_path: "inbox/Plan (cloud conflict).md",
+          },
+        ],
+      },
+    });
+
+    try {
+      requestSettingsTarget("cloud");
+      await act(async () => root.render(createElement(SettingsModal)));
+
+      const vault = host.querySelector<HTMLElement>('[data-settings-search-id="cloud-vault"]');
+      const waiting = vault?.querySelector<HTMLElement>("[data-cloud-attention]");
+      expect(waiting?.textContent).toContain("inbox/Plan.md");
+      // The page opens on the files Review was about, not on the account at
+      // its top, and the keyboard is already there.
+      expect(document.activeElement).toBe(waiting);
+      expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts).toContain(vault);
+    } finally {
+      clearCloudSyncStatus();
+    }
   });
   async function openKeymapRow(title: string): Promise<HTMLElement> {
     await act(async () => {

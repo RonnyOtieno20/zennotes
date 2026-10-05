@@ -896,6 +896,263 @@ describe("CloudSettings", () => {
     }
   });
 
+  describe("opened for This vault, as Review on the Cloud status opens it", () => {
+    const linked = {
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    };
+    const needsAttention: CloudSyncRunSummary = {
+      cursor: 7,
+      pulled: 0,
+      pushed: 0,
+      conflicts: [],
+      bootstrap_conflicts: [],
+      local_conflicts: [
+        {
+          code: "LOCAL_EDIT_CONFLICT",
+          path: "inbox/Plan.md",
+          conflict_copy_path: "inbox/Plan (cloud conflict).md",
+        },
+      ],
+    };
+    let scrolled: Element[];
+    let originalScrollIntoView: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      scrolled = [];
+      originalScrollIntoView = Object.getOwnPropertyDescriptor(
+        Element.prototype,
+        "scrollIntoView",
+      );
+      Object.defineProperty(Element.prototype, "scrollIntoView", {
+        configurable: true,
+        value(this: Element) {
+          scrolled.push(this);
+        },
+      });
+      mocks.getCloudAccountStatus.mockResolvedValue(connected);
+      mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+      mocks.listCloudVaults.mockResolvedValue([]);
+      mocks.getCloudVaultLink.mockResolvedValue(linked);
+      useCloudSyncStatusStore.setState({
+        phase: "attention",
+        vaultName: "Cloud Notes",
+        lastSummary: needsAttention,
+        error: "Cloud sync kept both versions of 1 changed file. Review the conflict copies.",
+      });
+    });
+
+    afterEach(() => {
+      if (originalScrollIntoView) {
+        Object.defineProperty(Element.prototype, "scrollIntoView", originalScrollIntoView);
+      } else {
+        delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+      }
+      (document.activeElement as HTMLElement | null)?.blur();
+    });
+
+    async function open(props: {
+      revealVault?: boolean;
+      onVaultRevealed?: () => void;
+    }): Promise<void> {
+      await act(async () =>
+        root.render(
+          createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+            ...props,
+          }),
+        ),
+      );
+    }
+
+    function vaultSection(): HTMLElement | null {
+      return host.querySelector<HTMLElement>('[data-settings-search-id="cloud-vault"]');
+    }
+
+    it("brings the files that need attention into view and hands them the keyboard", async () => {
+      const onVaultRevealed = vi.fn();
+      await open({ revealVault: true, onVaultRevealed });
+
+      const files = host.querySelector('[aria-label="Files that need attention"]');
+      const attention = files?.closest<HTMLElement>("[data-cloud-attention]");
+      expect(attention).toBeTruthy();
+      expect(vaultSection()?.contains(attention!)).toBe(true);
+      expect(document.activeElement).toBe(attention);
+      // This vault's top first, for the vault it is about, then the files.
+      expect(scrolled).toEqual([vaultSection(), attention]);
+      expect(onVaultRevealed).toHaveBeenCalledOnce();
+    });
+
+    it("lands on the notice when this vault's Cloud vault went away", async () => {
+      useCloudSyncStatusStore.setState({
+        phase: "unlinked",
+        lastSummary: null,
+        error: null,
+        removedVault: { vaultName: "Cloud QA iPhone", reason: "deleted" },
+      });
+      mocks.getCloudVaultLink.mockResolvedValue(null);
+      await open({ revealVault: true });
+
+      const notice = host.querySelector<HTMLElement>("[data-cloud-vault-removed]");
+      expect(notice?.hasAttribute("data-cloud-attention")).toBe(true);
+      expect(document.activeElement).toBe(notice);
+    });
+
+    it("hands This vault itself the keyboard when nothing in it waits, as Set up asks", async () => {
+      useCloudSyncStatusStore.setState({ phase: "unlinked", lastSummary: null, error: null });
+      mocks.getCloudVaultLink.mockResolvedValue(null);
+      await open({ revealVault: true });
+
+      expect(host.textContent).toContain("Create a new cloud vault");
+      expect(document.activeElement).toBe(vaultSection());
+      expect(scrolled).toEqual([vaultSection()]);
+    });
+
+    it("leaves the keyboard where the person moved it while the page loaded", async () => {
+      const elsewhere = document.createElement("input");
+      document.body.append(elsewhere);
+      try {
+        elsewhere.focus();
+        const onVaultRevealed = vi.fn();
+        await open({ revealVault: true, onVaultRevealed });
+
+        expect(document.activeElement).toBe(elsewhere);
+        expect(scrolled).toEqual([]);
+        // Asked and answered: coming back to the page does not try again.
+        expect(onVaultRevealed).toHaveBeenCalledOnce();
+      } finally {
+        elsewhere.remove();
+      }
+    });
+
+    it("stays at the top of the page when nothing asked for This vault", async () => {
+      await open({});
+
+      expect(host.querySelector("[data-cloud-attention]")).not.toBeNull();
+      expect(document.activeElement).toBe(document.body);
+      expect(scrolled).toEqual([]);
+    });
+  });
+
+  describe("the storage card while Settings stays open", () => {
+    const linked = {
+      base_url: "https://zennotes.org",
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    };
+    const uploaded: CloudSyncRunSummary = {
+      cursor: 9,
+      pulled: 0,
+      pushed: 3,
+      conflicts: [],
+      bootstrap_conflicts: [],
+      local_conflicts: [],
+    };
+    const grown: CloudServiceAccount = {
+      ...serviceAccount,
+      usage: {
+        ...serviceAccount.usage!,
+        sync: { ...serviceAccount.usage!.sync, items: 41 },
+      },
+    };
+    let visibility: DocumentVisibilityState;
+
+    function show(state: DocumentVisibilityState): void {
+      visibility = state;
+      document.dispatchEvent(new Event("visibilitychange"));
+    }
+
+    /** Lets a pause pass, and whatever it set off land. */
+    async function wait(milliseconds: number): Promise<void> {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(milliseconds);
+      });
+    }
+
+    beforeEach(async () => {
+      visibility = "visible";
+      Object.defineProperty(document, "visibilityState", {
+        configurable: true,
+        get: () => visibility,
+      });
+      mocks.getCloudAccountStatus.mockResolvedValue(connected);
+      mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+      mocks.listCloudVaults.mockResolvedValue([]);
+      mocks.getCloudVaultLink.mockResolvedValue(linked);
+      mocks.getCloudSettingsConflict.mockResolvedValue(null);
+      await act(async () =>
+        root.render(
+          createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+          }),
+        ),
+      );
+      expect(host.textContent).toContain("38 synced files across 2 vaults");
+      vi.useFakeTimers();
+      mocks.getCloudServiceAccount.mockClear();
+      mocks.getCloudServiceAccount.mockResolvedValue(grown);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      delete (document as { visibilityState?: unknown }).visibilityState;
+    });
+
+    it("reads usage again once sync runs settle, once for a burst of runs", async () => {
+      await act(async () => useCloudSyncStatusStore.setState({ lastSummary: uploaded }));
+      await wait(2_000);
+      await act(async () =>
+        useCloudSyncStatusStore.setState({ lastSummary: { ...uploaded, cursor: 10 } }),
+      );
+      await wait(2_000);
+      expect(mocks.getCloudServiceAccount).not.toHaveBeenCalled();
+
+      await wait(2_000);
+      expect(mocks.getCloudServiceAccount).toHaveBeenCalledOnce();
+      expect(host.textContent).toContain("41 synced files across 2 vaults");
+
+      await wait(30_000);
+      expect(mocks.getCloudServiceAccount).toHaveBeenCalledOnce();
+    });
+
+    it("leaves usage alone after a run that moved nothing", async () => {
+      await act(async () =>
+        useCloudSyncStatusStore.setState({ lastSummary: { ...uploaded, pushed: 0 } }),
+      );
+      await wait(30_000);
+
+      expect(mocks.getCloudServiceAccount).not.toHaveBeenCalled();
+      expect(host.textContent).toContain("38 synced files across 2 vaults");
+    });
+
+    it("reads nothing while the window is hidden, and reads usage once it is shown", async () => {
+      show("hidden");
+      await act(async () => useCloudSyncStatusStore.setState({ lastSummary: uploaded }));
+      await wait(30_000);
+      expect(mocks.getCloudServiceAccount).not.toHaveBeenCalled();
+
+      show("visible");
+      await wait(5_000);
+      expect(mocks.getCloudServiceAccount).toHaveBeenCalledOnce();
+      expect(host.textContent).toContain("41 synced files across 2 vaults");
+    });
+
+    it("does not read usage a second time after Sync now has read it", async () => {
+      mocks.syncCloudVault.mockResolvedValue(uploaded);
+      await act(async () => buttonNamed("Sync now")!.click());
+      expect(mocks.getCloudServiceAccount).toHaveBeenCalledOnce();
+      expect(host.textContent).toContain("41 synced files across 2 vaults");
+
+      await wait(30_000);
+      expect(mocks.getCloudServiceAccount).toHaveBeenCalledOnce();
+    });
+  });
+
   it("refreshes Settings when follow-up sync clears the next conflict after a saved decision", async () => {
     mocks.getCloudAccountStatus.mockResolvedValue(connected);
     mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
@@ -1850,8 +2107,9 @@ describe("CloudSettings", () => {
     );
     expect(mocks.restoreCloudBackup).toHaveBeenCalledWith("backup-1");
     expect(host.textContent).toContain(
-      "Restored 8 items and removed 2 newer items. This vault is synced to cursor 18.",
+      "Restored 8 items and removed 2 newer items. This vault now matches the backup.",
     );
+    expect(host.textContent).not.toContain("cursor");
 
     const browse = [...host.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Browse notes",
@@ -1970,6 +2228,7 @@ describe("CloudSettings", () => {
     async function restore(
       label: string | null,
       counts: { restored_items: number; deleted_items: number },
+      sync: Partial<CloudSyncRunSummary> = {},
     ): Promise<void> {
       mocks.getCloudAccountStatus.mockResolvedValue(connected);
       mocks.getCloudServiceAccount.mockResolvedValue({
@@ -2021,6 +2280,7 @@ describe("CloudSettings", () => {
           conflicts: [],
           bootstrap_conflicts: [],
           local_conflicts: [],
+          ...sync,
         },
       });
 
@@ -2037,6 +2297,13 @@ describe("CloudSettings", () => {
           candidate.textContent?.trim() === "Restore" && !candidate.disabled,
       );
       await act(async () => button!.click());
+    }
+
+    function restoreResult(): string {
+      return (
+        host.querySelector('[data-settings-search-id="cloud-backups"] [role="status"]')
+          ?.textContent ?? ""
+      );
     }
 
     it("quotes the label, so a label that starts with Restore reads once", async () => {
@@ -2064,8 +2331,8 @@ describe("CloudSettings", () => {
         deleted_items: 1,
       });
 
-      expect(host.textContent).toContain(
-        "Restored 1 item and removed 1 newer item. This vault is synced to cursor 18.",
+      expect(restoreResult()).toBe(
+        "Restored 1 item and removed 1 newer item. This vault now matches the backup.",
       );
     });
 
@@ -2075,10 +2342,158 @@ describe("CloudSettings", () => {
         deleted_items: 0,
       });
 
-      expect(host.textContent).toContain(
-        "Restored 3 items. This vault is synced to cursor 18.",
+      expect(restoreResult()).toBe(
+        "Restored 3 items. This vault now matches the backup.",
       );
       expect(host.textContent).not.toContain("newer item");
+    });
+
+    it("claims no match while the sync after it left a file waiting, which This vault lists", async () => {
+      await restore(
+        "Before migration",
+        { restored_items: 3, deleted_items: 0 },
+        {
+          pending_conflicts: [
+            {
+              id: "Plan.md",
+              item_id: "Plan.md",
+              path: "Plan.md",
+              cloud_path: "Plan.md",
+              kind: "content",
+              can_merge: true,
+              has_base: true,
+            },
+          ],
+        },
+      );
+
+      expect(restoreResult()).toBe("Restored 3 items.");
+      expect(host.textContent).not.toContain("cursor");
+      expect(
+        host.querySelector('[data-settings-search-id="cloud-vault"]')?.textContent,
+      ).toContain("Plan.md");
+    });
+  });
+
+  describe("a failed automatic backup", () => {
+    const occurredAt = "2026-10-04T03:00:00.000Z";
+    const onDate = new Date(occurredAt).toLocaleDateString();
+
+    async function openWithSchedule(schedule: Record<string, unknown>): Promise<void> {
+      mocks.getCloudAccountStatus.mockResolvedValue(connected);
+      mocks.getCloudServiceAccount.mockResolvedValue({
+        ...serviceAccount,
+        features: {
+          ...serviceAccount.features,
+          backup: { active: true, limits: { max_snapshots: 30 } },
+        },
+      });
+      mocks.listCloudVaults.mockResolvedValue([]);
+      mocks.getCloudVaultLink.mockResolvedValue({
+        base_url: "https://zennotes.org",
+        vault_id: "vault-1",
+        vault_name: "Cloud Notes",
+        linked_at: "2026-08-10T12:00:00.000Z",
+      });
+      mocks.listCloudBackups.mockResolvedValue([]);
+      // The shape the service's backup-schedule endpoint answers with.
+      mocks.getCloudBackupSchedule.mockResolvedValue({
+        enabled: true,
+        frequency: "daily",
+        next_backup_at: "2026-10-05T03:00:00.000Z",
+        last_backup_at: "2026-10-02T03:00:00.000Z",
+        ...schedule,
+      });
+      await act(async () =>
+        root.render(
+          createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+          }),
+        ),
+      );
+    }
+
+    function failureNotice(): HTMLElement | null {
+      return host.querySelector<HTMLElement>("[data-cloud-backup-failure]");
+    }
+
+    it("says which plan limit skipped it, and when", async () => {
+      await openWithSchedule({
+        last_failure: {
+          code: "BACKUP_QUOTA_EXCEEDED",
+          message:
+            "The latest automatic backup was skipped because this vault has 30 retained backups, but its limit is 30. Delete an older manual backup or contact support to increase the limit. ZenNotes will retry daily.",
+          details: { limit: "max_snapshots", current: 30, allowed: 30 },
+          occurred_at: occurredAt,
+        },
+      });
+
+      expect(failureNotice()?.textContent).toBe(
+        `The automatic backup on ${onDate} was skipped. This vault already keeps 30 backups, the most your plan allows. Delete an older backup to make room.`,
+      );
+      // Beside the switch it is about.
+      expect(
+        failureNotice()?.closest("[data-cloud-automatic-backups]")?.querySelector('[role="switch"]'),
+      ).not.toBeNull();
+    });
+
+    it("words a limit this version cannot read without inventing numbers", async () => {
+      await openWithSchedule({
+        last_failure: {
+          code: "BACKUP_QUOTA_EXCEEDED",
+          message: null,
+          details: { limit: "max_snapshot_widgets", current: 3, allowed: 2 },
+          occurred_at: occurredAt,
+        },
+      });
+
+      expect(failureNotice()?.textContent).toBe(
+        `The automatic backup on ${onDate} was skipped because this vault reached a backup limit on your plan.`,
+      );
+    });
+
+    it("gives any other failure a short sentence with its date", async () => {
+      await openWithSchedule({
+        last_failure: {
+          code: "AUTOMATIC_BACKUP_FAILED",
+          message:
+            "The latest automatic backup failed after several attempts. ZenNotes will retry automatically. Contact support if the problem continues.",
+          details: { message: "The automatic backup could not be created after several attempts." },
+          occurred_at: occurredAt,
+        },
+      });
+
+      expect(failureNotice()?.textContent).toBe(
+        `The automatic backup on ${onDate} failed. ZenNotes will try again.`,
+      );
+    });
+
+    it("says nothing once the last one succeeded, or for a service that never reports it", async () => {
+      await openWithSchedule({ last_failure: null });
+      expect(host.textContent).toContain("Automatic daily backups");
+      expect(failureNotice()).toBeNull();
+
+      await act(async () => root.render(null));
+      await openWithSchedule({});
+      expect(host.textContent).toContain("Automatic daily backups");
+      expect(failureNotice()).toBeNull();
+    });
+
+    it("says nothing about a schedule that is turned off", async () => {
+      await openWithSchedule({
+        enabled: false,
+        next_backup_at: null,
+        last_failure: {
+          code: "AUTOMATIC_BACKUP_FAILED",
+          message: null,
+          details: null,
+          occurred_at: occurredAt,
+        },
+      });
+
+      expect(host.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
+      expect(failureNotice()).toBeNull();
     });
   });
 

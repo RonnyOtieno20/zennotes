@@ -5,6 +5,7 @@ import type {
   CloudBackupNoteRestoreResult,
   CloudBackupRestoreResult,
   CloudBackupSchedule,
+  CloudBackupScheduleFailure,
   CloudBackupSnapshot,
   CloudBackupSnapshotItem,
   CloudPublishedNote,
@@ -17,6 +18,7 @@ import type {
   CloudVaultLink,
 } from "@zennotes/bridge-contract/cloud-sync";
 import { getZenBridge, type ZenBridge } from "@zennotes/bridge-contract/bridge";
+import { cloudBackupLimitMessage } from "@zennotes/shared-domain/cloud-backup";
 import { confirmApp } from "../lib/confirm-requests";
 import {
   clearRemovedCloudVault,
@@ -84,12 +86,26 @@ const VAULT_SECTION_ACTIONS: ReadonlySet<CloudAction> = new Set<CloudAction>([
   "settings-cloud",
 ]);
 
+/** How long usage waits after a sync run that moved files before it is read
+ *  again, so a burst of runs costs one read. */
+const USAGE_READ_DELAY_MS = 3_000;
+
 export function CloudSettings({
   localVaultAvailable,
   localVaultName,
+  revealVault = false,
+  onVaultRevealed,
 }: {
   localVaultAvailable: boolean;
   localVaultName: string;
+  /**
+   * Settings was opened for This vault: Review or Set up on the Cloud status,
+   * Space r, the palette. Once the page has loaded, This vault comes into view
+   * and what in it waits on the person takes the keyboard.
+   */
+  revealVault?: boolean;
+  /** The request was answered, whether or not anything moved. */
+  onVaultRevealed?: () => void;
 }): JSX.Element {
   const [bridge] = useState(() => getZenBridge());
   const localNotes = useStore((state) => state.notes);
@@ -290,13 +306,68 @@ export function CloudSettings({
     };
   }, [bridge, loadStatus]);
 
+  const usageRead = useRef<number | null>(null);
+  const usageReadWhenShown = useRef(false);
+
   const refreshServiceAccount = useCallback(async (): Promise<void> => {
+    // This read answers any that a sync run left waiting.
+    if (usageRead.current !== null) window.clearTimeout(usageRead.current);
+    usageRead.current = null;
+    usageReadWhenShown.current = false;
+    // A sign-in or sign-out that starts meanwhile loads its own account, and
+    // this answer belongs to the one before it.
+    const generation = loadGeneration.current;
     try {
-      setServiceAccount(await bridge.getCloudServiceAccount());
+      const account = await bridge.getCloudServiceAccount();
+      if (generation === loadGeneration.current) setServiceAccount(account);
     } catch {
       // Usage is supplementary; the next account refresh will retry it.
     }
   }, [bridge]);
+
+  // The storage card read usage when the page opened, and the page's own
+  // actions read it again, but most sync runs are not the page's: automatic
+  // ones, and another window's. A run that moved files asks for a fresh read
+  // once runs settle, since a burst of edits syncs every few seconds and
+  // needs one read, not one per run. A hidden window reads nothing; the read
+  // waits until it is shown again.
+  useEffect(() => {
+    const readLater = (): void => {
+      if (usageRead.current !== null) window.clearTimeout(usageRead.current);
+      usageRead.current = window.setTimeout(() => {
+        usageRead.current = null;
+        if (document.visibilityState === "hidden") {
+          usageReadWhenShown.current = true;
+        } else {
+          void refreshServiceAccount();
+        }
+      }, USAGE_READ_DELAY_MS);
+    };
+    const unsubscribe = useCloudSyncStatusStore.subscribe((next, previous) => {
+      const summary = next.lastSummary;
+      if (
+        summary !== null &&
+        summary !== previous.lastSummary &&
+        (summary.pulled > 0 || summary.pushed > 0)
+      ) {
+        readLater();
+      }
+    });
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === "hidden" || !usageReadWhenShown.current) {
+        return;
+      }
+      usageReadWhenShown.current = false;
+      readLater();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      if (usageRead.current !== null) window.clearTimeout(usageRead.current);
+      usageRead.current = null;
+    };
+  }, [refreshServiceAccount]);
 
   const backupIncluded = serviceAccount?.features.backup.active === true;
   const publishIncluded = serviceAccount?.features.publish.active === true;
@@ -664,12 +735,31 @@ export function CloudSettings({
     });
   };
 
+  // This vault is final once the account and the link have both been read.
+  // Before the link arrives it can show the form for an unlinked vault, which
+  // is not what the person came to see.
+  const vaultSettled =
+    status !== null &&
+    (status.state !== "connected" ||
+      (serviceAccount !== null && !loadingDetails));
+  const page = useRef<HTMLDivElement>(null);
+  const vaultRevealed = useRef(false);
+  useEffect(() => {
+    if (!revealVault || !vaultSettled || vaultRevealed.current) return;
+    vaultRevealed.current = true;
+    onVaultRevealed?.();
+    const vault = page.current?.querySelector<HTMLElement>(
+      '[data-settings-search-id="cloud-vault"]',
+    );
+    if (vault) revealCloudVault(vault);
+  }, [onVaultRevealed, revealVault, vaultSettled]);
+
   if (status === null) {
     return <CloudLoadingState />;
   }
 
   return (
-    <div className="space-y-6">
+    <div ref={page} className="space-y-6">
       {error && (
         <div
           role="alert"
@@ -1234,7 +1324,8 @@ function CloudVaultPanel({
     <section
       data-settings-search-id="cloud-vault"
       aria-labelledby="cloud-vault-heading"
-      className="space-y-3"
+      tabIndex={-1}
+      className="space-y-3 outline-none"
     >
       <div>
         <h3
@@ -1353,7 +1444,12 @@ function CloudVaultPanel({
               </div>
             )}
             {syncFailed && !syncing && (
-              <div role="alert" className="text-sm text-danger">
+              <div
+                role="alert"
+                data-cloud-attention=""
+                tabIndex={-1}
+                className="text-sm text-danger outline-none"
+              >
                 {syncError ?? "Sync failed. Please try again."}
               </div>
             )}
@@ -1762,6 +1858,12 @@ function CloudBackupPanel({
     );
   }
 
+  // Turning automatic backups off clears the service's record, so a failure
+  // only speaks for a schedule that is still on.
+  const automaticFailure =
+    schedule?.enabled && schedule.last_failure
+      ? automaticBackupFailureMessage(schedule.last_failure)
+      : null;
   const maxSnapshots = numericLimit(limits, "max_snapshots");
   const maxSnapshotBytes = numericLimit(limits, "max_snapshot_bytes");
   const retentionDays = numericLimit(limits, "retention_days");
@@ -1805,34 +1907,48 @@ function CloudBackupPanel({
       {restoreResult && <CloudRestoreResult result={restoreResult} />}
 
       <div className="overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45">
-        <div className="flex items-center justify-between gap-4 border-b border-paper-300/45 px-5 py-5">
-          <div>
-            <div className="text-sm font-medium text-ink-900">
-              Automatic daily backups
+        <div
+          data-cloud-automatic-backups=""
+          className="border-b border-paper-300/45 px-5 py-5"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-medium text-ink-900">
+                Automatic daily backups
+              </div>
+              <p className="mt-1 text-xs leading-5 text-ink-500">
+                Creates a backup each day when this vault changed.
+              </p>
             </div>
-            <p className="mt-1 text-xs leading-5 text-ink-500">
-              Creates a backup each day when this vault changed.
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={schedule?.enabled ?? false}
-            aria-label="Automatic daily backups"
-            disabled={action !== null || schedule === null}
-            onClick={() => onScheduleChange(!(schedule?.enabled ?? false))}
-            className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 ${
-              schedule?.enabled
-                ? "border-accent bg-accent"
-                : "border-paper-400 bg-paper-200"
-            }`}
-          >
-            <span
-              className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-paper-50 shadow-sm transition-transform ${
-                schedule?.enabled ? "translate-x-5" : "translate-x-0.5"
+            <button
+              type="button"
+              role="switch"
+              aria-checked={schedule?.enabled ?? false}
+              aria-label="Automatic daily backups"
+              disabled={action !== null || schedule === null}
+              onClick={() => onScheduleChange(!(schedule?.enabled ?? false))}
+              className={`relative h-6 w-11 shrink-0 rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-50 ${
+                schedule?.enabled
+                  ? "border-accent bg-accent"
+                  : "border-paper-400 bg-paper-200"
               }`}
-            />
-          </button>
+            >
+              <span
+                className={`absolute top-0.5 h-4.5 w-4.5 rounded-full bg-paper-50 shadow-sm transition-transform ${
+                  schedule?.enabled ? "translate-x-5" : "translate-x-0.5"
+                }`}
+              />
+            </button>
+          </div>
+          {automaticFailure && (
+            <p
+              role="status"
+              data-cloud-backup-failure=""
+              className="mt-3 rounded-lg border border-warning/35 bg-warning/10 px-3 py-2 text-xs leading-5 text-ink-700"
+            >
+              {automaticFailure}
+            </p>
+          )}
         </div>
 
         <div className="border-b border-paper-300/45 px-5 py-5">
@@ -2185,8 +2301,8 @@ function CloudRestoreResult({
         role="status"
         className="rounded-xl border border-accent/25 bg-accent/5 px-4 py-3 text-sm text-ink-700"
       >
-        {restoredItemsSummary(result.restore)} This vault is synced to cursor{" "}
-        {result.sync?.cursor ?? result.restore.end_cursor}.
+        {restoredItemsSummary(result.restore)}
+        {restoredVaultMatches(result) && " This vault now matches the backup."}
       </div>
     );
   }
@@ -2212,6 +2328,36 @@ function restoredItemsSummary(
   return restore.deleted_items > 0
     ? `${restored} and removed ${pluralize(restore.deleted_items, "newer item")}.`
     : `${restored}.`;
+}
+
+/**
+ * The sync that follows a restore brings this vault in line with the backup,
+ * unless it left a file waiting on the person, which This vault lists.
+ */
+function restoredVaultMatches(result: CloudBackupRestoreResult): boolean {
+  return result.sync !== null && cloudSyncAttentionMessage(result.sync) === null;
+}
+
+/**
+ * Why the newest automatic backup is missing, from what the service recorded.
+ * A plan limit is worded from its numbers exactly as a refused manual backup
+ * is, so one limit never reads two ways.
+ */
+function automaticBackupFailureMessage(
+  failure: CloudBackupScheduleFailure,
+): string {
+  const date = failure.occurred_at ? new Date(failure.occurred_at) : null;
+  const backup =
+    date !== null && Number.isFinite(date.getTime())
+      ? `The automatic backup on ${date.toLocaleDateString()}`
+      : "The latest automatic backup";
+  if (failure.code !== "BACKUP_QUOTA_EXCEEDED") {
+    return `${backup} failed. ZenNotes will try again.`;
+  }
+  const limit = cloudBackupLimitMessage(failure);
+  return limit === null
+    ? `${backup} was skipped because this vault reached a backup limit on your plan.`
+    : `${backup} was skipped. ${limit}`;
 }
 
 function formatBackupDate(value: string): string {
@@ -2340,7 +2486,9 @@ function CloudSettingsConflictCard({
     <div
       role="group"
       aria-label="Vault settings differ from the cloud"
-      className="rounded-xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-ink-700"
+      data-cloud-attention=""
+      tabIndex={-1}
+      className="rounded-xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-ink-700 outline-none"
     >
       <div className="font-medium">Vault settings differ from the cloud</div>
       <div className="mt-1 text-xs leading-5 text-ink-500">
@@ -2419,10 +2567,12 @@ function CloudSyncSummary({
   return (
     <div
       role="status"
+      data-cloud-attention={attention || items.length > 0 ? "" : undefined}
+      tabIndex={-1}
       className={
         attention
-          ? "rounded-xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-ink-700"
-          : "rounded-xl border border-accent/25 bg-accent/5 px-4 py-3 text-sm text-ink-700"
+          ? "rounded-xl border border-warning/35 bg-warning/10 px-4 py-3 text-sm text-ink-700 outline-none"
+          : "rounded-xl border border-accent/25 bg-accent/5 px-4 py-3 text-sm text-ink-700 outline-none"
       }
     >
       {showStatus && (
@@ -2559,10 +2709,33 @@ function CloudSyncSummary({
 }
 
 /**
- * Why this vault stopped syncing when nobody here unlinked it. Review on the
- * status row opens the Cloud page at its top, and on a phone This vault sits
- * a long scroll below the account and plan, so the notice brings itself into
- * view.
+ * Bring This vault into view and hand the keyboard to what in it waits on the
+ * person (a vault that went away, the settings question, a failed run, the
+ * files that need attention), or to the section itself when nothing does.
+ * The section's top comes first so the vault it is about is on screen too.
+ * Only while the dialog still holds the focus it opened with: someone who
+ * moved on while the page loaded keeps their place.
+ */
+function revealCloudVault(vault: HTMLElement): void {
+  const holder = document.activeElement;
+  if (
+    holder !== null &&
+    holder !== document.body &&
+    holder !== vault.closest('[role="dialog"]')
+  ) {
+    return;
+  }
+  const waiting = vault.querySelector<HTMLElement>("[data-cloud-attention]");
+  vault.scrollIntoView?.({ block: "start" });
+  waiting?.scrollIntoView?.({ block: "nearest" });
+  (waiting ?? vault).focus({ preventScroll: true });
+}
+
+/**
+ * Why this vault stopped syncing when nobody here unlinked it. It can appear
+ * while the page is open (a sync finds the vault gone), and on a phone This
+ * vault sits a long scroll below the account and plan, so the notice brings
+ * itself into view.
  */
 function CloudVaultRemovedNotice({
   removal,
@@ -2582,7 +2755,9 @@ function CloudVaultRemovedNotice({
       ref={ref}
       role="status"
       data-cloud-vault-removed=""
-      className="flex flex-col gap-3 rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
+      data-cloud-attention=""
+      tabIndex={-1}
+      className="flex flex-col gap-3 rounded-2xl border border-warning/35 bg-warning/10 px-4 py-3 outline-none sm:flex-row sm:items-start sm:justify-between"
     >
       <div className="min-w-0">
         <div className="text-sm font-medium text-ink-900">

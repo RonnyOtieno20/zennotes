@@ -4,6 +4,8 @@ import os from 'node:os'
 import path from 'node:path'
 import type {
   CloudAccountStatus,
+  CloudBackupSchedule,
+  CloudBackupScheduleResponse,
   CloudBackupSnapshotItemCollection,
   CloudSyncManifestResponse,
   CloudSyncMutationRequest,
@@ -110,7 +112,7 @@ async function setup(
       cursor: body.mutations.length
     })),
     listBackups: vi.fn(async () => ({ data: [] })),
-    backupSchedule: vi.fn(async () => ({
+    backupSchedule: vi.fn(async (): Promise<CloudBackupScheduleResponse> => ({
       data: {
         enabled: false,
         frequency: 'daily' as const,
@@ -602,6 +604,33 @@ describe('DesktopCloudSyncService', () => {
     releaseMutation()
     await resolving
     await syncing
+  })
+
+  it('hands the window why the last automatic backup did not happen, as the service sent it', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { service, client, localRoot } = await setup([remoteVault])
+    await service.link(localRoot, remoteVault.id)
+    const schedule: CloudBackupSchedule = {
+      enabled: true,
+      frequency: 'daily',
+      next_backup_at: '2026-10-05T03:00:00.000Z',
+      last_backup_at: '2026-10-02T03:00:00.000Z',
+      last_failure: {
+        code: 'AUTOMATIC_BACKUP_FAILED',
+        message: 'The latest automatic backup failed after several attempts.',
+        details: { message: 'The automatic backup could not be created after several attempts.' },
+        occurred_at: '2026-10-04T03:00:00.000Z'
+      }
+    }
+    client.backupSchedule.mockResolvedValueOnce({ data: schedule })
+
+    await expect(service.backupSchedule(localRoot)).resolves.toEqual(schedule)
   })
 
   it('manages backups only through the linked cloud vault', async () => {

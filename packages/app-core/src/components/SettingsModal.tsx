@@ -1366,15 +1366,28 @@ export function SettingsModal(): JSX.Element {
 
   const ref = useRef<HTMLDivElement | null>(null);
   const navSearchRef = useRef<HTMLInputElement | null>(null);
+  const [initialSettingsTarget] = useState(consumeSettingsTarget);
+  // A Cloud surface (Review or Set up on the Cloud status, Space r, the
+  // palette) sends the person to This vault, which the Cloud page draws only
+  // once its account and link have loaded. This vault takes the keyboard
+  // then, once: coming back to the page later opens it at its top like any
+  // other page.
+  const opensOnCloudVault =
+    supportsCloudSync && initialSettingsTarget === "cloud";
+  const [cloudVaultReveal, setCloudVaultReveal] = useState(opensOnCloudVault);
+  const settleCloudVaultReveal = useCallback(() => setCloudVaultReveal(false), []);
   // Settings draws its own backdrop and panel, so it never got the focus
   // handling the shared Modal shell gives every other dialog: the keyboard
   // stayed on the editor underneath and typing edited the note behind the
   // open window. Opening lands on the settings search, the first thing a
   // keyboard user reaches for. On a touch device a focused input would raise
-  // the on-screen keyboard over the panel, so the panel takes focus instead.
-  useDialogFocus(ref, isTouchPrimaryDevice() ? ref : navSearchRef);
+  // the on-screen keyboard over the panel, and opened for This vault the
+  // search is not what was asked for, so the panel holds focus instead.
+  useDialogFocus(
+    ref,
+    isTouchPrimaryDevice() || opensOnCloudVault ? ref : navSearchRef,
+  );
   const settingsSearchHighlightTimerRef = useRef<number | null>(null);
-  const [initialSettingsTarget] = useState(consumeSettingsTarget);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>(
     () => initialSettingsTarget === "external-links" ? "editor" : initialSettingsTarget ?? "appearance",
   );
@@ -3734,6 +3747,8 @@ export function SettingsModal(): JSX.Element {
                     vault.temporary !== true
                   }
                   localVaultName={vault?.name ?? "My notes"}
+                  revealVault={cloudVaultReveal}
+                  onVaultRevealed={settleCloudVaultReveal}
                 />
               </div>
             ),
