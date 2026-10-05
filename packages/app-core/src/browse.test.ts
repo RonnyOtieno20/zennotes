@@ -1,14 +1,28 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { FolderEntry, NoteMeta } from '@bridge-contract/ipc'
+import type { AssetMeta, FolderEntry, ImportedAssetKind, NoteMeta } from '@bridge-contract/ipc'
 import { databaseTabPath } from '@shared/databases'
+import { assetTabPath } from './lib/asset-tabs'
+import type { NoteSortOrder } from './shell'
 
 const disposers: Array<() => void> = []
 const folder = (
   subpath: string,
   kind: FolderEntry['folder'] = 'inbox'
 ): FolderEntry => ({ folder: kind, subpath, siblingOrder: 0 })
+const asset = (
+  path: string,
+  kind: ImportedAssetKind = 'file',
+  updatedAt = 0
+): AssetMeta => ({
+  path,
+  name: path.split('/').pop()!,
+  kind,
+  siblingOrder: 0,
+  size: 1,
+  updatedAt
+})
 const note = (path: string): NoteMeta => ({
   path,
   title: path.split('/').pop()!.replace(/\.md$/, ''),
@@ -68,6 +82,7 @@ describe('public Browse model', () => {
       snapshot,
       snapshot.folders,
       snapshot.databases,
+      snapshot.files,
       snapshot.folders[0],
       snapshot.databases[0],
       snapshot.dateDirectories
@@ -100,7 +115,8 @@ describe('public Browse model', () => {
     expect(s.getBrowseDirectory(s.getBrowseSnapshot(), 'Empty')).toEqual({
       folders: [],
       databases: [],
-      notes: []
+      notes: [],
+      files: []
     })
   })
 
@@ -126,7 +142,7 @@ describe('public Browse model', () => {
     ])
     expect(rows.databases.map((row) => row.title)).toEqual(['Accounts', 'Zoo'])
     expect(rows.notes.map((row) => row.title)).toEqual(['C', 'A', 'B'])
-    for (const value of [rows, rows.folders, rows.databases, rows.notes])
+    for (const value of [rows, rows.folders, rows.databases, rows.notes, rows.files])
       expect(Object.isFrozen(value)).toBe(true)
   })
 
@@ -138,8 +154,12 @@ describe('public Browse model', () => {
       folder('People.BASE/Other.base'),
       folder('People.base-notes')
     ])
-    s.useStore.setState({ notes: [note('inbox/People.BASE/pages/Hidden.md')] })
+    s.useStore.setState({
+      notes: [note('inbox/People.BASE/pages/Hidden.md')],
+      assetFiles: [asset('inbox/People.BASE/pages/photo.png', 'image')]
+    })
     const snapshot = s.getBrowseSnapshot()
+    expect(snapshot.files).toEqual([])
     expect(snapshot.folders.map((row) => row.directory)).toEqual([
       'People.base-notes'
     ])
@@ -154,7 +174,8 @@ describe('public Browse model', () => {
       expect(s.getBrowseDirectory(snapshot, directory)).toEqual({
         folders: [],
         databases: [],
-        notes: []
+        notes: [],
+        files: []
       })
   })
 
@@ -282,5 +303,117 @@ describe('public Browse model', () => {
     dispose()
     s.useStore.setState({ folders: [] })
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  // The desktop sidebar's primary tree takes its files the same way, so the
+  // root asset folders, the other system folders and `.zennotes` never reach
+  // a folder row, and the Files page stays the place to see all of them.
+  it.each(['inbox', 'root'] as const)(
+    'places files in their primary-folder directory as the desktop sidebar does, in %s mode',
+    async (primaryNotesLocation) => {
+      const s = await setup([folder('Work')])
+      s.useStore.setState({
+        vaultSettings: {
+          ...s.useStore.getState().vaultSettings,
+          primaryNotesLocation,
+          systemFolderPaths: { inbox: '01 - Notes', archive: 'Old' }
+        }
+      })
+      const prefix = primaryNotesLocation === 'root' ? '' : '01 - Notes/'
+      s.useStore.setState({
+        assetFiles: [
+          asset(`${prefix}Work/Report 2024.pdf`, 'pdf', 5),
+          asset(`${prefix}Scan.png`, 'image', 3),
+          asset('assets/Pasted image.png', 'image'),
+          asset('attachements/Legacy.png', 'image'),
+          asset('Old/Saved.pdf', 'pdf'),
+          asset('trash/Gone.pdf', 'pdf'),
+          asset('.zennotes/export.zip')
+        ]
+      })
+      const snapshot = s.getBrowseSnapshot()
+      expect(snapshot.files).toEqual([
+        {
+          path: assetTabPath(`${prefix}Work/Report 2024.pdf`),
+          directory: 'Work',
+          name: 'Report 2024.pdf',
+          kind: 'pdf',
+          updatedAt: 5
+        },
+        {
+          path: assetTabPath(`${prefix}Scan.png`),
+          directory: '',
+          name: 'Scan.png',
+          kind: 'image',
+          updatedAt: 3
+        }
+      ])
+      expect(s.getBrowseDirectory(snapshot).files.map((row) => row.name)).toEqual([
+        'Scan.png'
+      ])
+      expect(s.getBrowseDirectory(snapshot, 'Work').files.map((row) => row.name)).toEqual([
+        'Report 2024.pdf'
+      ])
+    }
+  )
+
+  // Files carry no creation time, so the created orders use their last
+  // change, as the desktop note list orders files.
+  it('orders files by the note sort: names naturally, otherwise most recent first', async () => {
+    const s = await setup()
+    s.useStore.setState({
+      assetFiles: [
+        asset('inbox/File 10.pdf', 'pdf', 30),
+        asset('inbox/File 2.pdf', 'pdf', 10),
+        asset('inbox/archive.zip', 'file', 20)
+      ]
+    })
+    const names = (): string[] =>
+      s.getBrowseDirectory(s.getBrowseSnapshot()).files.map((row) => row.name)
+    expect(names()).toEqual(['archive.zip', 'File 2.pdf', 'File 10.pdf'])
+    const recent = ['File 10.pdf', 'archive.zip', 'File 2.pdf']
+    const oldest = ['File 2.pdf', 'archive.zip', 'File 10.pdf']
+    const expected: Array<[NoteSortOrder, string[]]> = [
+      ['name-desc', ['File 10.pdf', 'File 2.pdf', 'archive.zip']],
+      ['updated-desc', recent],
+      ['updated-asc', oldest],
+      ['created-desc', recent],
+      ['created-asc', oldest],
+      ['none', recent],
+      ['manual', recent]
+    ]
+    for (const [noteSortOrder, rows] of expected) {
+      s.useStore.setState({ noteSortOrder })
+      expect(names()).toEqual(rows)
+    }
+  })
+
+  it('freezes file rows and keeps their identity until the files or the folder layout change', async () => {
+    const s = await setup()
+    s.useStore.setState({ assetFiles: [asset('inbox/Scan.png', 'image')] })
+    const before = s.getBrowseSnapshot()
+    expect(before.files[0]).not.toBe(s.useStore.getState().assetFiles[0])
+    for (const value of [before.files, before.files[0]])
+      expect(Object.isFrozen(value)).toBe(true)
+    const listener = vi.fn()
+    disposers.push(s.subscribeBrowse(listener))
+    // Every non-note change re-reads the whole file index; reading the same
+    // files back must not wake the drawer.
+    s.useStore.setState({ assetFiles: [asset('inbox/Scan.png', 'image')] })
+    expect(s.getBrowseSnapshot()).toBe(before)
+    expect(listener).not.toHaveBeenCalled()
+    s.useStore.setState({
+      assetFiles: [asset('inbox/Scan.png', 'image'), asset('inbox/Work/Report.pdf', 'pdf')]
+    })
+    expect(listener).toHaveBeenCalledOnce()
+    expect(s.getBrowseSnapshot().notes).toBe(before.notes)
+    s.useStore.setState({
+      vaultSettings: { ...s.useStore.getState().vaultSettings, primaryNotesLocation: 'root' }
+    })
+    expect(s.getBrowseSnapshot().files.map((row) => row.directory)).toEqual([
+      'inbox',
+      'inbox/Work'
+    ])
+    expect(before.files[0].directory).toBe('')
   })
 })

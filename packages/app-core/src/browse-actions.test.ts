@@ -21,6 +21,7 @@ async function setup() {
   const remove = vi.fn(async () => {})
   const createDatabase = vi.fn(async () => undefined)
   const renameDatabase = vi.fn(async () => {})
+  const refreshAssets = vi.fn(async () => {})
   useStore.setState({
     vault: { root: '/test', name: 'Test' },
     folders: ['Work', 'Work/Nested', 'People.base'].map((subpath) => ({
@@ -32,7 +33,8 @@ async function setup() {
     renameFolder: rename,
     deleteFolder: remove,
     createDatabase,
-    renameDatabase
+    renameDatabase,
+    refreshAssets
   })
   const host = { isCurrent: () => true }
   const answer = (value: string | null) => {
@@ -55,6 +57,7 @@ async function setup() {
     remove,
     createDatabase,
     renameDatabase,
+    refreshAssets,
     host,
     answer,
     confirm
@@ -177,6 +180,36 @@ describe('public Browse actions', () => {
     expect(await s.requestCreateBrowseFolder(s.host)).toBe('unavailable')
     s.answer(null)
     await other
+  })
+
+  // The phones have no file watcher, so nothing else reports the files a
+  // folder action moved or deleted, and Browse would keep listing them under
+  // the old directory until the next foreground.
+  it('re-reads the file index after a completed folder rename, move or delete, and only then', async () => {
+    const s = await setup()
+    const renamed = s.requestRenameBrowseFolder(s.host, 'Work/Nested')
+    s.answer('Renamed')
+    expect(await renamed).toBe('completed')
+    const moved = s.requestMoveBrowseDirectory(s.host, 'Work/Nested')
+    s.answer('inbox')
+    expect(await moved).toBe('completed')
+    const deleted = s.requestDeleteBrowseDirectory(s.host, 'Work')
+    s.confirm(true)
+    expect(await deleted).toBe('completed')
+    expect(s.refreshAssets).toHaveBeenCalledTimes(3)
+
+    const cancelled = s.requestDeleteBrowseDirectory(s.host, 'Work')
+    s.confirm(false)
+    expect(await cancelled).toBe('cancelled')
+    let current = true
+    const stale = s.requestRenameBrowseFolder({ isCurrent: () => current }, 'Work')
+    current = false
+    s.answer('Elsewhere')
+    expect(await stale).toBe('stale')
+    const created = s.requestCreateBrowseFolder(s.host, 'Work')
+    s.answer('Research')
+    expect(await created).toBe('completed')
+    expect(s.refreshAssets).toHaveBeenCalledTimes(3)
   })
 
   it('rejects host errors and releases the pending action', async () => {

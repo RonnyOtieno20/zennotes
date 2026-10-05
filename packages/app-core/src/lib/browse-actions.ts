@@ -68,6 +68,18 @@ function start(host: BrowseActionHost, directory: string, allowRoot = false) {
   return { isCurrent, targetExists }
 }
 
+/**
+ * Finish a folder rename, move or delete. The native shells that call these
+ * actions have no file watcher, so nothing else reports the files the folder
+ * carried: without a re-read, Browse keeps listing them under the old
+ * directory until the next foreground resync.
+ */
+function settleFolderFiles(isCurrent: () => boolean): BrowseActionResult {
+  if (!isCurrent()) return 'stale'
+  void useStore.getState().refreshAssets()
+  return 'completed'
+}
+
 function validateName(value: string): string | null {
   const name = value.trim()
   if (!name || name === '.' || name === '..' || /[\\/\u0000-\u001f]/.test(name))
@@ -131,7 +143,7 @@ export async function requestRenameBrowseFolder(
     await useStore
       .getState()
       .renameFolder('inbox', directory, parent ? `${parent}/${name}` : name, isCurrent)
-    return isCurrent() ? 'completed' : 'stale'
+    return settleFolderFiles(isCurrent)
   } finally {
     pending = false
   }
@@ -171,7 +183,7 @@ export async function requestMoveBrowseDirectory(
     await useStore
       .getState()
       .renameFolder('inbox', directory, parent ? `${parent}/${leaf}` : leaf, isCurrent)
-    return isCurrent() ? 'completed' : 'stale'
+    return settleFolderFiles(isCurrent)
   } finally {
     pending = false
   }
@@ -199,7 +211,7 @@ export async function requestDeleteBrowseDirectory(
     if (!confirmed) return 'cancelled'
     if (!isCurrent() || !targetExists()) return 'stale'
     await useStore.getState().deleteFolder('inbox', directory, isCurrent)
-    return isCurrent() ? 'completed' : 'stale'
+    return settleFolderFiles(isCurrent)
   } finally {
     pending = false
   }
