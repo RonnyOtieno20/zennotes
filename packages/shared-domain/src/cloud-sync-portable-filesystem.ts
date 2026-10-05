@@ -189,8 +189,12 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
         ? [await this.readItemOrNull(previousPath), null]
         : await Promise.all([this.readItemOrNull(previousPath), this.readItemOrNull(nextPath)])
     const currentAtTarget = previousPath === nextPath ? source : destination
+    const oneFile = source !== null && destination !== null && (await this.sameFile(previousPath, nextPath))
 
     if (currentAtTarget?.content.sha256 === change.content.sha256) {
+      // Only the spelling is left to change: the file already holds the Cloud
+      // bytes, so there is nothing of this device's to vouch for or lose.
+      if (oneFile) return await this.matchCase(nextPath)
       if (previousPath !== nextPath && source) {
         if (!vouchedFor(source, previous)) return localConflict(previousPath, source)
         await this.fs.deleteFile(previousPath)
@@ -203,13 +207,14 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
         return await this.keepBoth(nextPath, change.content)
       return localConflict(previousPath, source)
     }
-    if (destination) {
+    if (destination && !oneFile) {
       if (isCloudSyncVaultSettingsPath(nextPath))
         return await this.keepBoth(nextPath, change.content)
       return localConflict(nextPath, destination)
     }
     await this.write(nextPath, change.content)
-    if (previousPath !== nextPath && source) await this.fs.deleteFile(previousPath)
+    if (oneFile) await this.matchCase(nextPath)
+    else if (previousPath !== nextPath && source) await this.fs.deleteFile(previousPath)
   }
 
   async resolveBootstrapConflict(input: {
@@ -341,6 +346,48 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
       }
       throw error
     }
+  }
+
+  /**
+   * Whether two spellings of one path key reach the same file. A
+   * case-insensitive volume (Android's shared storage, an external drive, the
+   * simulator on a Mac) answers both with one file, and deleting the old
+   * spelling there deleted the only copy. A case-sensitive volume can hold
+   * both as separate files, so finding a file under each spelling proves
+   * nothing. This layer cannot compare inodes; it asks the directory where the
+   * spellings part instead, since a listing names one file once, under its
+   * stored name.
+   */
+  private async sameFile(left: string, right: string): Promise<boolean> {
+    if (cloudSyncPathKey(left) !== cloudSyncPathKey(right)) return false
+    const leftSegments = left.split('/')
+    const rightSegments = right.split('/')
+    const index = leftSegments.findIndex((segment, position) => segment !== rightSegments[position])
+    if (index < 0) return true
+    const names = new Set(
+      (await this.fs.readdir(leftSegments.slice(0, index).join('/'))).map((entry) =>
+        entry.name.normalize('NFC')
+      )
+    )
+    return !(names.has(leftSegments[index]!) && names.has(rightSegments[index]!))
+  }
+
+  /**
+   * Give the one file of a case-only rename its new spelling. The volume
+   * keeps whatever case the file already had, and the next scan would report
+   * that and push the rename back. A native rename that overwrites removes an
+   * existing destination before moving onto it, and here that destination is
+   * the file itself, so the rename detours through a name nothing else holds
+   * and that sync ignores should a crash strand the file there.
+   */
+  private async matchCase(path: string): Promise<void> {
+    const slash = path.lastIndexOf('/')
+    const name = path.slice(slash + 1)
+    const entries = await this.fs.readdir(slash < 0 ? '' : path.slice(0, slash))
+    if (entries.some((entry) => entry.name.normalize('NFC') === name)) return
+    const detour = `${path}.${crypto.randomUUID()}.tmp`
+    await this.fs.rename(path, detour)
+    await this.fs.rename(detour, path)
   }
 
   /** Park the incoming version beside the local file rather than over it. */

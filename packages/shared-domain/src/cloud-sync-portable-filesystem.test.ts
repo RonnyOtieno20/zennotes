@@ -71,6 +71,46 @@ class MemoryFileSystem implements PortableCloudSyncFileSystem {
   }
 }
 
+/**
+ * A case-insensitive, case-preserving volume (an external drive, the iOS
+ * simulator on a Mac): every spelling of a name reaches the one stored file.
+ * Its rename overwrites the way Capacitor's does, removing an existing
+ * destination before the move, so a direct case-only rename destroys its own
+ * source.
+ */
+class CaseInsensitiveMemoryFileSystem extends MemoryFileSystem {
+  private stored(path: string): string {
+    const key = path.toLowerCase()
+    return [...this.files.keys()].find((candidate) => candidate.toLowerCase() === key) ?? path
+  }
+
+  override async stat(path: string): Promise<'file' | 'directory' | null> {
+    return super.stat(this.stored(path))
+  }
+
+  override async readBase64(path: string): Promise<string> {
+    return super.readBase64(this.stored(path))
+  }
+
+  override async writeText(path: string, value: string): Promise<void> {
+    await super.writeText(this.stored(path), value)
+  }
+
+  override async writeBase64(path: string, value: string): Promise<void> {
+    await super.writeBase64(this.stored(path), value)
+  }
+
+  override async deleteFile(path: string): Promise<void> {
+    await super.deleteFile(this.stored(path))
+  }
+
+  override async rename(from: string, to: string): Promise<void> {
+    const source = this.stored(from)
+    this.files.delete(this.stored(to))
+    await super.rename(source, to)
+  }
+}
+
 class FailingMemoryFileSystem extends MemoryFileSystem {
   constructor(
     initial: Record<string, string | Uint8Array>,
@@ -526,6 +566,119 @@ describe('PortableCloudSyncRepository', () => {
     ).resolves.toBeUndefined()
   })
 })
+
+// On a case-insensitive volume both spellings of a case-only rename reach one
+// file. Treating them as two removed the note just written, or refused the
+// write as a conflict with itself.
+describe('PortableCloudSyncRepository: an upsert that only changes the case of its path', () => {
+  it.each(['agreed', 'remote edit'])('keeps the one file, holding %j, under its new spelling', async (incoming) => {
+    const fs = new CaseInsensitiveMemoryFileSystem({ 'note.md': 'agreed' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', incoming),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe(incoming)
+  })
+
+  // How a replay finds the volume when the new bytes landed but the new
+  // spelling did not.
+  it('finishes the rename on replay once the new bytes are already in place', async () => {
+    const fs = new CaseInsensitiveMemoryFileSystem({ 'note.md': 'remote edit' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'remote edit'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('remote edit')
+  })
+
+  it('keeps a local edit made under the old spelling', async () => {
+    const fs = new CaseInsensitiveMemoryFileSystem({ 'note.md': 'local edit' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'remote edit'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toMatchObject({ code: 'LOCAL_EDIT_CONFLICT', path: 'note.md' })
+    expect([...fs.files.keys()]).toEqual(['note.md'])
+    expect(fs.text('note.md')).toBe('local edit')
+  })
+
+  // A case-sensitive volume (the iOS app container, Android app storage) holds
+  // two files, and leaving the old one behind would stop every later scan on
+  // a portable path collision.
+  it('removes the old spelling on a case-sensitive volume, where it is a separate file', async () => {
+    const fs = new MemoryFileSystem({ 'note.md': 'agreed' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'agreed'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('agreed')
+  })
+
+  it('never writes over a separate file whose name differs only in case', async () => {
+    const fs = new MemoryFileSystem({ 'note.md': 'agreed', 'Note.md': 'another note' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'remote edit'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toMatchObject({ code: 'LOCAL_EDIT_CONFLICT', path: 'Note.md' })
+    expect(fs.text('note.md')).toBe('agreed')
+    expect(fs.text('Note.md')).toBe('another note')
+  })
+
+  it('still removes the old file when an upsert moves the item to a different path', async () => {
+    const fs = new CaseInsensitiveMemoryFileSystem({ 'trash/Note.md': 'agreed' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('trash/Note.md', 'Note.md', 'agreed'),
+      await tracked('trash/Note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('agreed')
+  })
+})
+
+async function tracked(path: string, data: string) {
+  const content = await textContent(data)
+  return {
+    item_id: 'item-1',
+    path,
+    kind: 'text' as const,
+    revision: 1,
+    sha256: content.sha256,
+    byte_length: content.byte_length,
+    media_type: content.media_type
+  }
+}
+
+async function upsertFrom(previousPath: string, path: string, data: string): Promise<CloudSyncChange> {
+  return {
+    sequence: 2,
+    item_id: 'item-1',
+    type: 'upsert',
+    path,
+    previous_path: previousPath,
+    revision: 2,
+    content: await textContent(data)
+  }
+}
 
 async function textContent(data: string) {
   const bytes = new TextEncoder().encode(data)

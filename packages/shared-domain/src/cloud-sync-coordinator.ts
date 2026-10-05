@@ -1139,7 +1139,12 @@ export class CloudSyncCoordinator {
     throwIfCloudSyncCancelled(this.remote.downloadSignal)
     if (!change.content_ref || change.type !== 'upsert') return { change, conflict: await this.repository.apply(change, previous) }
     const ref = validateCloudSyncContentReference(change.content_ref, change)
-    if (await this.repository.matchesCloudContent?.(change.path, ref)) return { change, conflict: undefined }
+    // Matching bytes settle an upsert in place, but one that also moves the
+    // item (a Cloud restore out of Trash) leaves an old file behind that only
+    // the repository can vouch for and remove. A case-only rename keeps the
+    // shortcut: on a case-insensitive volume both spellings are one file.
+    const moving = previous !== undefined && cloudSyncPathKey(previous.path) !== cloudSyncPathKey(change.path)
+    if (!moving && await this.repository.matchesCloudContent?.(change.path, ref)) return { change, conflict: undefined }
     return this.withStaged(ref, async (file) => {
       const applied = file.preview ? { ...change, content: file.preview, content_ref: undefined } : change
       const conflict = file.preview ? await this.repository.apply(applied, previous) :

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   chmod,
   lstat,
@@ -20,7 +20,13 @@ import {
   cloudSyncUploadSource
 } from './cloud-sync-upload-source'
 import type { CloudSyncChange } from '@zennotes/bridge-contract/cloud-sync'
-import type { CloudSyncTrackedItem } from '@zennotes/shared-domain/cloud-sync-engine'
+import { releaseCloudSyncStagedFile } from '@zennotes/shared-domain/cloud-sync-content'
+import {
+  CloudSyncCoordinator,
+  type CloudSyncRemote,
+  type CloudSyncRepositoryConflict
+} from '@zennotes/shared-domain/cloud-sync-coordinator'
+import type { CloudSyncState, CloudSyncTrackedItem } from '@zennotes/shared-domain/cloud-sync-engine'
 
 const roots: string[] = []
 
@@ -38,13 +44,13 @@ function hash(contents: string): string {
   return createHash('sha256').update(contents).digest('hex')
 }
 
-function upsert(path: string, contents: string): CloudSyncChange {
+function upsert(path: string, contents: string, previousPath: string | null = null): CloudSyncChange {
   return {
     sequence: 2,
     item_id: 'item-remote',
     type: 'upsert',
     path,
-    previous_path: null,
+    previous_path: previousPath,
     revision: 2,
     content: {
       encoding: 'utf8',
@@ -65,6 +71,45 @@ function tracked(path: string, contents: string): CloudSyncTrackedItem {
     sha256: hash(contents),
     byte_length: Buffer.byteLength(contents),
     media_type: 'text/markdown'
+  }
+}
+
+/** Lands an upsert the way a large Cloud body arrives: staged on disk first. */
+async function applyStaged(
+  root: string,
+  change: CloudSyncChange,
+  previous: CloudSyncTrackedItem | undefined
+): Promise<CloudSyncRepositoryConflict | void> {
+  const { content, ...metadata } = change
+  const { data, ...contentMetadata } = content!
+  const reference = { ...contentMetadata, item_id: change.item_id, revision: change.revision }
+  const repository = new DesktopCloudSyncRepository(root, {
+    stagingDirectory: await temporaryRoot(),
+    fetchImplementation: async () => new Response(data)
+  })
+  const file = await repository.stageCloudContent({
+    reference,
+    previewLimitBytes: 0,
+    getInstruction: async () => ({
+      item_id: reference.item_id,
+      revision: reference.revision,
+      content: contentMetadata,
+      download: {
+        method: 'GET',
+        url: 'https://objects.example.test/immutable',
+        headers: {},
+        expires_at: '2099-10-01T12:00:00Z'
+      }
+    })
+  })
+  try {
+    return await repository.applyStagedCloudContent(
+      { ...metadata, content_ref: reference },
+      previous,
+      file
+    )
+  } finally {
+    await releaseCloudSyncStagedFile(file)
   }
 }
 
@@ -580,5 +625,171 @@ describe('DesktopCloudSyncRepository: decisions and writes', () => {
     })
 
     expect((await stat(path.join(root, 'private.md'))).mode & 0o777).toBe(0o600)
+  })
+})
+
+// A Cloud restore brings a note back out of Trash as an upsert whose
+// previous_path is where the note was, not as a move. Writing only the new
+// path left the old file behind; the next scan found it untracked and the
+// push uploaded it as a brand-new note to every device. Small bodies land
+// through `apply`, large ones are staged on disk and land through
+// `applyStagedCloudContent`, and both have to retire the old path.
+describe.each([
+  {
+    mode: 'inline',
+    land: (root: string, change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined) =>
+      new DesktopCloudSyncRepository(root).apply(change, previous)
+  },
+  { mode: 'staged', land: applyStaged }
+])('DesktopCloudSyncRepository: an upsert that changes path ($mode)', ({ land }) => {
+  it.each(['agreed', 'restored'])('removes the old file once the new path holds %j', async (contents) => {
+    const root = await temporaryRoot()
+    await mkdir(path.join(root, 'trash'), { recursive: true })
+    await writeFile(path.join(root, 'trash', 'Note.md'), 'agreed')
+
+    const conflict = await land(
+      root,
+      upsert('Note.md', contents, 'trash/Note.md'),
+      tracked('trash/Note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect(await readFile(path.join(root, 'Note.md'), 'utf8')).toBe(contents)
+    expect(await readdir(path.join(root, 'trash'))).toEqual([])
+  })
+
+  // How a replay finds the vault after a crash between writing the new path
+  // and removing the old one.
+  it('removes the old file when the new path already holds the incoming bytes', async () => {
+    const root = await temporaryRoot()
+    await mkdir(path.join(root, 'trash'), { recursive: true })
+    await writeFile(path.join(root, 'trash', 'Note.md'), 'agreed')
+    await writeFile(path.join(root, 'Note.md'), 'restored')
+
+    const conflict = await land(
+      root,
+      upsert('Note.md', 'restored', 'trash/Note.md'),
+      tracked('trash/Note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect(await readFile(path.join(root, 'Note.md'), 'utf8')).toBe('restored')
+    expect(await readdir(path.join(root, 'trash'))).toEqual([])
+  })
+
+  it.each([
+    { target: 'empty', atTarget: null },
+    { target: 'already holding the incoming bytes', atTarget: 'restored' }
+  ])('keeps an old file edited on this device, with the new path $target', async ({ atTarget }) => {
+    const root = await temporaryRoot()
+    await mkdir(path.join(root, 'trash'), { recursive: true })
+    await writeFile(path.join(root, 'trash', 'Note.md'), 'local edit')
+    if (atTarget !== null) await writeFile(path.join(root, 'Note.md'), atTarget)
+
+    const conflict = await land(
+      root,
+      upsert('Note.md', 'restored', 'trash/Note.md'),
+      tracked('trash/Note.md', 'agreed')
+    )
+
+    expect(conflict).toMatchObject({
+      code: 'LOCAL_EDIT_CONFLICT',
+      path: 'trash/Note.md',
+      conflict_copy_path: null,
+      local: { path: 'trash/Note.md', content: { data: 'local edit' } }
+    })
+    expect(await readFile(path.join(root, 'trash', 'Note.md'), 'utf8')).toBe('local edit')
+    expect(await readFile(path.join(root, 'Note.md'), 'utf8').catch(() => null)).toBe(atTarget)
+  })
+
+  it('writes an upsert that keeps its path in place, as before', async () => {
+    const root = await temporaryRoot()
+    await writeFile(path.join(root, 'note.md'), 'agreed')
+    await writeFile(path.join(root, 'other.md'), 'leave me alone')
+
+    const conflict = await land(root, upsert('note.md', 'remote edit'), tracked('note.md', 'agreed'))
+
+    expect(conflict).toBeUndefined()
+    expect(await readFile(path.join(root, 'note.md'), 'utf8')).toBe('remote edit')
+    expect(await readFile(path.join(root, 'other.md'), 'utf8')).toBe('leave me alone')
+    expect((await readdir(root)).sort()).toEqual(['note.md', 'other.md'])
+  })
+
+  it('never removes an untracked file that previous_path names', async () => {
+    const root = await temporaryRoot()
+    await mkdir(path.join(root, 'trash'), { recursive: true })
+    await writeFile(path.join(root, 'trash', 'Note.md'), 'not tracked here')
+
+    const conflict = await land(root, upsert('Note.md', 'restored', 'trash/Note.md'), undefined)
+
+    expect(conflict).toBeUndefined()
+    expect(await readFile(path.join(root, 'Note.md'), 'utf8')).toBe('restored')
+    expect(await readFile(path.join(root, 'trash', 'Note.md'), 'utf8')).toBe('not tracked here')
+  })
+
+  // On a case-insensitive volume (the macOS and Windows default) both
+  // spellings open one file, so removing the "old" one would remove the note
+  // that was just written. A case-sensitive volume has two files to tidy.
+  it.each(['agreed', 'remote edit'])(
+    'keeps exactly one file when an upsert only changes the case of its path (%j)',
+    async (contents) => {
+      const root = await temporaryRoot()
+      await writeFile(path.join(root, 'note.md'), 'agreed')
+
+      const conflict = await land(
+        root,
+        upsert('Note.md', contents, 'note.md'),
+        tracked('note.md', 'agreed')
+      )
+
+      expect(conflict).toBeUndefined()
+      expect(await readdir(root)).toHaveLength(1)
+      expect(await readFile(path.join(root, 'Note.md'), 'utf8')).toBe(contents)
+    }
+  )
+})
+
+describe('DesktopCloudSyncRepository: a Cloud restore from Trash', () => {
+  it('lands the restored note once and uploads nothing back', async () => {
+    const root = await temporaryRoot()
+    await mkdir(path.join(root, 'trash'), { recursive: true })
+    await writeFile(path.join(root, 'trash', 'Note.md'), 'agreed')
+    const restore = upsert('Note.md', 'agreed', 'trash/Note.md')
+    let state: CloudSyncState | null = {
+      version: 1,
+      vault_id: 'vault',
+      cursor: restore.sequence - 1,
+      items: {
+        [restore.item_id]: { ...tracked('trash/Note.md', 'agreed'), item_id: restore.item_id }
+      }
+    }
+    const remote: CloudSyncRemote = {
+      manifest: vi.fn(),
+      changes: vi.fn(async (_vault: string, after: number) => ({
+        data: after < restore.sequence ? [restore] : [],
+        cursor: restore.sequence,
+        has_more: false
+      })),
+      mutate: vi.fn(async () => ({ acknowledged: [], cursor: restore.sequence, conflicts: [] }))
+    }
+    const coordinator = new CloudSyncCoordinator(
+      'vault',
+      remote,
+      new DesktopCloudSyncRepository(root),
+      {
+        load: async () => state,
+        save: async (next) => {
+          state = next
+        }
+      },
+      { itemId: () => 'item-duplicate', operationId: () => 'operation' }
+    )
+
+    const result = await coordinator.sync()
+
+    expect(result).toMatchObject({ pulled: 1, pushed: 0 })
+    expect(remote.mutate).not.toHaveBeenCalled()
+    expect(await readFile(path.join(root, 'Note.md'), 'utf8')).toBe('agreed')
+    expect(await readdir(path.join(root, 'trash'))).toEqual([])
   })
 })

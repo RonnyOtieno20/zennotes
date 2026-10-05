@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { constants as fsConstants, createReadStream, promises as fs, type Stats } from 'node:fs'
+import { constants as fsConstants, createReadStream, promises as fs, type BigIntStats, type Stats } from 'node:fs'
 import path from 'node:path'
 import { atomicWriteTarget, renameWithRetry } from './atomic-write'
 import { stageDesktopCloudContent, copyVerifiedCloudFile, type DesktopCloudDownloadOptions, type DesktopCloudStagedHandle } from './cloud-sync-download'
@@ -107,7 +107,9 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
         change.revision < file.reference.revision) throw new Error('Invalid staged Cloud change.')
     cloudSyncStagedHandle(file, change.content_ref)
     const atTarget = await this.localItemOrNull(change.path)
-    if (atTarget?.content.sha256 === file.reference.sha256 && atTarget.content.byte_length === file.reference.byte_length) return
+    if (atTarget?.content.sha256 === file.reference.sha256 && atTarget.content.byte_length === file.reference.byte_length) {
+      return await this.retirePreviousPath(change, previous)
+    }
     for (const candidate of new Set([previous?.path ?? change.path, change.path])) {
       const local = candidate === change.path ? atTarget : await this.localItemOrNull(candidate)
       if (local && (!previous || local.content.sha256 !== previous.sha256)) {
@@ -120,6 +122,7 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
       }
     }
     await this.publishFile(change.path, handle.path, file.reference, atTarget?.content.sha256 ?? null, handle.signal)
+    return await this.retirePreviousPath(change, previous)
   }
 
   async resolveStagedCloudConflict(input: CloudSyncStagedConflict): Promise<void> {
@@ -242,9 +245,12 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
       if (!change.content) throw new Error(`Upsert change ${change.sequence} did not include content`)
       const atTarget = await this.readIfExists(change.path)
       // Already byte-for-byte what the change carries. There is nothing to
-      // write and nothing to conflict over, so adopt the file and move on.
-      // Without this, a file both sides already agree on stopped sync dead.
-      if (atTarget && sha256(atTarget) === change.content.sha256) return
+      // write and nothing to conflict over at the target, so adopt the file
+      // and move on. Without this, a file both sides already agree on stopped
+      // sync dead.
+      if (atTarget && sha256(atTarget) === change.content.sha256) {
+        return await this.retirePreviousPath(change, previous)
+      }
 
       const guardPath = previous?.path ?? change.path
       const unvouched = await this.firstUnvouchedPath(
@@ -259,7 +265,7 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
       }
 
       await this.write(change.path, await decodeContent(change.content))
-      return
+      return await this.retirePreviousPath(change, previous)
     }
 
     const previousPath = previous?.path ?? change.previous_path ?? change.path
@@ -483,6 +489,40 @@ export class DesktopCloudSyncRepository implements CloudSyncRepository {
       if (!previous || sha256(bytes) !== previous.sha256) return relPath
     }
     return null
+  }
+
+  /**
+   * Remove the file an upsert carried this item away from, once the new path
+   * holds the Cloud bytes. A Cloud restore brings a note back from Trash as
+   * an upsert whose `previous_path` is the old location, not as a move, and a
+   * file left there is untracked by the next scan, which uploads it as a new
+   * note to every device. Only the file this device tracked and still vouches
+   * for goes; an edit made here is reported instead, never removed.
+   */
+  private async retirePreviousPath(
+    change: CloudSyncChange,
+    previous: CloudSyncTrackedItem | undefined
+  ): Promise<CloudSyncRepositoryConflict | void> {
+    if (!previous || previous.path === change.path) return
+    if (await this.sameFile(previous.path, change.path)) return
+    const unvouched = await this.firstUnvouchedPath([previous.path], previous)
+    if (unvouched) return localConflict(unvouched, await this.localItemOrNull(unvouched))
+    await fs.rm(this.resolve(previous.path), { force: true })
+  }
+
+  /**
+   * Whether two vault paths reach one file. A case-insensitive volume (the
+   * macOS and Windows default) opens `Note.md` and `note.md` as the same
+   * note, so removing the "old" spelling after a case-only rename would
+   * remove the note just written. Identities are compared as bigints because
+   * Windows file ids overflow a double; a volume that reports no ids at all
+   * answers "same", which keeps the old file, the safe way to be wrong.
+   */
+  private async sameFile(left: string, right: string): Promise<boolean> {
+    const [a, b] = await Promise.all(
+      [left, right].map((relPath) => statIfExists(this.resolve(relPath)))
+    )
+    return a !== null && b !== null && a.dev === b.dev && a.ino === b.ino
   }
 
   /** Park the incoming version beside the local file rather than over it. */
@@ -756,6 +796,15 @@ async function exists(absolutePath: string): Promise<boolean> {
     return true
   } catch (error) {
     if (isMissingFileError(error)) return false
+    throw error
+  }
+}
+
+async function statIfExists(absolutePath: string): Promise<BigIntStats | null> {
+  try {
+    return await fs.stat(absolutePath, { bigint: true })
+  } catch (error) {
+    if (isMissingFileError(error)) return null
     throw error
   }
 }
