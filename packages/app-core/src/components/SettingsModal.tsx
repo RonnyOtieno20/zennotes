@@ -5780,6 +5780,9 @@ export function SettingsModal(): JSX.Element {
           role="dialog"
           aria-modal="true"
           aria-label="Settings"
+          // Tells Settings apart from the dialogs that can open over it: the
+          // close shortcut closes Settings only when nothing sits on top.
+          data-settings-dialog=""
           tabIndex={-1}
           // The page another surface asked for (Review on the status bar).
           // The phone shells page this dialog list-first and read it to open

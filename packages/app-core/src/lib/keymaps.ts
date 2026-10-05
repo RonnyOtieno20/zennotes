@@ -396,7 +396,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "global",
     title: "Close active tab",
     description:
-      "Close the current note or virtual tab. With Vim mode on and Mod resolving to Ctrl, Ctrl+W stays Vim's pane prefix while a tab is open; close the tab with :q or :bd, or rebind this.",
+      "Close the current note or virtual tab. With Settings open it closes Settings, and in a floating window or the quick capture window it closes that window; while a dialog, palette or menu is open it does nothing. With Vim mode on and Mod resolving to Ctrl, Ctrl+W stays Vim's pane prefix while a tab is open; close the tab with :q or :bd, or rebind this.",
     defaultBinding: "Mod+W",
   },
   {

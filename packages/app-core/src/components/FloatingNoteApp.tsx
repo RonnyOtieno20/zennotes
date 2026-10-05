@@ -58,6 +58,7 @@ import {
 } from '../lib/themes'
 import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
 import { storedCursorDrawSelection } from '../lib/cm-cursor-blink'
+import { useCloseWindowShortcut } from '../lib/close-shortcut'
 
 const PREFS_KEY = 'zen:prefs:v2'
 const SAVE_DEBOUNCE_MS = 350
@@ -426,20 +427,9 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
     return () => window.removeEventListener('beforeunload', flush)
   }, [persist])
 
-  // Floating windows have no tab strip, so browser-style window close
-  // shortcuts should close the OS window itself rather than trying to
-  // mimic the main app's "close active tab" behavior.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent): void => {
-      const mod = event.metaKey || event.ctrlKey
-      if (!mod || event.altKey) return
-      if (event.key.toLowerCase() !== 'w') return
-      event.preventDefault()
-      window.zen.windowClose()
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
+  // No tab strip here: the close shortcut closes the window itself, through
+  // the same path as the close button, so the pending save flushes on unload.
+  useCloseWindowShortcut()
 
   // Vim ex commands scoped to the floating window. The main-window
   // `registerVimCommands` never runs here (each Electron window has its

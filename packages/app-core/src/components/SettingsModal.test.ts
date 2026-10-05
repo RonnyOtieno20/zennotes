@@ -8,6 +8,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsModal } from "./SettingsModal";
 import { requestSettingsTarget } from "../lib/settings-navigation";
+import { isDialogOrMenuOpen } from "../lib/close-shortcut";
 import { clearCloudSyncStatus, useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
 import {
   getSettingsSearchResults,
@@ -255,6 +256,13 @@ describe("SettingsModal date note directories", () => {
     root = createRoot(host);
     await act(async () => root.render(createElement(SettingsModal)));
     expect(host.querySelector('[role="dialog"]')?.hasAttribute("data-settings-target")).toBe(false);
+  });
+
+  it("is the window the close shortcut closes, not a dialog in front of it (#893)", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const panel = host.querySelector('[aria-modal="true"]');
+    expect(panel?.hasAttribute("data-settings-dialog")).toBe(true);
+    expect(isDialogOrMenuOpen()).toBe(false);
   });
 
   it("opens application link settings and saves normalized prefixes", async () => {

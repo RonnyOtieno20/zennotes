@@ -23,6 +23,9 @@
  *   ⌘⇧P / Ctrl+Shift+P      — open the command palette.
  *   Esc                      — cancel editor selection/mode or overlay, else hide window.
  *
+ * ⌘W / Ctrl+W hides the window without saving, like its close button. It is
+ * the Close active tab binding, so a rebind or an unbind applies here too.
+ *
  * Vim ex commands (when vim mode is on):
  *   :w           — save without closing.
  *   :q           — hide the window without saving.
@@ -85,6 +88,7 @@ import { PinIcon } from './icons'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
 import { storedCursorDrawSelection } from '../lib/cm-cursor-blink'
+import { useCloseWindowShortcut } from '../lib/close-shortcut'
 
 const PREFS_KEY = 'zen:prefs:v2'
 
@@ -568,6 +572,11 @@ export function QuickCaptureApp(): JSX.Element {
   useEffect(() => {
     overlayRef.current = overlay
   }, [overlay])
+  // The close shortcut hides the window through the close button's path: no
+  // save, the draft stays in this renderer for the next show. The picker and
+  // the command palette keep it, as palettes do in the main window.
+  const overlayOpen = useCallback(() => overlayRef.current !== 'none', [])
+  useCloseWindowShortcut(overlayOpen)
   const submitAndCloseRef = useRef(submitAndClose)
   useEffect(() => {
     submitAndCloseRef.current = submitAndClose

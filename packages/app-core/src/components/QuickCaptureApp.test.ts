@@ -203,3 +203,115 @@ describe('Quick Capture Escape handling (#765)', () => {
     expect(windowClose).toHaveBeenCalledOnce()
   })
 })
+
+describe('Quick Capture close shortcut (#893)', () => {
+  let host: HTMLDivElement
+  let root: Root
+  let platform: NodeJS.Platform
+  const windowClose = vi.fn()
+  const createNote = vi.fn()
+  const writeNote = vi.fn()
+
+  beforeEach(() => {
+    ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+    vi.clearAllMocks()
+    localStorage.clear()
+    platform = 'darwin'
+    Object.defineProperty(Range.prototype, 'getClientRects', {
+      configurable: true,
+      value: () => []
+    })
+    Object.defineProperty(Range.prototype, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => new DOMRect()
+    })
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    })
+    Object.defineProperty(window, 'zen', {
+      configurable: true,
+      value: {
+        listNotes: vi.fn(async () => []),
+        onVaultChange: vi.fn(() => vi.fn()),
+        getQuickCapturePinned: vi.fn(async () => false),
+        platformSync: () => platform,
+        windowClose,
+        createNote,
+        writeNote
+      }
+    })
+    host = document.createElement('div')
+    document.body.append(host)
+    root = createRoot(host)
+  })
+
+  afterEach(() => {
+    act(() => root.unmount())
+    host.remove()
+    localStorage.clear()
+  })
+
+  async function mount(): Promise<EditorView> {
+    await act(async () => root.render(createElement(QuickCaptureApp)))
+    const view = EditorView.findFromDOM(host.querySelector('.cm-editor')!)!
+    act(() => {
+      view.dispatch({ changes: { from: 0, insert: 'Draft\nStill thinking' } })
+      view.focus()
+    })
+    return view
+  }
+
+  async function press(target: EventTarget, init: KeyboardEventInit): Promise<void> {
+    await act(async () => {
+      target.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }))
+    })
+  }
+
+  const cmdW: KeyboardEventInit = { key: 'w', code: 'KeyW', keyCode: 87, metaKey: true }
+
+  it('hides the window on Cmd+W like its close button, keeping the draft', async () => {
+    const view = await mount()
+    await press(view.contentDOM, cmdW)
+
+    expect(windowClose).toHaveBeenCalledOnce()
+    // The close button hides without saving; the draft waits in the buffer.
+    expect(createNote).not.toHaveBeenCalled()
+    expect(writeNote).not.toHaveBeenCalled()
+    expect(view.state.doc.toString()).toBe('Draft\nStill thinking')
+  })
+
+  it('keeps Cmd+W while the note picker is open', async () => {
+    await mount()
+    await press(window, { key: 'p', code: 'KeyP', metaKey: true })
+    const input = host.querySelector<HTMLInputElement>('input')!
+    expect(input.placeholder).toContain('Search notes')
+
+    await press(input, cmdW)
+
+    expect(windowClose).not.toHaveBeenCalled()
+    expect(host.querySelector('input')).not.toBeNull()
+  })
+
+  it('follows a rebind of Close active tab', async () => {
+    localStorage.setItem(
+      'zen:prefs:v2',
+      JSON.stringify({ keymapOverrides: { 'global.closeActiveTab': 'Shift+Mod+W' } })
+    )
+    const view = await mount()
+    await press(view.contentDOM, cmdW)
+    expect(windowClose).not.toHaveBeenCalled()
+
+    await press(view.contentDOM, { key: 'W', code: 'KeyW', keyCode: 87, metaKey: true, shiftKey: true })
+    expect(windowClose).toHaveBeenCalledOnce()
+  })
+
+  it('hides on Ctrl+W on Linux and Windows', async () => {
+    platform = 'linux'
+    localStorage.setItem('zen:prefs:v2', JSON.stringify({ vimMode: false }))
+    const view = await mount()
+    await press(view.contentDOM, { key: 'w', code: 'KeyW', keyCode: 87, ctrlKey: true })
+    expect(windowClose).toHaveBeenCalledOnce()
+    expect(writeNote).not.toHaveBeenCalled()
+  })
+})

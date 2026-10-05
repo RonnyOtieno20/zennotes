@@ -38,6 +38,7 @@ import {
   paperHighlight
 } from './FloatingNoteApp'
 import { editorTabSize } from '../lib/editor-tab-size'
+import { useCloseWindowShortcut } from '../lib/close-shortcut'
 import { linkRangeAtCursor } from '../lib/internal-links'
 import { pointerOverRange } from '../lib/cm-pointer-range'
 import {
@@ -250,18 +251,8 @@ export function ExternalFileApp(): JSX.Element {
     return () => window.removeEventListener('beforeunload', flush)
   }, [persist])
 
-  // Cmd/Ctrl+W closes the standalone window.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent): void => {
-      const mod = event.metaKey || event.ctrlKey
-      if (!mod || event.altKey) return
-      if (event.key.toLowerCase() !== 'w') return
-      event.preventDefault()
-      window.zen.windowClose()
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
+  // The close shortcut closes the standalone window, like its close button.
+  useCloseWindowShortcut()
 
   const currentBody = useCallback((): string => {
     return viewRef.current?.state.doc.toString() ?? bodyRef.current ?? content?.body ?? ''
