@@ -622,7 +622,11 @@ export function CloudSettings({
 
   const restoreBackup = async (backup: CloudBackupSnapshot): Promise<void> => {
     const confirmed = await confirmApp({
-      title: `Restore ${backup.label || "this backup"}?`,
+      // Quoted: a label is the user's own words, and "Restore QA baseline"
+      // read as "Restore Restore QA baseline?".
+      title: backup.label
+        ? `Restore “${backup.label}”?`
+        : "Restore this backup?",
       description:
         "ZenNotes will replace the linked cloud vault with this snapshot, then sync the restored contents to this device. Changes made after the backup may be removed.",
       confirmLabel: "Restore backup",
@@ -2181,9 +2185,8 @@ function CloudRestoreResult({
         role="status"
         className="rounded-xl border border-accent/25 bg-accent/5 px-4 py-3 text-sm text-ink-700"
       >
-        Restored {result.restore.restored_items} items and removed{" "}
-        {result.restore.deleted_items} newer items. This vault is synced to
-        cursor {result.sync?.cursor ?? result.restore.end_cursor}.
+        {restoredItemsSummary(result.restore)} This vault is synced to cursor{" "}
+        {result.sync?.cursor ?? result.restore.end_cursor}.
       </div>
     );
   }
@@ -2200,6 +2203,15 @@ function CloudRestoreResult({
       {message}
     </div>
   );
+}
+
+function restoredItemsSummary(
+  restore: CloudBackupRestoreResult["restore"],
+): string {
+  const restored = `Restored ${pluralize(restore.restored_items, "item")}`;
+  return restore.deleted_items > 0
+    ? `${restored} and removed ${pluralize(restore.deleted_items, "newer item")}.`
+    : `${restored}.`;
 }
 
 function formatBackupDate(value: string): string {

@@ -18,7 +18,7 @@ import type {
   CloudVaultLink
 } from '@zennotes/bridge-contract/cloud-sync'
 import type { CloudSyncApiClient } from './cloud-sync-api'
-import { cloudBackupItemsPage, restoreCloudBackup } from './cloud-backup'
+import { cloudBackupCreateError, cloudBackupItemsPage, restoreCloudBackup } from './cloud-backup'
 import { normalizeCloudSyncPath } from './cloud-sync'
 import { CLOUD_VAULT_REMOVED_MESSAGE, confirmCloudVaultMissing, isCloudResourceMissing, sameCloudVaultLink } from './cloud-vault-availability'
 import {
@@ -186,7 +186,11 @@ export class CloudSyncHostService {
     const summary = await this.sync(vault)
     assertBackupReady(summary)
     const { client, link } = await this.linkedConnection(vault)
-    return (await client.createBackup(link.vault_id, label)).data
+    try {
+      return (await client.createBackup(link.vault_id, label)).data
+    } catch (error) {
+      throw cloudBackupCreateError(error)
+    }
   }
 
   async deleteBackup(vault: CloudSyncHostVault, backupId: string): Promise<void> {

@@ -1843,10 +1843,15 @@ describe("CloudSettings", () => {
     await act(async () => restore!.click());
 
     expect(mocks.confirmApp).toHaveBeenCalledWith(
-      expect.objectContaining({ danger: true }),
+      expect.objectContaining({
+        title: "Restore “Before migration”?",
+        danger: true,
+      }),
     );
     expect(mocks.restoreCloudBackup).toHaveBeenCalledWith("backup-1");
-    expect(host.textContent).toContain("Restored 8 items");
+    expect(host.textContent).toContain(
+      "Restored 8 items and removed 2 newer items. This vault is synced to cursor 18.",
+    );
 
     const browse = [...host.querySelectorAll("button")].find(
       (button) => button.textContent?.trim() === "Browse notes",
@@ -1959,6 +1964,122 @@ describe("CloudSettings", () => {
     await act(async () => showAll!.click());
     expect(host.textContent).toContain("Earlier recovery point");
     expect(host.textContent).toContain("Before migration");
+  });
+
+  describe("restoring a whole backup", () => {
+    async function restore(
+      label: string | null,
+      counts: { restored_items: number; deleted_items: number },
+    ): Promise<void> {
+      mocks.getCloudAccountStatus.mockResolvedValue(connected);
+      mocks.getCloudServiceAccount.mockResolvedValue({
+        ...serviceAccount,
+        features: {
+          ...serviceAccount.features,
+          backup: { active: true, limits: { max_snapshots: 30 } },
+        },
+      });
+      mocks.listCloudVaults.mockResolvedValue([]);
+      mocks.getCloudVaultLink.mockResolvedValue({
+        base_url: "https://zennotes.org",
+        vault_id: "vault-1",
+        vault_name: "Cloud Notes",
+        linked_at: "2026-08-10T12:00:00.000Z",
+      });
+      mocks.listCloudBackups.mockResolvedValue([
+        {
+          id: "backup-1",
+          label,
+          trigger: "manual",
+          status: "ready",
+          cursor: 12,
+          item_count: 8,
+          total_bytes: 2048,
+          archive_bytes: 1024,
+          expires_at: "2026-09-09T12:00:00.000Z",
+          created_at: "2026-08-10T12:00:00.000Z",
+        },
+      ]);
+      mocks.restoreCloudBackup.mockResolvedValue({
+        restore: {
+          id: "restore-1",
+          backup_id: "backup-1",
+          mode: "replace",
+          status: "completed",
+          expected_cursor: 12,
+          start_cursor: 12,
+          end_cursor: 18,
+          ...counts,
+          error: null,
+          created_at: "2026-08-10T12:06:00.000Z",
+          updated_at: "2026-08-10T12:06:01.000Z",
+        },
+        sync: {
+          cursor: 18,
+          pulled: 1,
+          pushed: 0,
+          conflicts: [],
+          bootstrap_conflicts: [],
+          local_conflicts: [],
+        },
+      });
+
+      await act(async () =>
+        root.render(
+          createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+          }),
+        ),
+      );
+      const button = [...host.querySelectorAll("button")].find(
+        (candidate) =>
+          candidate.textContent?.trim() === "Restore" && !candidate.disabled,
+      );
+      await act(async () => button!.click());
+    }
+
+    it("quotes the label, so a label that starts with Restore reads once", async () => {
+      await restore("Restore QA baseline", {
+        restored_items: 8,
+        deleted_items: 2,
+      });
+
+      expect(mocks.confirmApp).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Restore “Restore QA baseline”?" }),
+      );
+    });
+
+    it("asks to restore this backup when it has no label", async () => {
+      await restore(null, { restored_items: 8, deleted_items: 2 });
+
+      expect(mocks.confirmApp).toHaveBeenCalledWith(
+        expect.objectContaining({ title: "Restore this backup?" }),
+      );
+    });
+
+    it("counts one restored and one removed item in the singular", async () => {
+      await restore("Before migration", {
+        restored_items: 1,
+        deleted_items: 1,
+      });
+
+      expect(host.textContent).toContain(
+        "Restored 1 item and removed 1 newer item. This vault is synced to cursor 18.",
+      );
+    });
+
+    it("leaves out the removed clause when nothing newer was removed", async () => {
+      await restore("Before migration", {
+        restored_items: 3,
+        deleted_items: 0,
+      });
+
+      expect(host.textContent).toContain(
+        "Restored 3 items. This vault is synced to cursor 18.",
+      );
+      expect(host.textContent).not.toContain("newer item");
+    });
   });
 
   describe("browsing a backup's notes", () => {

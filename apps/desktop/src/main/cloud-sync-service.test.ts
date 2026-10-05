@@ -10,7 +10,7 @@ import type {
   CloudSyncVault
 } from '@zennotes/bridge-contract/cloud-sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { CloudServiceRequestError } from './cloud-sync-client'
+import { CloudServiceRequestError, createCloudSyncClient } from './cloud-sync-client'
 import { DesktopCloudSyncService, type DesktopCloudSyncServiceDependencies } from './cloud-sync-service'
 
 const temporaryDirectories: string[] = []
@@ -728,6 +728,45 @@ describe('DesktopCloudSyncService', () => {
 
     await expect(service.createBackup(localRoot)).rejects.toThrow('Resolve sync conflicts')
     expect(client.createBackup).not.toHaveBeenCalled()
+  })
+
+  it('says which plan limit a refused backup ran into before the error crosses IPC', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { service, client, localRoot } = await setup([remoteVault])
+    await service.link(localRoot, remoteVault.id)
+    const cloud = createCloudSyncClient(
+      'https://zennotes.org',
+      'secret-token',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              code: 'BACKUP_QUOTA_EXCEEDED',
+              message: 'This backup would exceed your plan limits.',
+              details: { limit: 'max_snapshot_items', current: 12_345, allowed: 10_000 }
+            }
+          }),
+          { status: 409, headers: { 'Content-Type': 'application/json' } }
+        )
+      )
+    )
+    const refusal = await cloud.createBackup('vault-1').catch((error: unknown) => error)
+    client.createBackup.mockRejectedValueOnce(refusal)
+
+    const thrown = await service.createBackup(localRoot, 'Release day').catch((error: unknown) => error)
+
+    // ipcMain.handle sends a rejection to the window as String(error), so the
+    // details must already be in the sentence.
+    expect(String(thrown)).toBe(
+      'Error: This vault has 12,345 files, and backups on your plan hold up to 10,000. Remove files you no longer need, or contact support to raise the limit.'
+    )
+    expect((thrown as Error).cause).toBeInstanceOf(CloudServiceRequestError)
   })
 })
 

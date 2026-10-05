@@ -580,6 +580,34 @@ describe('CloudSyncHostService', () => {
     await expect(service.createBackup(hostVault)).rejects.toThrow('Resolve sync conflicts')
     expect(client.createBackup).not.toHaveBeenCalled()
   })
+
+  it('says which plan limit a refused backup ran into, and passes other failures through', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { client, hostVault, service } = setup([remoteVault])
+    await service.link(hostVault, remoteVault.id)
+    const outage = Object.assign(new Error('ZenNotes Cloud request failed (503).'), {
+      name: 'CloudServiceRequestError', status: 503, code: null, details: null
+    })
+    client.createBackup
+      .mockRejectedValueOnce(Object.assign(new Error('This backup would exceed your plan limits.'), {
+        name: 'CloudServiceRequestError',
+        status: 409,
+        code: 'BACKUP_QUOTA_EXCEEDED',
+        details: { limit: 'max_snapshot_bytes', current: 54_200_000, allowed: 52_428_800 }
+      }))
+      .mockRejectedValueOnce(outage)
+
+    await expect(service.createBackup(hostVault, 'Before travel')).rejects.toThrow(
+      'This vault holds 54 MB, and backups on your plan hold up to 52 MB. Remove large files, or contact support to raise the limit.'
+    )
+    await expect(service.createBackup(hostVault)).rejects.toBe(outage)
+  })
 })
 
 
