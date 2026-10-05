@@ -115,6 +115,7 @@ describe('TOML serialization', () => {
       systemFolderLabels: { inbox: 'In' },
       savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' },
       kanbanGroupBy: 'folder',
+      kanbanCardSort: 'due',
       kanbanFolderRoot: 'Projects',
       externalApplicationSchemes: ['zotero', 'obsidian'],
       ignoredKeys: ['KanaMode', 'F24']
@@ -146,6 +147,8 @@ describe('TOML serialization', () => {
     // The [saved_filters] table keeps the order the chips show (#731).
     expect(text).toContain('kanban_folder_root = "Projects"')
     expect(round.kanbanGroupBy).toBe('folder')
+    expect(text).toContain('kanban_card_sort = "due"')
+    expect(round.kanbanCardSort).toBe('due')
     expect(round.kanbanFolderRoot).toBe('Projects')
     expect(text).toContain('ignored_keys = ["KanaMode", "F24"]')
     expect(round.externalApplicationSchemes).toEqual(['zotero', 'obsidian'])

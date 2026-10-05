@@ -1853,6 +1853,40 @@ describe('vimWrappedLineMotions (#638)', () => {
   })
 })
 
+describe('kanbanCardSort (#889)', () => {
+  it('defaults to the manual order and round-trips due-date ordering', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().kanbanCardSort).toBe('manual')
+
+    useStore.getState().setKanbanCardSort('due')
+    expect(useStore.getState().kanbanCardSort).toBe('due')
+    const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
+    expect(saved.kanbanCardSort).toBe('due')
+
+    vi.resetModules()
+    const reloaded = await import('./store')
+    expect(reloaded.useStore.getState().kanbanCardSort).toBe('due')
+  })
+
+  it('normalizes an unknown stored value to the manual order', async () => {
+    installZen()
+    localStorage.setItem('zen:prefs:v2', JSON.stringify({ kanbanCardSort: 'priority' }))
+    const { useStore } = await loadStore()
+    expect(useStore.getState().kanbanCardSort).toBe('manual')
+  })
+
+  it('leaves the saved hand arrangement alone while cards follow due dates', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    const arranged = ['inbox/b.md\u00000', 'inbox/a.md\u00000']
+    useStore.getState().setKanbanCardOrder({ 'field:status:review': arranged })
+    useStore.getState().setKanbanCardSort('due')
+    useStore.getState().setKanbanCardSort('manual')
+    expect(useStore.getState().kanbanCardOrder['field:status:review']).toEqual(arranged)
+  })
+})
+
 describe('workflowsEnabled (Workflows feature switch)', () => {
   it('defaults off and round-trips the opt-in through persistence', async () => {
     installZen()

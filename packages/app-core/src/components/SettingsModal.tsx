@@ -698,6 +698,8 @@ export function SettingsModal(): JSX.Element {
   const completedTaskStyle = useStore((s) => s.completedTaskStyle);
   const setCompletedTaskStyle = useStore((s) => s.setCompletedTaskStyle);
   const showArchivedTasks = useStore((s) => s.showArchivedTasks);
+  const kanbanCardSort = useStore((s) => s.kanbanCardSort);
+  const setKanbanCardSort = useStore((s) => s.setKanbanCardSort);
   const setShowArchivedTasks = useStore((s) => s.setShowArchivedTasks);
   const mathRenderer = useStore((s) => s.mathRenderer);
   const mathFontScale = useStore((s) => s.mathFontScale);
@@ -3427,6 +3429,22 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "kanban-card-sort",
+          title: "Kanban card order",
+          description:
+            "Order the cards in each Kanban column by hand or by due date.",
+          keywords: [
+            "kanban",
+            "sort",
+            "order",
+            "due",
+            "date",
+            "deadline",
+            "cards",
+            "manual",
+          ],
+        },
+        {
           id: "show-archived-tasks",
           title: "Show tasks from archived notes",
           description:
@@ -3471,6 +3489,22 @@ export function SettingsModal(): JSX.Element {
             description="The Kanban Folder board gives every note folder its own column. Point it at one folder to make that folder's children the columns instead."
           >
             <KanbanFolderRootRow settingId="kanban-folder-root" />
+          </Section>
+          <Section
+            title="Card order"
+            description="How the cards inside each Kanban column are ordered, on every board."
+          >
+            <SegmentedRow
+              label="Kanban card order"
+              description="Manual keeps the order you drag cards into, saved per column. Due date sorts each column by due date, earliest first and undated cards last; your manual order is kept and comes back when you switch back. On the board: the Order menu, or s in Vim mode."
+              value={kanbanCardSort}
+              settingId="kanban-card-sort"
+              options={[
+                { value: "manual", label: "Manual" },
+                { value: "due", label: "Due date" },
+              ]}
+              onChange={(next) => setKanbanCardSort(next)}
+            />
           </Section>
           <Section
             title="Archived notes"

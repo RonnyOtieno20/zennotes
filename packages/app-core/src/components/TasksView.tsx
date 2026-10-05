@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { isTasksViewActive, useStore, type TasksViewMode } from '../store'
+import { isTasksViewActive, useStore, type KanbanCardSort, type TasksViewMode } from '../store'
 import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
 import { buildDailyNoteDateByPath } from '../lib/vault-layout'
 import { computeTasksRender, filterTasks, isOverdue } from '../lib/tasks-filter'
@@ -449,6 +449,26 @@ export function TasksView(): JSX.Element {
             ? `Folder board: columns are the folders inside ${applied}`
             : 'Folder board: columns are each note’s own folder'
         )
+        return
+      }
+      // `:order due` sorts every Kanban column by due date, `:order manual`
+      // brings back the dragged arrangement, and bare `:order` switches
+      // between the two, like `s` on the board. (#889)
+      if (head === 'order') {
+        const wanted = arg.toLowerCase()
+        if (wanted && wanted !== 'due' && wanted !== 'manual') {
+          toast('Usage: :order due | manual')
+          return
+        }
+        const store = useStore.getState()
+        const next: KanbanCardSort = wanted
+          ? (wanted as KanbanCardSort)
+          : store.kanbanCardSort === 'due'
+            ? 'manual'
+            : 'due'
+        store.setKanbanCardSort(next)
+        setViewMode('kanban')
+        toast(next === 'due' ? 'Kanban cards ordered by due date' : 'Kanban cards in your own order')
         return
       }
       if (head === 'delfilter' || head === 'df') {
@@ -1027,7 +1047,7 @@ export function TasksView(): JSX.Element {
                 ? 'h/j/k/l day · [ ] month · Tab pick · x toggle · i start · c cancel · F saved filters · drag to move · right-click actions · :q'
                 : '←/→/↑/↓ day · Tab pick · Space toggle · drag to move · right-click actions'
               : vimMode
-                ? 'h/l column · j/k card · x toggle · i start · c cancel · Enter open · F saved filters · right-click actions · :q close'
+                ? 'h/l column · j/k card · x toggle · i start · c cancel · Enter open · s order · F saved filters · right-click actions · :q close'
                 : '←/→ column · ↑/↓ card · Space toggle · Enter open · right-click actions'}
         </div>
       )}

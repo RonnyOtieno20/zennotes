@@ -745,6 +745,10 @@ interface Prefs {
   showArchivedTasks: boolean
   /** Column source used when the Tasks Kanban view is active. */
   kanbanGroupBy: KanbanGroupBy
+  /** How cards line up inside each Kanban column: `manual` replays the order
+   *  they were dragged into (due date until then), `due` always sorts them by
+   *  due date and leaves that arrangement untouched for later. (#889) */
+  kanbanCardSort: KanbanCardSort
   /** Display-only Kanban column title overrides. Keyed by `${groupBy}:${columnId}`. */
   kanbanColumnTitles: Record<string, string>
   /** Manual Kanban column arrangement per board. Keyed by groupBy → ordered
@@ -766,6 +770,7 @@ interface Prefs {
 
 export type TasksViewMode = 'list' | 'calendar' | 'kanban'
 export type KanbanGroupBy = 'status' | 'priority' | 'folder' | `field:${string}`
+export type KanbanCardSort = 'manual' | 'due'
 /** How the Tags view combines multiple selected tags: `all` = intersection
  *  (AND, narrows), `any` = union (OR, widens). */
 export type TagMatchMode = 'all' | 'any'
@@ -1167,6 +1172,7 @@ export const DEFAULT_PREFS: Prefs = {
   tasksViewMode: 'list',
   showArchivedTasks: false,
   kanbanGroupBy: 'status',
+  kanbanCardSort: 'manual',
   kanbanColumnTitles: {},
   kanbanColumnOrder: {},
   kanbanCardOrder: {},
@@ -1516,6 +1522,7 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
         ? p.showArchivedTasks
         : DEFAULT_PREFS.showArchivedTasks,
     kanbanGroupBy: normalizeKanbanGroupBy(p.kanbanGroupBy),
+    kanbanCardSort: p.kanbanCardSort === 'due' ? 'due' : 'manual',
     kanbanColumnTitles: normalizeKanbanColumnTitles(p.kanbanColumnTitles),
     kanbanColumnOrder: normalizeKanbanColumnOrder(p.kanbanColumnOrder),
     kanbanCardOrder: normalizeKanbanCardOrder(p.kanbanCardOrder),
@@ -2417,6 +2424,7 @@ function collectPrefs(s: {
   tasksViewMode: TasksViewMode
   showArchivedTasks: boolean
   kanbanGroupBy: KanbanGroupBy
+  kanbanCardSort: KanbanCardSort
   kanbanColumnTitles: Record<string, string>
   kanbanColumnOrder: Record<string, string[]>
   kanbanCardOrder: Record<string, string[]>
@@ -2524,6 +2532,7 @@ function collectPrefs(s: {
     tasksViewMode: s.tasksViewMode,
     showArchivedTasks: s.showArchivedTasks,
     kanbanGroupBy: s.kanbanGroupBy,
+    kanbanCardSort: s.kanbanCardSort,
     kanbanColumnTitles: s.kanbanColumnTitles,
     kanbanColumnOrder: s.kanbanColumnOrder,
     kanbanCardOrder: s.kanbanCardOrder,
@@ -3165,6 +3174,8 @@ interface Store {
   showArchivedTasks: boolean
   /** Column source for the Tasks Kanban view. */
   kanbanGroupBy: KanbanGroupBy
+  /** Cards in each Kanban column by hand-placed order or by due date. (#889) */
+  kanbanCardSort: KanbanCardSort
   /** Display-only column title overrides for the Tasks Kanban view. */
   kanbanColumnTitles: Record<string, string>
   /** Manual column arrangement per board (groupBy → ordered column ids). */
@@ -3403,6 +3414,7 @@ interface Store {
    *  surface, and a bulk archive asks once, not once per note. */
   confirmArchiveNotes: (paths: string[]) => Promise<boolean>
   setKanbanGroupBy: (group: KanbanGroupBy) => void
+  setKanbanCardSort: (sort: KanbanCardSort) => void
   setKanbanColumnTitle: (
     group: KanbanGroupBy,
     columnId: string,
@@ -5856,6 +5868,7 @@ export const useStore = create<Store>((set, get) => {
   tasksViewMode: loadPrefs().tasksViewMode,
   showArchivedTasks: loadPrefs().showArchivedTasks,
   kanbanGroupBy: loadPrefs().kanbanGroupBy,
+  kanbanCardSort: loadPrefs().kanbanCardSort,
   kanbanColumnTitles: loadPrefs().kanbanColumnTitles,
   kanbanColumnOrder: loadPrefs().kanbanColumnOrder,
   kanbanCardOrder: loadPrefs().kanbanCardOrder,
@@ -7184,6 +7197,10 @@ export const useStore = create<Store>((set, get) => {
     set({ kanbanGroupBy: group })
     savePrefs(collectPrefs(get()))
     persistVaultViewOverride({ kanbanGroupBy: group })
+  },
+  setKanbanCardSort: (sort) => {
+    set({ kanbanCardSort: sort })
+    savePrefs(collectPrefs(get()))
   },
   setKanbanColumnTitle: (group, columnId, title) => {
     const key = `${group}:${columnId}`

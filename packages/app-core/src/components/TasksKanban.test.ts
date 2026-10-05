@@ -3,6 +3,7 @@ import type { VaultTask } from '@shared/tasks'
 import {
   applyColumnOrder,
   arrangeColumns,
+  compareCardsByDue,
   completeStatusOrder,
   cursorAfterCardMove,
   dropMutationsFor,
@@ -16,6 +17,7 @@ import {
   type Column,
   folderColumns,
   noteLocationOf,
+  orderCards,
   FOLDER_OTHER_LABEL
 } from './TasksKanban'
 
@@ -496,5 +498,51 @@ describe('forwarded and cancelled records stay off every board (#786)', () => {
       'inbox/Note 3.md › Still open',
       'inbox/Note 3.md › Shipped'
     ])
+  })
+})
+
+// #889: a column can follow its cards' due dates instead of the order they
+// were dragged into, on every board, custom status boards included.
+describe('card order by due date (#889)', () => {
+  const dated = (content: string, due: string | undefined, sourcePath: string, taskIndex = 0): VaultTask =>
+    card({ content, due, sourcePath, taskIndex })
+  const texts = (columns: Column[], i: number): string[] => columns[i].tasks.map((t) => t.content)
+
+  const late = dated('Late', '2026-10-20', 'inbox/a.md')
+  const soon = dated('Soon', '2026-10-06', 'inbox/b.md')
+  const undated = dated('Someday', undefined, 'inbox/c.md')
+  const sameDayFirst = dated('Same day, first line', '2026-10-06', 'inbox/d.md', 0)
+  const sameDaySecond = dated('Same day, second line', '2026-10-06', 'inbox/d.md', 3)
+
+  it('puts the earliest due date first and cards without one last', () => {
+    const sorted = [undated, late, soon].sort(compareCardsByDue).map((t) => t.content)
+    expect(sorted).toEqual(['Soon', 'Late', 'Someday'])
+  })
+
+  it('breaks a same-day tie by note, then by the task\'s place in it', () => {
+    const sorted = [sameDaySecond, soon, sameDayFirst].sort(compareCardsByDue).map((t) => t.content)
+    expect(sorted).toEqual(['Soon', 'Same day, first line', 'Same day, second line'])
+  })
+
+  // The reporter's case: a custom status board whose column was hand-arranged
+  // once keeps that arrangement forever, however the due dates change.
+  const arranged = new Map([
+    ['field:status:review', [taskIdentityKey(undated), taskIdentityKey(late), taskIdentityKey(soon)]]
+  ])
+  const board = (): Column[] => [colWith('review', [soon, late, undated]), colWith('done', [late])]
+
+  it('by due date, ignores the dragged arrangement of a custom status column', () => {
+    expect(texts(orderCards('field:status', board(), 'due', arranged), 0)).toEqual(['Soon', 'Late', 'Someday'])
+  })
+
+  it('manually, replays the dragged arrangement, which ordering by date left in place', () => {
+    expect(texts(orderCards('field:status', board(), 'manual', arranged), 0)).toEqual(['Someday', 'Late', 'Soon'])
+  })
+
+  it('sorts every column without touching the built ones', () => {
+    const built = [colWith('review', [undated, late, soon])]
+    const out = orderCards('field:status', built, 'due', new Map())
+    expect(texts(out, 0)).toEqual(['Soon', 'Late', 'Someday'])
+    expect(texts(built, 0)).toEqual(['Someday', 'Late', 'Soon'])
   })
 })

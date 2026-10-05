@@ -1399,6 +1399,18 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
     }
   )
 
+  // The Kanban card order (#889), from any note: the next board opened uses it.
+  cmds.push({
+    id: 'view.kanban-card-sort',
+    title:
+      getState().kanbanCardSort === 'due'
+        ? 'Kanban: Order Cards Manually'
+        : 'Kanban: Order Cards by Due Date',
+    category: 'View',
+    keywords: 'tasks board sort due date deadline order cards columns manual',
+    run: () => getState().setKanbanCardSort(getState().kanbanCardSort === 'due' ? 'manual' : 'due')
+  })
+
   // Saved Tasks filters (#731): one palette entry per name, so a filter is a
   // few keystrokes away from any note. Opening the view resets the filter, so
   // the query is applied once the open has settled.

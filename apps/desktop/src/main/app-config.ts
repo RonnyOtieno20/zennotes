@@ -401,6 +401,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'kanban_group_by',
     comment: 'status | priority | folder (each note\'s own folder; see kanban_folder_root) | field:<key>'
   },
+  kanbanCardSort: {
+    section: 'view',
+    tomlKey: 'kanban_card_sort',
+    comment: 'manual | due: cards in a Kanban column keep the order you drag them into, or follow their due dates'
+  },
   kanbanFolderRoot: {
     section: 'view',
     tomlKey: 'kanban_folder_root',
