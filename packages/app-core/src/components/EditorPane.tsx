@@ -278,8 +278,11 @@ import {
   importedAssetForExistingVaultAsset
 } from '../lib/editor-drops'
 import {
+  editorImagePaste,
+  pasteImageFilesIntoEditor,
   pastedImageFilesFromClipboard,
-  pastedImageInputFromFile
+  pastedImageInputFromFile,
+  readSystemClipboard
 } from '../lib/editor-paste-images'
 import {
   paneModeForPath,
@@ -2028,6 +2031,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           yankHighlightExtension,
           vimVisualHighlightExtension,
           vimClipboardPasteExtension,
+          editorImagePaste.of((files, view) => {
+            void importPastedImagesRef.current?.(files, view)
+          }),
           commentDecorationField,
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           scrolloffCompartment.of(scrollOff(s0.editorScrollOff)),
@@ -4744,12 +4750,10 @@ function buildEditorContextItems(
   }
 
   const paste = async (): Promise<void> => {
-    let text = ''
-    try {
-      text = await navigator.clipboard.readText()
-    } catch {
-      return
-    }
+    // A menu click carries no clipboard data, so read it: an image takes the
+    // same import as Mod+V, anything else goes in as text.
+    const { images, text } = await readSystemClipboard()
+    if (pasteImageFilesIntoEditor(view, images)) return
     if (!text) return
     const sel = view.state.selection.main
     view.dispatch({
