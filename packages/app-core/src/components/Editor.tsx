@@ -47,8 +47,8 @@ import {
   resolveAssetVaultRelativePath,
 } from "../lib/local-assets";
 import {
-  externalLinkUrl,
-  extractLinkAtCursor,
+  externalUrlForLink,
+  linkRangeAtCursor,
   resolveInternalNoteHref,
 } from "../lib/internal-links";
 import {
@@ -345,7 +345,7 @@ function syncVimKeymaps(overrides: KeymapOverrides): void {
   }
 }
 
-// `extractLinkAtCursor` lives in ../lib/internal-links so the editor, the
+// `linkRangeAtCursor` lives in ../lib/internal-links so the editor, the
 // preview, and the Cmd/Ctrl-click handler can all share it.
 
 /**
@@ -866,12 +866,15 @@ function registerVimCommands(): void {
   Vim.defineAction("zenCreateNoteFromLink", (cm: ReturnType<typeof getCM>) => {
     const view = (cm as unknown as { cm6?: EditorView }).cm6;
     if (!view) return;
-    const target = extractLinkAtCursor(
+    const link = linkRangeAtCursor(
       view.state.doc.toString(),
       view.state.selection.main.head,
     );
-    if (!target) return;
-    followLinkTarget(target, { createWithoutAsking: true });
+    if (!link) return;
+    followLinkTarget(link.target, {
+      createWithoutAsking: true,
+      kind: link.kind,
+    });
   });
 
   Vim.defineAction("goToDefinition", (cm: ReturnType<typeof getCM>) => {
@@ -879,11 +882,13 @@ function registerVimCommands(): void {
     if (!view) return;
     const pos = view.state.selection.main.head;
     const doc = view.state.doc.toString();
-    const target = extractLinkAtCursor(doc, pos);
-    if (!target) return;
+    const link = linkRangeAtCursor(doc, pos);
+    if (!link) return;
+    const target = link.target;
 
     if (followApplicationLink(target)) return;
-    const external = externalLinkUrl(target);
+    // A wikilink names a note: `[[2024.01.15]]` is not a web address.
+    const external = externalUrlForLink(target, link.kind);
     if (external) {
       window.open(external, "_blank");
       return;

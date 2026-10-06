@@ -240,8 +240,15 @@ const wikilinkRenderPlugin = ViewPlugin.fromClass(
  * target carries one (`[[Doc#Heading]]`). (#196) A dead link asks before
  * creating the note, unless `createWithoutAsking` (a modifier click) says the
  * suggested path is fine as it is (#768).
+ *
+ * Hint mode follows an editor wikilink through here too (#894). The note name
+ * has to resolve before any href reading: `followLinkTarget` tries a URL first
+ * and would send `[[2024.01.15]]` to https://2024.01.15.
  */
-function openWikilink(target: string, options: { createWithoutAsking?: boolean } = {}): void {
+export function openWikilink(
+  target: string,
+  options: { createWithoutAsking?: boolean } = {}
+): void {
   const state = useStore.getState()
   const focusEditorSoon = (): void => {
     useStore.getState().setFocusedPanel('editor')
@@ -272,9 +279,12 @@ function openWikilink(target: string, options: { createWithoutAsking?: boolean }
 // Click a rendered wikilink to jump. Intercept on mousedown so CodeMirror
 // doesn't first drop the caret into the (hidden) source. With Cmd (macOS) or
 // Ctrl held, a link at a note that does not exist yet creates it at once at
-// the suggested path instead of asking (#768).
+// the suggested path instead of asking (#768). Only the primary button
+// follows: a right-click used to open the note and then show the editor's
+// menu over it, and a middle click is no follow either.
 const wikilinkClick = EditorView.domEventHandlers({
   mousedown: (event) => {
+    if (event.button !== 0) return false
     const el = (event.target as HTMLElement | null)?.closest<HTMLElement>('.cm-wikilink')
     const target = el?.dataset.target
     if (!target) return false
@@ -282,9 +292,7 @@ const wikilinkClick = EditorView.domEventHandlers({
     // Following the link ends its status-bar hover; a tap never sends the
     // mouseleave that would (#820).
     setHoveredLink(null)
-    openWikilink(target, {
-      createWithoutAsking: event.button === 0 && (event.metaKey || event.ctrlKey)
-    })
+    openWikilink(target, { createWithoutAsking: event.metaKey || event.ctrlKey })
     return true
   }
 })

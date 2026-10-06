@@ -12,12 +12,15 @@ import { useStore } from '../store'
 import {
   buildAttachmentChip,
   buildEmbed,
+  buildMissingAssetNotice,
   classifyLocalAssetHref,
   hrefFragment,
+  isMissingAssetKind,
   localAssetLabel,
   resolveAssetVaultRelativePath,
-  resolveLocalAssetUrl,
-  setCloudSyncNotice
+  resolveLocalAsset,
+  setCloudSyncNotice,
+  type MissingAssetKind
 } from './local-assets'
 import { useCloudSyncStatusStore } from './cloud-auto-sync'
 import { oversizedCloudFileNotice, oversizedCloudFiles } from './cloud-oversized-files'
@@ -106,6 +109,9 @@ type ParsedImage = {
   alt: string
   href: string
   resolvedUrl: string
+  /** No file in the vault's listing answers the href: the line says the
+   *  picture is not on this device instead of framing nothing. */
+  missing: boolean
   /** Asset mtime, part of the image cache key so an edited file reloads. (#472) */
   version: number
   /** Obsidian-style `|600` / `|600x400` size hint from the label. (#570) */
@@ -117,6 +123,8 @@ type ParsedPdf = {
   label: string
   href: string
   resolvedUrl: string
+  /** As on `ParsedImage`, for the document. */
+  missing: boolean
 }
 
 function decodeURIComponentSafe(value: string | undefined): string {
@@ -269,13 +277,14 @@ function parseStandaloneLocalImage(lineText: string): ParsedImage | null {
   if (fromMarkdown) {
     const href = (fromMarkdown[2] ?? fromMarkdown[3] ?? '').trim()
     if (classifyLocalAssetHref(href) !== 'image') return null
-    const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
-    if (!resolvedUrl) return null
+    const asset = resolveLocalAsset(state.vault?.root, state.activeNote?.path, href)
+    if (!asset) return null
     const { alt, size } = splitEmbedLabel(fromMarkdown[1], 'markdown')
     return {
       alt,
       href,
-      resolvedUrl,
+      resolvedUrl: asset.url,
+      missing: asset.missing,
       version: assetVersionFor(href),
       width: size?.width,
       height: size?.height
@@ -286,13 +295,14 @@ function parseStandaloneLocalImage(lineText: string): ParsedImage | null {
   if (!fromEmbed) return null
   const href = (fromEmbed[1] ?? '').trim()
   if (classifyLocalAssetHref(href) !== 'image') return null
-  const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
-  if (!resolvedUrl) return null
+  const asset = resolveLocalAsset(state.vault?.root, state.activeNote?.path, href)
+  if (!asset) return null
   const { alt, size } = splitEmbedLabel(fromEmbed[2], 'wikilink')
   return {
     alt,
     href,
-    resolvedUrl,
+    resolvedUrl: asset.url,
+    missing: asset.missing,
     version: assetVersionFor(href),
     width: size?.width,
     height: size?.height
@@ -305,12 +315,13 @@ function parseStandaloneLocalPdf(lineText: string): ParsedPdf | null {
   if (fromMarkdown) {
     const href = (fromMarkdown[2] ?? fromMarkdown[3] ?? '').trim()
     if (classifyLocalAssetHref(href) !== 'pdf') return null
-    const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
-    if (!resolvedUrl) return null
+    const asset = resolveLocalAsset(state.vault?.root, state.activeNote?.path, href)
+    if (!asset) return null
     return {
       label: (fromMarkdown[1] ?? '').trim(),
       href,
-      resolvedUrl
+      resolvedUrl: asset.url,
+      missing: asset.missing
     }
   }
 
@@ -318,12 +329,13 @@ function parseStandaloneLocalPdf(lineText: string): ParsedPdf | null {
   if (!fromEmbed) return null
   const href = (fromEmbed[1] ?? '').trim()
   if (classifyLocalAssetHref(href) !== 'pdf') return null
-  const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
-  if (!resolvedUrl) return null
+  const asset = resolveLocalAsset(state.vault?.root, state.activeNote?.path, href)
+  if (!asset) return null
   return {
     label: (fromEmbed[2] ?? '').trim(),
     href,
-    resolvedUrl
+    resolvedUrl: asset.url,
+    missing: asset.missing
   }
 }
 
@@ -333,13 +345,15 @@ type ParsedMedia = {
   resolvedUrl: string
   /** Vault-relative path, null when no file in the vault answers the href. */
   assetPath: string | null
+  /** As on `ParsedImage`, for the player. */
+  missing: boolean
 }
 
 // A standalone audio or video embed, in either spelling: `![[clip.mp4]]` or
-// `![](clip.mp4)`, the same two the image widget reads. A missing file still
-// gets its player, from the resolver's fallback URL, as a missing image still
-// gets its frame; before the asset list arrives there is no URL to trust and
-// the line stays source until the list lands and the plugin redraws.
+// `![](clip.mp4)`, the same two the image widget reads. A file the vault's
+// listing does not have is drawn as the line saying so, as a missing picture
+// or PDF is; before the asset list arrives there is no URL to trust and the
+// line stays source until the list lands and the plugin redraws.
 function parseStandaloneLocalMedia(lineText: string, notePath: string | null): ParsedMedia | null {
   const embed = lineText.match(STANDALONE_OBSIDIAN_EMBED_RE)
   const md = embed ? null : lineText.match(STANDALONE_IMAGE_RE)
@@ -347,16 +361,18 @@ function parseStandaloneLocalMedia(lineText: string, notePath: string | null): P
   if (!href) return null
   const kind = classifyLocalAssetHref(href)
   if (kind !== 'audio' && kind !== 'video') return null
-  const root = useStore.getState().vault?.root
-  const resolvedUrl = resolveLocalAssetUrl(root, notePath, href)
-  if (!resolvedUrl) return null
-  return { kind, href, resolvedUrl, assetPath: resolveAssetVaultRelativePath(root, notePath, href) }
+  const asset = resolveLocalAsset(useStore.getState().vault?.root, notePath, href)
+  if (!asset) return null
+  return { kind, href, resolvedUrl: asset.url, assetPath: asset.path, missing: asset.missing }
 }
 
 type ParsedAttachment = {
   href: string
   resolvedUrl: string
   name: string
+  /** Set when the file is not on this device and its kind says so (a PDF in
+   *  image syntax); any other attachment keeps its chip. */
+  missingKind: MissingAssetKind | null
 }
 
 // A standalone non-previewable attachment embed. Two forms:
@@ -388,10 +404,11 @@ function parseStandaloneLocalAttachment(lineText: string): ParsedAttachment | nu
     return null
   }
   const state = useStore.getState()
-  const resolvedUrl = resolveLocalAssetUrl(state.vault?.root, state.activeNote?.path, href)
-  if (!resolvedUrl) return null
+  const asset = resolveLocalAsset(state.vault?.root, state.activeNote?.path, href)
+  if (!asset) return null
   const name = alt || decodeURIComponentSafe(href.split('/').filter(Boolean).pop()) || 'Attachment'
-  return { href, resolvedUrl, name }
+  const missingKind = asset.missing && isMissingAssetKind(kind) ? kind : null
+  return { href, resolvedUrl: asset.url, name, missingKind }
 }
 
 class LocalImageWidget extends WidgetType {
@@ -1048,6 +1065,34 @@ class LocalMediaWidget extends WidgetType {
   }
 }
 
+/** An image, PDF, audio or video line whose file is not on this device, drawn
+ *  as the reading view's card that says so. When the file arrives the line
+ *  parses as its own kind again and that widget replaces this one. */
+class MissingAssetWidget extends WidgetType {
+  constructor(
+    private readonly kind: MissingAssetKind,
+    private readonly href: string
+  ) {
+    super()
+  }
+
+  eq(other: MissingAssetWidget): boolean {
+    return other.kind === this.kind && other.href === this.href
+  }
+
+  toDOM(view: EditorView): HTMLElement {
+    const figure = buildMissingAssetNotice(this.kind, this.href, {
+      onEdit: () => editEmbedLine(view, figure)
+    })
+    figure.classList.add('cm-local-missing-embed')
+    return figure
+  }
+
+  ignoreEvent(): boolean {
+    return true
+  }
+}
+
 /** Puts the caret at the start of the line holding `dom`, revealing the
  *  embed's source. */
 function editEmbedLine(view: EditorView, dom: HTMLElement): void {
@@ -1302,19 +1347,21 @@ function computeDecorations(view: EditorView): DecorationSet {
           to: line.to,
           deco: Decoration.widget({
             side: 1,
-            widget: new LocalImageWidget(
-              notePath,
-              line.from,
-              line.to,
-              line.text,
-              parsedImage.alt,
-              parsedImage.href,
-              parsedImage.resolvedUrl,
-              parsedImage.version,
-              parsedImage.width,
-              parsedImage.height,
-              cloudNotice(parsedImage.href)
-            )
+            widget: parsedImage.missing
+              ? new MissingAssetWidget('image', parsedImage.href)
+              : new LocalImageWidget(
+                  notePath,
+                  line.from,
+                  line.to,
+                  line.text,
+                  parsedImage.alt,
+                  parsedImage.href,
+                  parsedImage.resolvedUrl,
+                  parsedImage.version,
+                  parsedImage.width,
+                  parsedImage.height,
+                  cloudNotice(parsedImage.href)
+                )
           })
         })
         if (!lineActive) {
@@ -1342,13 +1389,15 @@ function computeDecorations(view: EditorView): DecorationSet {
           to: line.to,
           deco: Decoration.widget({
             side: 1,
-            widget: new LocalMediaWidget(
-              parsedMedia.kind,
-              parsedMedia.href,
-              parsedMedia.resolvedUrl,
-              parsedMedia.assetPath,
-              oversizedCloudFileNotice(oversized, parsedMedia.assetPath)
-            )
+            widget: parsedMedia.missing
+              ? new MissingAssetWidget(parsedMedia.kind, parsedMedia.href)
+              : new LocalMediaWidget(
+                  parsedMedia.kind,
+                  parsedMedia.href,
+                  parsedMedia.resolvedUrl,
+                  parsedMedia.assetPath,
+                  oversizedCloudFileNotice(oversized, parsedMedia.assetPath)
+                )
           })
         })
         if (!lineActive) {
@@ -1429,17 +1478,19 @@ function computeDecorations(view: EditorView): DecorationSet {
           to: line.from,
           deco: Decoration.widget({
             side: 1,
-            widget: new LocalPdfWidget(
-              notePath,
-              line.from,
-              line.to,
-              parsedPdf.label,
-              parsedPdf.href,
-              parsedPdf.resolvedUrl,
-              compact,
-              isPinned,
-              cloudNotice(parsedPdf.href)
-            )
+            widget: parsedPdf.missing
+              ? new MissingAssetWidget('pdf', parsedPdf.href)
+              : new LocalPdfWidget(
+                  notePath,
+                  line.from,
+                  line.to,
+                  parsedPdf.label,
+                  parsedPdf.href,
+                  parsedPdf.resolvedUrl,
+                  compact,
+                  isPinned,
+                  cloudNotice(parsedPdf.href)
+                )
           })
         })
         pending.push({
@@ -1456,12 +1507,14 @@ function computeDecorations(view: EditorView): DecorationSet {
           to: line.to,
           deco: Decoration.widget({
             side: 1,
-            widget: new AttachmentChipWidget(
-              parsedAttachment.href,
-              parsedAttachment.resolvedUrl,
-              parsedAttachment.name,
-              cloudNotice(parsedAttachment.href)
-            )
+            widget: parsedAttachment.missingKind
+              ? new MissingAssetWidget(parsedAttachment.missingKind, parsedAttachment.href)
+              : new AttachmentChipWidget(
+                  parsedAttachment.href,
+                  parsedAttachment.resolvedUrl,
+                  parsedAttachment.name,
+                  cloudNotice(parsedAttachment.href)
+                )
           })
         })
         pending.push({
@@ -1754,6 +1807,9 @@ export const livePreviewPlugin = ViewPlugin.fromClass(
           // the wrong URL on the very first decoration pass and stays
           // broken until you re-trigger a recompute by editing.
           state.assetFiles !== prev.assetFiles ||
+          // An empty listing landing is what lets an embed in a vault with
+          // no files say its file is not on this device.
+          state.assetFilesListed !== prev.assetFilesListed ||
           // Notes list arriving late lets Excalidraw embed targets resolve
           // to a vault-relative path; and a bumped version means a drawing
           // was edited elsewhere and the cached preview must refresh.

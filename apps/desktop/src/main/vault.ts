@@ -4313,7 +4313,7 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
         ancestors.delete(childReal)
         continue
       }
-      if (!entry.isFile()) continue
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue
       if (isAtomicWriteTempPath(entry.name)) continue
       if (entry.name.toLowerCase().endsWith('.md')) continue
       // Excalidraw drawings are a first-class file type (listed with notes), not
@@ -4327,6 +4327,10 @@ export async function listAssets(root: string): Promise<AssetMeta[]> {
       } catch {
         continue
       }
+      // A link to a file is an attachment like any other: zen-asset serves it,
+      // and an embed of a file missing from this list says the file is not on
+      // this device. A broken link, or one to anything but a file, is not one.
+      if (!stat.isFile()) continue
       const rel = toPosix(path.relative(root, full))
       out.push({
         path: rel,

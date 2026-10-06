@@ -19,7 +19,6 @@ import {
 } from '@codemirror/state'
 import {
   EditorView,
-  drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -58,6 +57,8 @@ import {
   type ThemeMode
 } from '../lib/themes'
 import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
+import { storedCursorDrawSelection } from '../lib/cm-cursor-blink'
+import { useCloseWindowShortcut } from '../lib/close-shortcut'
 
 const PREFS_KEY = 'zen:prefs:v2'
 const SAVE_DEBOUNCE_MS = 350
@@ -113,6 +114,7 @@ export interface FloatingPrefs {
   showHeadingLevelLabels: boolean
   lineNumberMode: LineNumberMode
   wordWrap: boolean
+  cursorBlink: boolean
   interfaceFont: string | null
   textFont: string | null
   monoFont: string | null
@@ -134,6 +136,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
     showHeadingLevelLabels: false,
     lineNumberMode: 'off',
     wordWrap: true,
+    cursorBlink: true,
     interfaceFont: null,
     textFont: null,
     monoFont: null
@@ -154,6 +157,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
       vimWrappedLineMotions:
         parsed.vimWrappedLineMotions === 'logical' ? 'logical' : 'display',
       vimBlockImeInNormalMode: parsed.vimBlockImeInNormalMode !== false,
+      cursorBlink: parsed.cursorBlink !== false,
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
       lineNumberMode,
@@ -176,6 +180,12 @@ export function lineNumberExtension(mode: LineNumberMode): Extension {
     }),
     highlightActiveLineGutter()
   ]
+}
+
+/** drawSelection for the floating and external-file windows: the Blinking
+ *  cursor preference at open, and again whenever Settings saves it. */
+export function floatingCursorDrawSelection(): Extension {
+  return storedCursorDrawSelection(PREFS_KEY, () => loadFloatingPrefs().cursorBlink)
 }
 
 export function applyTheme(prefs: FloatingPrefs): void {
@@ -338,7 +348,7 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           vimImeGuard(() => prefs.vimBlockImeInNormalMode && !isTouchPrimaryDevice()),
           vimVisualHighlightExtension,
           history(),
-          drawSelection(),
+          floatingCursorDrawSelection(),
           editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           prefs.wordWrap ? EditorView.lineWrapping : [],
@@ -417,20 +427,9 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
     return () => window.removeEventListener('beforeunload', flush)
   }, [persist])
 
-  // Floating windows have no tab strip, so browser-style window close
-  // shortcuts should close the OS window itself rather than trying to
-  // mimic the main app's "close active tab" behavior.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent): void => {
-      const mod = event.metaKey || event.ctrlKey
-      if (!mod || event.altKey) return
-      if (event.key.toLowerCase() !== 'w') return
-      event.preventDefault()
-      window.zen.windowClose()
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
+  // No tab strip here: the close shortcut closes the window itself, through
+  // the same path as the close button, so the pending save flushes on unload.
+  useCloseWindowShortcut()
 
   // Vim ex commands scoped to the floating window. The main-window
   // `registerVimCommands` never runs here (each Electron window has its

@@ -240,11 +240,27 @@ export interface CloudBackupSnapshotCollection {
   data: CloudBackupSnapshot[];
 }
 
+/**
+ * Why the newest automatic backup did not happen. The service clears it once
+ * an automatic backup succeeds, and when automatic backups are turned off.
+ */
+export interface CloudBackupScheduleFailure {
+  /** BACKUP_QUOTA_EXCEEDED names the plan limit in `details` (`limit`,
+   *  `current`, `allowed`); AUTOMATIC_BACKUP_FAILED is a backup that failed. */
+  code: string;
+  /** The service's own English sentence. */
+  message: string | null;
+  details: Record<string, unknown> | null;
+  occurred_at: string | null;
+}
+
 export interface CloudBackupSchedule {
   enabled: boolean;
   frequency: "daily";
   next_backup_at: string | null;
   last_backup_at: string | null;
+  /** Absent from a service that predates it. */
+  last_failure?: CloudBackupScheduleFailure | null;
 }
 
 export interface CloudBackupScheduleResponse {

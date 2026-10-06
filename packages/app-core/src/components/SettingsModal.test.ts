@@ -8,6 +8,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsModal } from "./SettingsModal";
 import { requestSettingsTarget } from "../lib/settings-navigation";
+import { isDialogOrMenuOpen } from "../lib/close-shortcut";
+import { clearCloudSyncStatus, useCloudSyncStatusStore } from "../lib/cloud-auto-sync";
 import {
   getSettingsSearchResults,
   type SettingsSearchCategory,
@@ -22,6 +24,9 @@ const cloudMocks = vi.hoisted(() => ({
     .fn()
     .mockResolvedValue({ state: "disconnected", account: null }),
   onCloudAccountChange: vi.fn(() => vi.fn()),
+  getCloudServiceAccount: vi.fn(),
+  listCloudVaults: vi.fn(),
+  getCloudVaultLink: vi.fn(),
 }));
 
 const mocks = vi.hoisted(() => {
@@ -61,6 +66,10 @@ const mocks = vi.hoisted(() => {
       hiddenWorkflowPresets: [],
       hideBuiltinTemplates: false,
       interfaceFont: null,
+      // The Tasks pane: "due date" finds its Kanban card order row first.
+      kanbanCardSort: "manual",
+      kanbanFolderRoot: "",
+      kanbanStatuses: [] as string[],
       keymapOverrides: {} as Record<string, string>,
       lineNumberMode: "off",
       mathRenderer: "katex" as "katex" | "typst",
@@ -274,6 +283,13 @@ describe("SettingsModal date note directories", () => {
     expect(host.querySelector('[role="dialog"]')?.hasAttribute("data-settings-target")).toBe(false);
   });
 
+  it("is the window the close shortcut closes, not a dialog in front of it (#893)", async () => {
+    await act(async () => root.render(createElement(SettingsModal)));
+    const panel = host.querySelector('[aria-modal="true"]');
+    expect(panel?.hasAttribute("data-settings-dialog")).toBe(true);
+    expect(isDialogOrMenuOpen()).toBe(false);
+  });
+
   it("opens application link settings and saves normalized prefixes", async () => {
     requestSettingsTarget("external-links");
     await act(async () => root.render(createElement(SettingsModal)));
@@ -457,6 +473,8 @@ describe("SettingsModal date note directories", () => {
       ["open in preview", "Default view mode", "default-view-mode"],
       ["event triggers", "Event triggers", "workflow-event-triggers"],
       ["due date", "Tasks are due on the note's date", "daily-notes-tasks-due-on-date"],
+      ["due date", "Kanban card order", "kanban-card-sort"],
+      ["card order", "Kanban card order", "kanban-card-sort"],
       ["rollover", "Roll over unfinished tasks to today", "daily-notes-rollover"],
       ["tutorial", "Guided tutorial", "workflow-tutorial"],
       ["recipe gallery", "Built-in recipes", "workflow-hidden-recipes"],
@@ -640,6 +658,65 @@ describe("SettingsModal date note directories", () => {
 
     expect(host.textContent).toContain("Keep your vault available everywhere");
     expect(host.textContent).toContain("Connect ZenNotes Cloud");
+  });
+
+  it("opens a Cloud request on This vault and hands what waits there the keyboard", async () => {
+    const account = {
+      base_url: "https://zennotes.org",
+      user: { name: "Ada", email: "ada@example.com" },
+      device: { id: "device-1", name: "Ada’s Mac", platform: "desktop" },
+      connected_at: "2026-08-10T12:00:00.000Z",
+    };
+    cloudMocks.getCloudAccountStatus.mockResolvedValueOnce({ state: "connected", account });
+    cloudMocks.getCloudServiceAccount.mockResolvedValueOnce({
+      user: account.user,
+      device: { ...account.device, app_version: "2.62.0" },
+      features: {
+        sync: { active: true, limits: null },
+        backup: { active: false, limits: null },
+        publish: { active: false, limits: null },
+      },
+    });
+    cloudMocks.listCloudVaults.mockResolvedValueOnce([]);
+    cloudMocks.getCloudVaultLink.mockResolvedValueOnce({
+      base_url: account.base_url,
+      vault_id: "vault-1",
+      vault_name: "Cloud Notes",
+      linked_at: "2026-08-10T12:00:00.000Z",
+    });
+    useCloudSyncStatusStore.setState({
+      phase: "attention",
+      vaultName: "Cloud Notes",
+      lastSummary: {
+        cursor: 7,
+        pulled: 0,
+        pushed: 0,
+        conflicts: [],
+        bootstrap_conflicts: [],
+        local_conflicts: [
+          {
+            code: "LOCAL_EDIT_CONFLICT",
+            path: "inbox/Plan.md",
+            conflict_copy_path: "inbox/Plan (cloud conflict).md",
+          },
+        ],
+      },
+    });
+
+    try {
+      requestSettingsTarget("cloud");
+      await act(async () => root.render(createElement(SettingsModal)));
+
+      const vault = host.querySelector<HTMLElement>('[data-settings-search-id="cloud-vault"]');
+      const waiting = vault?.querySelector<HTMLElement>("[data-cloud-attention]");
+      expect(waiting?.textContent).toContain("inbox/Plan.md");
+      // The page opens on the files Review was about, not on the account at
+      // its top, and the keyboard is already there.
+      expect(document.activeElement).toBe(waiting);
+      expect(vi.mocked(Element.prototype.scrollIntoView).mock.contexts).toContain(vault);
+    } finally {
+      clearCloudSyncStatus();
+    }
   });
   async function openKeymapRow(title: string): Promise<HTMLElement> {
     await act(async () => {

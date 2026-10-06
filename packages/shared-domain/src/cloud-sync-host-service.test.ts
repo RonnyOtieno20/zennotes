@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createHash } from 'node:crypto'
 import type {
+  CloudBackupSchedule,
+  CloudBackupScheduleResponse,
   CloudBackupSnapshotItemCollection,
   CloudSyncContent,
   CloudSyncManifestResponse,
@@ -120,7 +122,7 @@ function setup(vaults: CloudSyncVault[] = [], localItems: CloudSyncLocalItem[] =
       cursor: body.mutations.length
     })),
     listBackups: vi.fn(async () => ({ data: [] })),
-    backupSchedule: vi.fn(async () => ({
+    backupSchedule: vi.fn(async (): Promise<CloudBackupScheduleResponse> => ({
       data: {
         enabled: false,
         frequency: 'daily' as const,
@@ -458,6 +460,33 @@ describe('CloudSyncHostService', () => {
     await expect(service.sync(hostVault)).rejects.toThrow('different ZenNotes Cloud account')
   })
 
+  it('hands on why the last automatic backup did not happen, as the service sent it', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { client, hostVault, service } = setup([remoteVault])
+    await service.link(hostVault, remoteVault.id)
+    const schedule: CloudBackupSchedule = {
+      enabled: true,
+      frequency: 'daily',
+      next_backup_at: '2026-10-05T03:00:00.000Z',
+      last_backup_at: '2026-10-02T03:00:00.000Z',
+      last_failure: {
+        code: 'BACKUP_QUOTA_EXCEEDED',
+        message: 'The latest automatic backup was skipped because this vault reached a backup limit.',
+        details: { limit: 'max_snapshots', current: 30, allowed: 30 },
+        occurred_at: '2026-10-04T03:00:00.000Z'
+      }
+    }
+    client.backupSchedule.mockResolvedValueOnce({ data: schedule })
+
+    await expect(service.backupSchedule(hostVault)).resolves.toEqual(schedule)
+  })
+
   it('creates, lists, schedules, deletes, and restores backups for the linked vault', async () => {
     const remoteVault: CloudSyncVault = {
       id: 'vault-1',
@@ -579,6 +608,34 @@ describe('CloudSyncHostService', () => {
 
     await expect(service.createBackup(hostVault)).rejects.toThrow('Resolve sync conflicts')
     expect(client.createBackup).not.toHaveBeenCalled()
+  })
+
+  it('says which plan limit a refused backup ran into, and passes other failures through', async () => {
+    const remoteVault: CloudSyncVault = {
+      id: 'vault-1',
+      name: 'Notes',
+      cursor: 0,
+      created_at: '2026-08-10T12:00:00.000Z',
+      updated_at: '2026-08-10T12:00:00.000Z'
+    }
+    const { client, hostVault, service } = setup([remoteVault])
+    await service.link(hostVault, remoteVault.id)
+    const outage = Object.assign(new Error('ZenNotes Cloud request failed (503).'), {
+      name: 'CloudServiceRequestError', status: 503, code: null, details: null
+    })
+    client.createBackup
+      .mockRejectedValueOnce(Object.assign(new Error('This backup would exceed your plan limits.'), {
+        name: 'CloudServiceRequestError',
+        status: 409,
+        code: 'BACKUP_QUOTA_EXCEEDED',
+        details: { limit: 'max_snapshot_bytes', current: 54_200_000, allowed: 52_428_800 }
+      }))
+      .mockRejectedValueOnce(outage)
+
+    await expect(service.createBackup(hostVault, 'Before travel')).rejects.toThrow(
+      'This vault holds 54 MB, and backups on your plan hold up to 52 MB. Remove large files, or contact support to raise the limit.'
+    )
+    await expect(service.createBackup(hostVault)).rejects.toBe(outage)
   })
 })
 

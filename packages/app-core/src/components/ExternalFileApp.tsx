@@ -12,7 +12,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Annotation, Compartment, EditorState, type Transaction } from '@codemirror/state'
-import { EditorView, drawSelection, highlightActiveLine, keymap } from '@codemirror/view'
+import { EditorView, highlightActiveLine, keymap } from '@codemirror/view'
 import { Vim, vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
@@ -32,11 +32,13 @@ import { LazyPreview as Preview } from './LazyPreview'
 import { CloseIcon, InboxIcon } from './icons'
 import {
   applyTheme,
+  floatingCursorDrawSelection,
   lineNumberExtension,
   loadFloatingPrefs,
   paperHighlight
 } from './FloatingNoteApp'
 import { editorTabSize } from '../lib/editor-tab-size'
+import { useCloseWindowShortcut } from '../lib/close-shortcut'
 import { linkRangeAtCursor } from '../lib/internal-links'
 import { pointerOverRange } from '../lib/cm-pointer-range'
 import {
@@ -165,7 +167,7 @@ export function ExternalFileApp(): JSX.Element {
           new Compartment().of(prefs.vimMode ? vim() : []),
           vimVisualHighlightExtension,
           history(),
-          drawSelection(),
+          floatingCursorDrawSelection(),
           editorTabSize(prefs.editorTabSize),
           highlightActiveLine(),
           prefs.wordWrap ? EditorView.lineWrapping : [],
@@ -249,18 +251,8 @@ export function ExternalFileApp(): JSX.Element {
     return () => window.removeEventListener('beforeunload', flush)
   }, [persist])
 
-  // Cmd/Ctrl+W closes the standalone window.
-  useEffect(() => {
-    const handler = (event: KeyboardEvent): void => {
-      const mod = event.metaKey || event.ctrlKey
-      if (!mod || event.altKey) return
-      if (event.key.toLowerCase() !== 'w') return
-      event.preventDefault()
-      window.zen.windowClose()
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [])
+  // The close shortcut closes the standalone window, like its close button.
+  useCloseWindowShortcut()
 
   const currentBody = useCallback((): string => {
     return viewRef.current?.state.doc.toString() ?? bodyRef.current ?? content?.body ?? ''

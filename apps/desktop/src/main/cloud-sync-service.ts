@@ -25,7 +25,11 @@ import type {
   CloudSyncVault,
   CloudVaultLink
 } from '@zennotes/bridge-contract/cloud-sync'
-import { cloudBackupItemsPage, restoreCloudBackup } from '@zennotes/shared-domain/cloud-backup'
+import {
+  cloudBackupCreateError,
+  cloudBackupItemsPage,
+  restoreCloudBackup
+} from '@zennotes/shared-domain/cloud-backup'
 import {
   CLOUD_SYNC_SETTINGS_CONFLICT_PATH,
   CLOUD_SYNC_VAULT_SETTINGS_PATH
@@ -220,7 +224,11 @@ export class DesktopCloudSyncService {
     const summary = await this.sync(localRoot)
     assertBackupReady(summary)
     const { client, link } = await this.linkedConnection(localRoot)
-    return (await client.createBackup(link.vault_id, label)).data
+    try {
+      return (await client.createBackup(link.vault_id, label)).data
+    } catch (error) {
+      throw cloudBackupCreateError(error)
+    }
   }
 
   async deleteBackup(localRoot: string, backupId: string): Promise<void> {

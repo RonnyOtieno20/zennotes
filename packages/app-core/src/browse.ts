@@ -1,5 +1,10 @@
 import { useSyncExternalStore } from 'react'
-import type { FolderEntry } from '@bridge-contract/ipc'
+import type {
+  AssetMeta,
+  FolderEntry,
+  ImportedAssetKind,
+  VaultSettings
+} from '@bridge-contract/ipc'
 import {
   csvPathForFormDir,
   databaseTabPath,
@@ -17,6 +22,9 @@ import {
   type ShellSnapshot
 } from './shell'
 import { parentDirOf } from './lib/manual-order'
+import { browseNoteComparator } from './lib/note-order'
+import { assetBelongsToFolderView, assetFolderSubpath } from './lib/vault-layout'
+import { assetTabPath } from './lib/asset-tabs'
 
 export interface BrowseFolder {
   /** Relative to the primary notes area, not the vault root. */
@@ -29,12 +37,25 @@ export interface BrowseDatabase extends BrowseFolder {
   readonly path: string
 }
 
+/** A file other than a note or drawing, as the desktop sidebar lists it in its folder. */
+export interface BrowseFile {
+  /** Opaque application path; pass to the public navigation openNote action. */
+  readonly path: string
+  /** The folder holding the file, relative to the primary notes area; empty at its root. */
+  readonly directory: string
+  /** The file name with its extension. */
+  readonly name: string
+  readonly kind: ImportedAssetKind
+  readonly updatedAt: number
+}
+
 export interface BrowseSnapshot {
   /** Display/change metadata. Native persistence uses the host's stable vault token. */
   readonly vault: ShellSnapshot['vault']
   readonly folders: readonly BrowseFolder[]
   readonly databases: readonly BrowseDatabase[]
   readonly notes: readonly ShellNote[]
+  readonly files: readonly BrowseFile[]
   readonly noteSortOrder: NoteSortOrder
   /** Enabled directory settings, unchanged; null when disabled. Patterns are not expanded. */
   readonly dateDirectories: Readonly<{
@@ -53,12 +74,16 @@ export interface BrowseDirectory {
   readonly folders: readonly BrowseFolder[]
   readonly databases: readonly BrowseDatabase[]
   readonly notes: readonly ShellNote[]
+  readonly files: readonly BrowseFile[]
 }
 
 let folderSource: readonly FolderEntry[] | undefined
 let primaryDirectory = ''
 let folders: readonly BrowseFolder[] = Object.freeze([])
 let databases: readonly BrowseDatabase[] = Object.freeze([])
+let fileSource: readonly AssetMeta[] | undefined
+let fileLayout = ''
+let files: readonly BrowseFile[] = Object.freeze([])
 let dates: BrowseSnapshot['dateDirectories'] = Object.freeze({
   daily: null,
   weekly: null,
@@ -100,6 +125,23 @@ export function getBrowseSnapshot(): BrowseSnapshot {
     folders = Object.freeze([...folderRows.values()])
     databases = Object.freeze([...databaseRows.values()])
   }
+  // Every system folder's directory decides where a file belongs, not only
+  // the primary one: a file under a remapped archive is the archive's.
+  const layout = JSON.stringify([
+    settings.primaryNotesLocation,
+    ...(['inbox', 'quick', 'archive', 'trash'] as const).map((folder) =>
+      resolveFolderPath(folder, settings.systemFolderPaths)
+    )
+  ])
+  if (fileSource !== state.assetFiles || fileLayout !== layout) {
+    fileSource = state.assetFiles
+    fileLayout = layout
+    const rows = browseFiles(state.assetFiles, settings)
+    // Any non-note change re-reads the whole file index into a new array.
+    // The same files read back keep the delivered rows, so subscribers are
+    // not woken for nothing.
+    if (!sameFiles(rows, files)) files = Object.freeze(rows)
+  }
   const daily = settings.dailyNotes.enabled ? settings.dailyNotes.directory : null
   const weekly = settings.weeklyNotes.enabled ? settings.weeklyNotes.directory : null
   const monthly = settings.monthlyNotes.enabled ? settings.monthlyNotes.directory : null
@@ -111,6 +153,7 @@ export function getBrowseSnapshot(): BrowseSnapshot {
     noteSortOrder: shell.noteSortOrder,
     folders,
     databases,
+    files,
     dateDirectories: dates
   }
   if (
@@ -143,7 +186,59 @@ export function useBrowseSnapshot(): BrowseSnapshot {
   return useSyncExternalStore(subscribeReact, getBrowseSnapshot, getBrowseSnapshot)
 }
 
-/** Immediate mobile Browse rows, with separate folder, database, and note groups. */
+/**
+ * The desktop sidebar's files for the primary tree (its buildTree): the root
+ * asset folders, the other system folders and `.zennotes` never reach a
+ * folder, and a file inside a database stays out like the database's records.
+ */
+function browseFiles(assets: readonly AssetMeta[], settings: VaultSettings): BrowseFile[] {
+  const rows: BrowseFile[] = []
+  for (const asset of assets) {
+    if (!assetBelongsToFolderView(asset, 'inbox', '', settings)) continue
+    const directory = assetFolderSubpath(asset, settings)
+    if (formDirContaining(directory)) continue
+    rows.push(
+      Object.freeze({
+        path: assetTabPath(asset.path),
+        directory,
+        name: asset.name,
+        kind: asset.kind,
+        updatedAt: asset.updatedAt
+      })
+    )
+  }
+  return rows
+}
+
+function sameFiles(a: readonly BrowseFile[], b: readonly BrowseFile[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((row, index) => {
+      const other = b[index]
+      return (
+        row.path === other.path &&
+        row.directory === other.directory &&
+        row.name === other.name &&
+        row.kind === other.kind &&
+        row.updatedAt === other.updatedAt
+      )
+    })
+  )
+}
+
+/** Files follow the note sort. They carry no creation time, so the created
+ *  orders use their last change, as the desktop note list orders files. */
+function browseFileComparator(order: NoteSortOrder): (a: BrowseFile, b: BrowseFile) => number {
+  const compare = browseNoteComparator(order)
+  const sortable = (row: BrowseFile) => ({
+    title: row.name,
+    updatedAt: row.updatedAt,
+    createdAt: row.updatedAt
+  })
+  return (a, b) => compare(sortable(a), sortable(b))
+}
+
+/** Immediate mobile Browse rows, with separate folder, database, note, and file groups. */
 export function getBrowseDirectory(
   snapshot: BrowseSnapshot,
   directory = '',
@@ -153,7 +248,8 @@ export function getBrowseDirectory(
     return Object.freeze({
       folders: Object.freeze([]),
       databases: Object.freeze([]),
-      notes: Object.freeze([])
+      notes: Object.freeze([]),
+      files: Object.freeze([])
     })
   const childFolders = snapshot.folders
     .filter((row) => parentDirOf(row.directory) === directory)
@@ -169,7 +265,12 @@ export function getBrowseDirectory(
         .filter((row) => parentDirOf(row.directory) === directory)
         .sort((a, b) => a.title.localeCompare(b.title))
     ),
-    notes: getBrowseNotes(snapshot, directory, pins.notes)
+    notes: getBrowseNotes(snapshot, directory, pins.notes),
+    files: Object.freeze(
+      snapshot.files
+        .filter((row) => row.directory === directory)
+        .sort(browseFileComparator(snapshot.noteSortOrder))
+    )
   })
 }
 

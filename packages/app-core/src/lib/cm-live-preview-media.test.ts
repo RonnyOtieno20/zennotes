@@ -17,6 +17,7 @@ const store = vi.hoisted(() => ({
   state: {
     activeNote: null as { path: string } | null,
     assetFiles: [] as Array<{ path: string }>,
+    assetFilesListed: false,
     excalidrawPreviewVersion: 0,
     noteRefs: {},
     notes: [],
@@ -89,6 +90,19 @@ function notices(view: EditorView): string[] {
   return [...view.dom.querySelectorAll('[data-cloud-sync-notice]')].map((el) => el.textContent ?? '')
 }
 
+/** A drawn picture. CodeMirror's own `img.cm-widgetBuffer` cursor helpers sit
+ *  beside every widget and are not one. */
+const PICTURE = 'img:not(.cm-widgetBuffer)'
+
+/** Each embed drawn as "not on this device": its kind, its href, its line. */
+function missing(view: EditorView): Array<[string, string, string]> {
+  return [...view.dom.querySelectorAll<HTMLElement>('[data-local-asset-missing]')].map((card) => [
+    card.dataset.localAssetMissing ?? '',
+    card.dataset.localAssetHref ?? '',
+    card.querySelector('[role="note"]')?.textContent ?? ''
+  ])
+}
+
 beforeEach(() => {
   ;(window as unknown as { zen: unknown }).zen = {
     resolveVaultAssetUrl: (_root: string, rel: string) => `zen-asset://vault/${rel}`,
@@ -103,6 +117,8 @@ beforeEach(() => {
     { path: 'assets/doc.pdf' },
     { path: 'assets/archive.zip' }
   ]
+  // The app has read the vault's files, as it has by the time a note is open.
+  store.state.assetFilesListed = true
   clearCloudSyncStatus()
 })
 
@@ -174,18 +190,15 @@ describe('live preview: audio and video embeds', () => {
     expect(view.dom.querySelector('.local-file-attachment')).toBeNull()
   })
 
-  it('draws a missing file\'s player from the fallback URL, as a missing image keeps its frame', () => {
-    const doc = 'Top\n\n![[assets/gone.mp4]]\n\nEnd'
-    const view = mountEditor(doc, 0)
-    expect(view.dom.querySelector('video')?.getAttribute('src')).toBe('zen-asset://note/assets/gone.mp4')
-  })
-
   it('leaves the line as source until the asset list arrives', () => {
     store.state.assetFiles = []
-    const doc = 'Top\n\n![[assets/clip.mp4]]\n\nEnd'
+    store.state.assetFilesListed = false
+    const doc = 'Top\n\n![[assets/clip.mp4]]\n\n![[assets/gone.mp4]]\n\nEnd'
     const view = mountEditor(doc, 0)
     expect(view.dom.querySelector('video')).toBeNull()
+    expect(missing(view)).toEqual([])
     expect(view.dom.textContent).toContain('![[assets/clip.mp4]]')
+    expect(view.dom.textContent).toContain('![[assets/gone.mp4]]')
   })
 
   it('puts the caret on the embed line from its </> action', () => {
@@ -198,6 +211,114 @@ describe('live preview: audio and video embeds', () => {
 
     expect(view.state.selection.main.head).toBe(doc.indexOf('![['))
     expect(view.dom.textContent).toContain('![[assets/clip.mp4]]')
+  })
+})
+
+describe('live preview: an embed whose file is not on this device', () => {
+  // A file over Cloud's per-file limit never leaves the device that has it.
+  // Every other device gets the note and its embed, and no file to play.
+  it('says so where the player would be, instead of drawing a player with nothing to play', () => {
+    const doc = 'Top\n\n![[assets/gone.mp4]]\n\nEnd'
+    const view = mountEditor(doc, 0)
+
+    expect(view.dom.querySelector('video')).toBeNull()
+    expect(missing(view)).toEqual([['video', 'assets/gone.mp4', "gone.mp4 isn't on this device."]])
+    const card = view.dom.querySelector<HTMLElement>('[data-local-asset-missing]')!
+    expect(card.querySelector('[role="note"]')?.classList.contains('text-warning')).toBe(true)
+    // Laid out as the player was: the source hides off the cursor line.
+    expect(view.dom.textContent).not.toContain('![[assets/gone.mp4]]')
+    expect(lineOf(card).classList.contains('cm-image-embed-line')).toBe(true)
+  })
+
+  it('says so for audio, pictures and PDFs, in each spelling those embeds take', () => {
+    const doc = [
+      'Top',
+      '',
+      '![[assets/gone.mp3]]',
+      '',
+      '![](assets/gone%20clip.mp4)',
+      '',
+      '![[assets/gone.png]]',
+      '',
+      '![A chart](assets/chart.png)',
+      '',
+      '![[assets/gone.pdf]]',
+      '',
+      '[The spec](assets/spec.pdf)',
+      '',
+      '![](assets/scan.pdf)',
+      '',
+      'End'
+    ].join('\n')
+    const view = mountEditor(doc, 0)
+
+    expect(view.dom.querySelector(`audio, video, ${PICTURE}, iframe, .local-file-attachment`)).toBeNull()
+    expect(view.dom.querySelector('.local-asset-pinned-ref')).toBeNull()
+    expect(missing(view)).toEqual([
+      ['audio', 'assets/gone.mp3', "gone.mp3 isn't on this device."],
+      ['video', 'assets/gone%20clip.mp4', "gone clip.mp4 isn't on this device."],
+      ['image', 'assets/gone.png', "gone.png isn't on this device."],
+      ['image', 'assets/chart.png', "chart.png isn't on this device."],
+      ['pdf', 'assets/gone.pdf', "gone.pdf isn't on this device."],
+      ['pdf', 'assets/spec.pdf', "spec.pdf isn't on this device."],
+      ['pdf', 'assets/scan.pdf', "scan.pdf isn't on this device."]
+    ])
+  })
+
+  it('keeps the chip of any other attachment: the vault listing leaves out files a chip can still name', () => {
+    const doc = 'Top\n\n![[assets/gone.zip]]\n\nEnd'
+    const view = mountEditor(doc, 0)
+    expect(missing(view)).toEqual([])
+    expect(view.dom.querySelector('.local-file-attachment')?.textContent).toContain('gone.zip')
+  })
+
+  it('says so in a vault whose listing holds no files at all', () => {
+    store.state.assetFiles = []
+    const doc = 'Top\n\n![[assets/gone.mp4]]\n\n![[assets/gone.png]]\n\nEnd'
+    const view = mountEditor(doc, 0)
+    expect(view.dom.querySelector(`video, ${PICTURE}`)).toBeNull()
+    expect(missing(view).map(([kind, href]) => [kind, href])).toEqual([
+      ['video', 'assets/gone.mp4'],
+      ['image', 'assets/gone.png']
+    ])
+  })
+
+  it('trusts only a listing read from the vault: a list seeded by hand keeps the player', () => {
+    // The share viewer and PDF export hand the store a list of their own and
+    // serve the files the list leaves out from the guessed URL.
+    store.state.assetFilesListed = false
+    const doc = 'Top\n\n![[assets/gone.mp4]]\n\nEnd'
+    const view = mountEditor(doc, 0)
+    expect(missing(view)).toEqual([])
+    expect(view.dom.querySelector('video')?.getAttribute('src')).toBe('zen-asset://note/assets/gone.mp4')
+  })
+
+  it('shows the source above the notice on the cursor line, and the player once the file arrives', () => {
+    const doc = 'Top\n\n![[assets/gone.mp4]]\n\nEnd'
+    const view = mountEditor(doc, 0)
+
+    view.dispatch({ selection: { anchor: doc.indexOf('![[') + 3 } })
+    expect(view.dom.textContent).toContain('![[assets/gone.mp4]]')
+    expect(missing(view)).toHaveLength(1)
+    expect(lineOf(view.dom.querySelector('[data-local-asset-missing]')!).classList.contains('cm-image-embed-line')).toBe(false)
+
+    store.state.assetFiles = [...store.state.assetFiles, { path: 'assets/gone.mp4' }]
+    view.dispatch({ selection: { anchor: doc.length } })
+
+    expect(missing(view)).toEqual([])
+    expect(view.dom.querySelector('video')?.getAttribute('src')).toBe('zen-asset://vault/assets/gone.mp4')
+  })
+
+  it("puts the caret on the embed line from the notice's </> action", () => {
+    const doc = 'Above\n\n![[assets/gone.mp4]]\n\nBelow'
+    const view = mountEditor(doc, 0)
+    const edit = view.dom.querySelector<HTMLButtonElement>('[data-local-asset-missing] .local-asset-embed-edit')
+    expect(edit?.textContent).toBe('</>')
+
+    edit!.click()
+
+    expect(view.state.selection.main.head).toBe(doc.indexOf('![['))
+    expect(view.dom.textContent).toContain('![[assets/gone.mp4]]')
   })
 })
 

@@ -1,7 +1,7 @@
 {
   "name": "zennotes-monorepo",
   "private": true,
-  "version": "2.61.0",
+  "version": "2.62.0",
   "description": "ZenNotes monorepo for desktop, web, and self-hosted server builds",
   "packageManager": "npm@10.9.2",
   "engines": {
@@ -13,7 +13,8 @@
   ],
   "overrides": {
     "@excalidraw/excalidraw": {
-      "nanoid": "3.3.18"
+      "nanoid": "3.3.18",
+      "sass": "1.103.1"
     },
     "@excalidraw/mermaid-to-excalidraw": {
       "@mermaid-js/parser": "1.2.1",

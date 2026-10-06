@@ -15,6 +15,7 @@ import {
   type CloudAutoSyncControllerOptions,
   type CloudAutoSyncReason,
 } from "@zennotes/shared-domain/cloud-auto-sync";
+import { formatCloudBytes } from "@zennotes/shared-domain/cloud-bytes";
 import {
   cloudSyncPathKey,
   shouldSyncVaultPath,
@@ -1163,15 +1164,6 @@ export function cloudSyncAttentionItems(
   return items;
 }
 
-export function formatCloudBytes(bytes: number): string {
-  if (bytes < 1_000) return `${bytes} B`;
-  const units = ["KB", "MB", "GB", "TB"];
-  let value = bytes / 1_000;
-  let unit = units[0];
-  for (const candidate of units.slice(1)) {
-    if (value < 1_000) break;
-    value /= 1_000;
-    unit = candidate;
-  }
-  return `${value >= 10 ? value.toFixed(0) : value.toFixed(1)} ${unit}`;
-}
+// The hosts word a refused backup's size before it crosses IPC as text, so
+// the formatter lives in shared-domain; this keeps the app-core import path.
+export { formatCloudBytes } from "@zennotes/shared-domain/cloud-bytes";

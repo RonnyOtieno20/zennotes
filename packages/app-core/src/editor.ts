@@ -225,6 +225,9 @@ async function importAndInsert<T>(
     const before = from > 0 ? document.sliceString(from - 1, from) : ''
     const after = document.sliceString(to, to + 1)
     const insert = formatImportedAssetsForInsertion(assets, before, after)
+    // Listed before the embeds land, or each would say its file is not on
+    // this device until the host's next listing.
+    useStore.getState().indexImportedAssets(assets)
     view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length } })
     view.focus()
     return { status: 'inserted', assets }

@@ -1037,6 +1037,30 @@ describe('listNotes metadata parsing', () => {
   })
 })
 
+describe('listAssets symlinks', () => {
+  it('lists a file reached through a symlink, so an embed of it is not called missing', async () => {
+    const root = await makeTempDir('zennotes-asset-symlink-')
+    await ensureVaultLayout(root)
+    await mkdir(path.join(root, 'assets'), { recursive: true })
+    const srcDir = await makeTempDir('zennotes-asset-symlink-src-')
+    const external = path.join(srcDir, 'clip.mp4')
+    await writeFile(external, Buffer.from([1, 2, 3]))
+    try {
+      await symlink(external, path.join(root, 'assets', 'clip.mp4'))
+      await symlink(path.join(srcDir, 'gone.mp4'), path.join(root, 'assets', 'gone.mp4'))
+    } catch {
+      // Creating symlinks can require privileges (e.g. Windows); skip there.
+      return
+    }
+
+    const assets = await listAssets(root)
+
+    expect(assets.map((asset) => asset.path)).toContain('assets/clip.mp4')
+    expect(assets.find((asset) => asset.path === 'assets/clip.mp4')?.size).toBe(3)
+    expect(assets.map((asset) => asset.path)).not.toContain('assets/gone.mp4')
+  })
+})
+
 describe('listNotes symlinks', () => {
   it('lists a note reached through a symlink into the vault', async () => {
     const root = await makeTempDir('zennotes-symlink-')

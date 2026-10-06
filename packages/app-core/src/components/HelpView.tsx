@@ -74,6 +74,10 @@ function resolveShortcutKeys(
     if (action === 'Toggle word wrap') return shortcut(overrides, 'global.toggleWordWrap')
   }
 
+  if (sectionId === 'quick-capture-window') {
+    if (action === 'Hide without saving') return shortcut(overrides, 'global.closeActiveTab')
+  }
+
   if (sectionId === 'panel-motion') {
     if (action === 'Move focus') {
       return alternatives([

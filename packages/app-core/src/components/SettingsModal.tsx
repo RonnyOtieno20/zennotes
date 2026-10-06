@@ -706,6 +706,8 @@ export function SettingsModal(): JSX.Element {
   const completedTaskStyle = useStore((s) => s.completedTaskStyle);
   const setCompletedTaskStyle = useStore((s) => s.setCompletedTaskStyle);
   const showArchivedTasks = useStore((s) => s.showArchivedTasks);
+  const kanbanCardSort = useStore((s) => s.kanbanCardSort);
+  const setKanbanCardSort = useStore((s) => s.setKanbanCardSort);
   const setShowArchivedTasks = useStore((s) => s.setShowArchivedTasks);
   const mathRenderer = useStore((s) => s.mathRenderer);
   const mathFontScale = useStore((s) => s.mathFontScale);
@@ -1374,15 +1376,28 @@ export function SettingsModal(): JSX.Element {
 
   const ref = useRef<HTMLDivElement | null>(null);
   const navSearchRef = useRef<HTMLInputElement | null>(null);
+  const [initialSettingsTarget] = useState(consumeSettingsTarget);
+  // A Cloud surface (Review or Set up on the Cloud status, Space r, the
+  // palette) sends the person to This vault, which the Cloud page draws only
+  // once its account and link have loaded. This vault takes the keyboard
+  // then, once: coming back to the page later opens it at its top like any
+  // other page.
+  const opensOnCloudVault =
+    supportsCloudSync && initialSettingsTarget === "cloud";
+  const [cloudVaultReveal, setCloudVaultReveal] = useState(opensOnCloudVault);
+  const settleCloudVaultReveal = useCallback(() => setCloudVaultReveal(false), []);
   // Settings draws its own backdrop and panel, so it never got the focus
   // handling the shared Modal shell gives every other dialog: the keyboard
   // stayed on the editor underneath and typing edited the note behind the
   // open window. Opening lands on the settings search, the first thing a
   // keyboard user reaches for. On a touch device a focused input would raise
-  // the on-screen keyboard over the panel, so the panel takes focus instead.
-  useDialogFocus(ref, isTouchPrimaryDevice() ? ref : navSearchRef);
+  // the on-screen keyboard over the panel, and opened for This vault the
+  // search is not what was asked for, so the panel holds focus instead.
+  useDialogFocus(
+    ref,
+    isTouchPrimaryDevice() || opensOnCloudVault ? ref : navSearchRef,
+  );
   const settingsSearchHighlightTimerRef = useRef<number | null>(null);
-  const [initialSettingsTarget] = useState(consumeSettingsTarget);
   const [activeCategory, setActiveCategory] = useState<SettingsCategoryId>(
     () => initialSettingsTarget === "external-links" ? "editor" : initialSettingsTarget ?? "appearance",
   );
@@ -3454,6 +3469,22 @@ export function SettingsModal(): JSX.Element {
           ],
         },
         {
+          id: "kanban-card-sort",
+          title: "Kanban card order",
+          description:
+            "Order the cards in each Kanban column by hand or by due date.",
+          keywords: [
+            "kanban",
+            "sort",
+            "order",
+            "due",
+            "date",
+            "deadline",
+            "cards",
+            "manual",
+          ],
+        },
+        {
           id: "show-archived-tasks",
           title: "Show tasks from archived notes",
           description:
@@ -3498,6 +3529,22 @@ export function SettingsModal(): JSX.Element {
             description="The Kanban Folder board gives every note folder its own column. Point it at one folder to make that folder's children the columns instead."
           >
             <KanbanFolderRootRow settingId="kanban-folder-root" />
+          </Section>
+          <Section
+            title="Card order"
+            description="How the cards inside each Kanban column are ordered, on every board."
+          >
+            <SegmentedRow
+              label="Kanban card order"
+              description="Manual keeps the order you drag cards into, saved per column. Due date sorts each column by due date, earliest first and undated cards last; your manual order is kept and comes back when you switch back. On the board: the Order menu, or s in Vim mode."
+              value={kanbanCardSort}
+              settingId="kanban-card-sort"
+              options={[
+                { value: "manual", label: "Manual" },
+                { value: "due", label: "Due date" },
+              ]}
+              onChange={(next) => setKanbanCardSort(next)}
+            />
           </Section>
           <Section
             title="Archived notes"
@@ -3774,6 +3821,8 @@ export function SettingsModal(): JSX.Element {
                     vault.temporary !== true
                   }
                   localVaultName={vault?.name ?? "My notes"}
+                  revealVault={cloudVaultReveal}
+                  onVaultRevealed={settleCloudVaultReveal}
                 />
               </div>
             ),
@@ -5805,6 +5854,9 @@ export function SettingsModal(): JSX.Element {
           role="dialog"
           aria-modal="true"
           aria-label="Settings"
+          // Tells Settings apart from the dialogs that can open over it: the
+          // close shortcut closes Settings only when nothing sits on top.
+          data-settings-dialog=""
           tabIndex={-1}
           // The page another surface asked for (Review on the status bar).
           // The phone shells page this dialog list-first and read it to open

@@ -11,7 +11,7 @@ implementation details.
 - `@zennotes/app-core/navigation`: note navigation and Home behavior for shells.
 - `@zennotes/app-core/notes`: prompted note moves and renames with host-session and save guards.
 - `@zennotes/app-core/shell`: immutable note metadata, shell observations, and mobile Browse ordering.
-- `@zennotes/app-core/browse`: folder/database rows, date-directory settings, and confirmed folder actions for native drawers.
+- `@zennotes/app-core/browse`: folder, database, and file rows, date-directory settings, and confirmed folder actions for native drawers.
 - `@zennotes/app-core/editor`: run formatting/search commands, inspect selection,
   configure native typing/insets, and import attachments without accessing
   CodeMirror or the store.
@@ -187,26 +187,36 @@ const rows = getBrowseDirectory(snapshot, directory, {
   folders: pinnedFolderDirectories
 })
 // A folder row's directory becomes the next local drawer location.
-// Note and database row paths are navigation targets:
+// Note, database, and file row paths are navigation targets:
 await openNote(rows.databases[0].path)
+await openNote(rows.files[0].path)
 ```
 
 The directory argument and folder pins are relative to the primary notes area.
 The empty string means its root. Results contain separate `folders`, `databases`,
-and `notes` arrays. Folders sort by title with pinned folders first; databases
+`notes`, and `files` arrays. Folders sort by title with pinned folders first; databases
 sort by title without pin partitioning; notes use the shared Browse ordering.
 Empty folders remain visible. Database internals under `.base` never become
 ordinary drawer rows, including nested `pages/` directories.
 
-Database paths are opaque app-generated navigation targets. Pass them to
+File rows are the attachments and other non-note files the desktop sidebar lists
+in the same folder: each carries its name with the extension, its kind (`image`,
+`pdf`, `audio`, `video`, or `file`), and its last change. They follow the note sort,
+with the created orders using the last change, since files carry no creation time.
+Files in the root asset folders (`assets/`, `attachements/`, `_assets/`), in the
+other system folders, under `.zennotes/`, or inside a database never become
+Browse rows; the Assets view still lists every file.
+
+Database and file paths are opaque app-generated navigation targets. Pass them to
 `openNote`; do not construct their URLs or treat them as filesystem paths.
 App-core handles custom system-folder mappings and notes stored at the vault
 root. The snapshot exposes no mutable `FolderEntry` or `VaultSettings` objects.
 
 Subscriptions behave like `subscribeShell`: no initial notification, only public
 changes, coherent previous/next snapshots, and a returned disposer. Unchanged
-folder and date data retain identity when notes change. Pins remain host-owned,
-keyed by the native host's stable vault token.
+folder, file, and date data retain identity when notes change, and file rows keep
+it when the same files are read back. Pins remain host-owned, keyed by the native
+host's stable vault token.
 
 ### Folder and database actions
 
@@ -216,6 +226,10 @@ keyed by the native host's stable vault token.
 - `requestRenameBrowseFolder(host, directory)` prompts for an ordinary folder's leaf name.
 - `requestMoveBrowseDirectory(host, directory)` prompts for a new parent for an ordinary folder or an entire database, using the move-note prompt's `inbox[/path]` values. Only existing notes-area folders are offered, never the directory itself, its descendants, or a database. The leaf name, and so a database's `.base` suffix, is kept. A destination that already holds that name is blocked in the prompt, and the host still refuses to overwrite. The store carries open tabs (database tabs included), folder icons and colors, favorites, and manual order to the new path. Pins are host-owned: a host that pins folders re-keys them after `completed`.
 - `requestDeleteBrowseDirectory(host, directory)` confirms permanent deletion of an ordinary folder or an entire database, with the appropriate warning.
+
+A completed rename, move, or delete re-reads the file index, because hosts
+without a file watcher hear about no file the folder carried, and file rows would
+stay under the old directory until the next resync.
 
 All directories are relative to the primary notes area. Root deletion, missing
 rows, database internals, invalid names, and overlapping dialogs are rejected.

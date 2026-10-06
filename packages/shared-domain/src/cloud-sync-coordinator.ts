@@ -94,6 +94,9 @@ export interface CloudSyncRepository {
   applyStagedCloudContent?(change: CloudSyncChange, previous: CloudSyncTrackedItem | undefined, file: CloudSyncStagedFile): Promise<CloudSyncRepositoryConflict | void>
   resolveStagedCloudConflict?(input: CloudSyncStagedConflict): Promise<void>
   scan(): Promise<CloudSyncLocalItem[]>
+  /** Finish filesystem work an earlier run was stopped in the middle of. Runs
+   *  first in every sync run, before anything is pulled or scanned. */
+  recoverInterruptedWork?(): Promise<void>
   /** Paths with a durable user decision still pending. The coordinator leaves
    *  both their tracked and local versions out of mutation planning until the
    *  host removes the pending marker. */
@@ -444,6 +447,9 @@ export class CloudSyncCoordinator {
   }
 
   private async run(): Promise<CloudSyncRunResult> {
+    // An app stopped mid-rename leaves the note under a name scans skip; it
+    // goes back under its own name before this run looks at the vault.
+    await this.repository.recoverInterruptedWork?.()
     await this.ensureReferences()
     const bootstrap = await this.loadOrBootstrap()
     if (bootstrap.conflicts.length > 0) {
@@ -1139,7 +1145,12 @@ export class CloudSyncCoordinator {
     throwIfCloudSyncCancelled(this.remote.downloadSignal)
     if (!change.content_ref || change.type !== 'upsert') return { change, conflict: await this.repository.apply(change, previous) }
     const ref = validateCloudSyncContentReference(change.content_ref, change)
-    if (await this.repository.matchesCloudContent?.(change.path, ref)) return { change, conflict: undefined }
+    // Matching bytes settle an upsert in place, but one that also moves the
+    // item (a Cloud restore out of Trash) leaves an old file behind that only
+    // the repository can vouch for and remove. A case-only rename keeps the
+    // shortcut: on a case-insensitive volume both spellings are one file.
+    const moving = previous !== undefined && cloudSyncPathKey(previous.path) !== cloudSyncPathKey(change.path)
+    if (!moving && await this.repository.matchesCloudContent?.(change.path, ref)) return { change, conflict: undefined }
     return this.withStaged(ref, async (file) => {
       const applied = file.preview ? { ...change, content: file.preview, content_ref: undefined } : change
       const conflict = file.preview ? await this.repository.apply(applied, previous) :

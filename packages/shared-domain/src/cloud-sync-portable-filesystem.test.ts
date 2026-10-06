@@ -71,6 +71,46 @@ class MemoryFileSystem implements PortableCloudSyncFileSystem {
   }
 }
 
+/**
+ * A case-insensitive, case-preserving volume (an external drive, the iOS
+ * simulator on a Mac): every spelling of a name reaches the one stored file.
+ * Its rename overwrites the way Capacitor's does, removing an existing
+ * destination before the move, so a direct case-only rename destroys its own
+ * source.
+ */
+class CaseInsensitiveMemoryFileSystem extends MemoryFileSystem {
+  private stored(path: string): string {
+    const key = path.toLowerCase()
+    return [...this.files.keys()].find((candidate) => candidate.toLowerCase() === key) ?? path
+  }
+
+  override async stat(path: string): Promise<'file' | 'directory' | null> {
+    return super.stat(this.stored(path))
+  }
+
+  override async readBase64(path: string): Promise<string> {
+    return super.readBase64(this.stored(path))
+  }
+
+  override async writeText(path: string, value: string): Promise<void> {
+    await super.writeText(this.stored(path), value)
+  }
+
+  override async writeBase64(path: string, value: string): Promise<void> {
+    await super.writeBase64(this.stored(path), value)
+  }
+
+  override async deleteFile(path: string): Promise<void> {
+    await super.deleteFile(this.stored(path))
+  }
+
+  override async rename(from: string, to: string): Promise<void> {
+    const source = this.stored(from)
+    this.files.delete(this.stored(to))
+    await super.rename(source, to)
+  }
+}
+
 class FailingMemoryFileSystem extends MemoryFileSystem {
   constructor(
     initial: Record<string, string | Uint8Array>,
@@ -526,6 +566,303 @@ describe('PortableCloudSyncRepository', () => {
     ).resolves.toBeUndefined()
   })
 })
+
+// On a case-insensitive volume both spellings of a case-only rename reach one
+// file. Treating them as two removed the note just written, or refused the
+// write as a conflict with itself.
+describe('PortableCloudSyncRepository: an upsert that only changes the case of its path', () => {
+  it.each(['agreed', 'remote edit'])('keeps the one file, holding %j, under its new spelling', async (incoming) => {
+    const fs = new CaseInsensitiveMemoryFileSystem({ 'note.md': 'agreed' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', incoming),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe(incoming)
+  })
+
+  // How a replay finds the volume when the new bytes landed but the new
+  // spelling did not.
+  it('finishes the rename on replay once the new bytes are already in place', async () => {
+    const fs = new CaseInsensitiveMemoryFileSystem({ 'note.md': 'remote edit' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'remote edit'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('remote edit')
+  })
+
+  it('keeps a local edit made under the old spelling', async () => {
+    const fs = new CaseInsensitiveMemoryFileSystem({ 'note.md': 'local edit' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'remote edit'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toMatchObject({ code: 'LOCAL_EDIT_CONFLICT', path: 'note.md' })
+    expect([...fs.files.keys()]).toEqual(['note.md'])
+    expect(fs.text('note.md')).toBe('local edit')
+  })
+
+  // A case-sensitive volume (the iOS app container, Android app storage) holds
+  // two files, and leaving the old one behind would stop every later scan on
+  // a portable path collision.
+  it('removes the old spelling on a case-sensitive volume, where it is a separate file', async () => {
+    const fs = new MemoryFileSystem({ 'note.md': 'agreed' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'agreed'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('agreed')
+  })
+
+  it('never writes over a separate file whose name differs only in case', async () => {
+    const fs = new MemoryFileSystem({ 'note.md': 'agreed', 'Note.md': 'another note' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'remote edit'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toMatchObject({ code: 'LOCAL_EDIT_CONFLICT', path: 'Note.md' })
+    expect(fs.text('note.md')).toBe('agreed')
+    expect(fs.text('Note.md')).toBe('another note')
+  })
+
+  it('still removes the old file when an upsert moves the item to a different path', async () => {
+    const fs = new CaseInsensitiveMemoryFileSystem({ 'trash/Note.md': 'agreed' })
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('trash/Note.md', 'Note.md', 'agreed'),
+      await tracked('trash/Note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('agreed')
+  })
+})
+
+// The case-only rename above takes two steps on a case-insensitive volume. The
+// app can stop between them, leaving the note under a name sync ignores, and a
+// save can land between them, which the second step used to rename over.
+describe('PortableCloudSyncRepository: an interrupted case-only rename', () => {
+  const RECORDS = '.zennotes/zennotes-cloud-sync/respellings'
+
+  class InterruptibleFileSystem extends CaseInsensitiveMemoryFileSystem {
+    stopAtSecondStep = false
+    afterFirstStep?: () => Promise<void>
+
+    override async rename(from: string, to: string): Promise<void> {
+      if (from.endsWith('.tmp') && this.stopAtSecondStep) throw new Error('the app stopped')
+      await super.rename(from, to)
+      if (to.endsWith('.tmp')) await this.afterFirstStep?.()
+    }
+
+    names(): string[] {
+      return [...this.files.keys()].sort()
+    }
+
+    detour(): string {
+      const detour = this.names().find((name) => name.endsWith('.tmp'))
+      if (!detour) throw new Error('no detour on the volume')
+      return detour
+    }
+  }
+
+  async function stopBetweenSteps(fs: InterruptibleFileSystem, incoming: string): Promise<string> {
+    fs.stopAtSecondStep = true
+    await expect(
+      new PortableCloudSyncRepository(fs).apply(
+        await upsertFrom('note.md', 'Note.md', incoming),
+        await tracked('note.md', 'agreed')
+      )
+    ).rejects.toThrow('the app stopped')
+    fs.stopAtSecondStep = false
+    return fs.detour()
+  }
+
+  it('finishes the rename on the next run, from the record written before the first step', async () => {
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    const detour = await stopBetweenSteps(fs, 'remote edit')
+    expect(fs.names()).toEqual([`${RECORDS}/${detour.slice('Note.md.'.length, -'.tmp'.length)}.json`, detour].sort())
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+
+    expect(fs.names()).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('remote edit')
+  })
+
+  it('keeps both files when the name was taken before the next run', async () => {
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    const detour = await stopBetweenSteps(fs, 'remote edit')
+    await fs.writeText('note.md', 'typed after relaunch')
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+
+    expect(fs.names()).toEqual([detour, 'note.md'])
+    expect(fs.text('note.md')).toBe('typed after relaunch')
+    expect(fs.text(detour)).toBe('remote edit')
+  })
+
+  it('drops the parked copy once the same bytes are back under the name', async () => {
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    await stopBetweenSteps(fs, 'remote edit')
+    // A replay that ran before recovery wrote the Cloud bytes there again.
+    await fs.writeText('Note.md', 'remote edit')
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+
+    expect(fs.names()).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('remote edit')
+  })
+
+  it('never renames over a save that landed between the two steps', async () => {
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    // The editor still holds the note under its old spelling and saves.
+    fs.afterFirstStep = () => fs.writeText('note.md', 'typed between the steps')
+
+    const conflict = await new PortableCloudSyncRepository(fs).apply(
+      await upsertFrom('note.md', 'Note.md', 'remote edit'),
+      await tracked('note.md', 'agreed')
+    )
+
+    expect(conflict).toBeUndefined()
+    expect(fs.text('note.md')).toBe('typed between the steps')
+    expect(fs.text(fs.detour())).toBe('remote edit')
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+    expect(fs.names()).toEqual([fs.detour(), 'note.md'])
+    expect(fs.text('note.md')).toBe('typed between the steps')
+  })
+
+  it('clears a record it cannot trust without touching any file', async () => {
+    const id = '0f8fad5b-d9cb-469f-a165-70867728950e'
+    const fs = new InterruptibleFileSystem({
+      'note.md': 'agreed',
+      [`other.md.${id}.tmp`]: 'parked elsewhere',
+      [`${RECORDS}/torn.json`]: '{"path":',
+      [`${RECORDS}/${id}.json`]: JSON.stringify({ path: 'note.md', detour: `other.md.${id}.tmp` })
+    })
+
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+
+    expect(fs.names()).toEqual(['note.md', `other.md.${id}.tmp`])
+    expect(fs.text('note.md')).toBe('agreed')
+  })
+
+  it('never fails a run over a record it cannot settle yet, and keeps it for the next run', async () => {
+    class UnreadyFileSystem extends InterruptibleFileSystem {
+      ready = false
+      override async readBase64(path: string): Promise<string> {
+        if (!this.ready && path.endsWith('.tmp')) throw new Error('native storage is not ready')
+        return super.readBase64(path)
+      }
+    }
+    const fs = new UnreadyFileSystem({ 'note.md': 'agreed' })
+    fs.stopAtSecondStep = true
+    await expect(
+      new PortableCloudSyncRepository(fs).apply(
+        await upsertFrom('note.md', 'Note.md', 'remote edit'),
+        await tracked('note.md', 'agreed')
+      )
+    ).rejects.toThrow('the app stopped')
+    fs.stopAtSecondStep = false
+    await fs.writeText('Note.md', 'remote edit')
+    const parked = [...fs.files.keys()]
+
+    await expect(new PortableCloudSyncRepository(fs).recoverInterruptedWork()).resolves.toBeUndefined()
+    expect([...fs.files.keys()]).toEqual(parked)
+
+    fs.ready = true
+    await new PortableCloudSyncRepository(fs).recoverInterruptedWork()
+    expect([...fs.files.keys()]).toEqual(['Note.md'])
+  })
+
+  it('finishes an interrupted rename before the next sync run pulls or scans', async () => {
+    const statePath = 'zennotes-cloud-sync/state.json'
+    const fs = new InterruptibleFileSystem({ 'note.md': 'agreed' })
+    const changes: CloudSyncChange[] = []
+    const mutations: string[] = []
+    const remote: CloudSyncRemote = {
+      manifest: async () => ({ data: [], cursor: 0, next_page: null }),
+      changes: async (_vault, after) => ({ data: changes.filter((change) => change.sequence > after), cursor: changes.length, has_more: false }),
+      mutate: async (_vault, body) => ({
+        acknowledged: body.mutations.map((mutation) => {
+          mutations.push(`${mutation.type} ${'path' in mutation ? mutation.path : ''}`)
+          const sequence = changes.length + 1
+          const revision = (mutation.base_revision ?? 0) + 1
+          if (mutation.type !== 'upsert') throw new Error(`Unexpected ${mutation.type}`)
+          changes.push({ sequence, revision, type: 'upsert', item_id: mutation.item_id,
+            path: mutation.path, previous_path: null, content: mutation.content })
+          return { sequence, revision, item_id: mutation.item_id, operation_id: mutation.operation_id }
+        }),
+        cursor: changes.length,
+        conflicts: []
+      })
+    }
+    let id = 0
+    const sync = () => new CloudSyncCoordinator('vault-1', remote, new PortableCloudSyncRepository(fs), {
+      load: async () => (fs.text(statePath) ? JSON.parse(fs.text(statePath)!) as CloudSyncState : null),
+      save: async (state) => {
+        if (fs.stopAtSecondStep) throw new Error('the app stopped')
+        await fs.writeText(statePath, JSON.stringify(state))
+      }
+    }, { itemId: () => `item-${++id}`, operationId: () => `operation-${++id}` }).sync()
+
+    await sync()
+    const [created] = changes
+    const edit = await textContent('remote edit')
+    changes.push({ sequence: 2, revision: 2, type: 'upsert', item_id: created.item_id,
+      path: 'Note.md', previous_path: 'note.md', content: edit })
+
+    fs.stopAtSecondStep = true
+    await expect(sync()).rejects.toThrow('the app stopped')
+    fs.stopAtSecondStep = false
+    await sync()
+
+    expect(fs.names().filter((name) => !name.startsWith('zennotes-cloud-sync/'))).toEqual(['Note.md'])
+    expect(fs.text('Note.md')).toBe('remote edit')
+    expect(mutations).toEqual(['upsert note.md'])
+  })
+})
+
+async function tracked(path: string, data: string) {
+  const content = await textContent(data)
+  return {
+    item_id: 'item-1',
+    path,
+    kind: 'text' as const,
+    revision: 1,
+    sha256: content.sha256,
+    byte_length: content.byte_length,
+    media_type: content.media_type
+  }
+}
+
+async function upsertFrom(previousPath: string, path: string, data: string): Promise<CloudSyncChange> {
+  return {
+    sequence: 2,
+    item_id: 'item-1',
+    type: 'upsert',
+    path,
+    previous_path: previousPath,
+    revision: 2,
+    content: await textContent(data)
+  }
+}
 
 async function textContent(data: string) {
   const bytes = new TextEncoder().encode(data)

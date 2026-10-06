@@ -331,6 +331,46 @@ describe('reference-mode sync', () => {
     expect(f.repository.stageCloudContent).not.toHaveBeenCalled()
   })
 
+  // A Cloud restore moves an item with an upsert. Matching bytes at the new
+  // path (a replay after the write landed but the old file survived) do not
+  // settle it: the old file still has to go, and only the repository can
+  // vouch for it.
+  it('hands a moving upsert to the repository even when the new path already matches', async () => {
+    const restored = entry('large', 2)
+    const { content: _bytes, content_ref: _ref, ...metadata } = restored
+    const state = emptyCloudSyncState('vault')
+    state.items.large = { ...metadata, revision: 1, path: 'trash/large.md' }
+    const f = fixture([restored], state, [{ ...local(restored), path: 'trash/large.md' }, local(restored)])
+    f.feed.push({ ...change(restored, 1), previous_path: 'trash/large.md' })
+    f.repository.matchesCloudContent = async (path, ref) =>
+      f.files.get(path)?.content.sha256 === ref.sha256
+
+    await f.coordinator.sync()
+
+    expect(f.repository.applyStagedCloudContent).toHaveBeenCalledWith(
+      expect.objectContaining({ path: 'large.md', previous_path: 'trash/large.md' }),
+      expect.objectContaining({ path: 'trash/large.md' }),
+      expect.anything()
+    )
+  })
+
+  it('keeps the shortcut for an upsert that only changes the case of its path', async () => {
+    const renamed = entry('large', 2)
+    const { content: _bytes, content_ref: _ref, ...metadata } = renamed
+    const state = emptyCloudSyncState('vault')
+    state.items.large = { ...metadata, revision: 1, path: 'LARGE.md' }
+    // A case-insensitive volume answers both spellings with this one file.
+    const f = fixture([renamed], state, [local(renamed)])
+    f.feed.push({ ...change(renamed, 1), previous_path: 'LARGE.md' })
+    f.repository.matchesCloudContent = async (path, ref) =>
+      f.files.get(path)?.content.sha256 === ref.sha256
+
+    await f.coordinator.sync()
+
+    expect(f.remote.download).not.toHaveBeenCalled()
+    expect(f.repository.applyStagedCloudContent).not.toHaveBeenCalled()
+  })
+
   it('coalesces obsolete upserts across metadata pages before hydrating the needed revision', async () => {
     const first = entry('large', 1)
     const second = entry('large', 2)

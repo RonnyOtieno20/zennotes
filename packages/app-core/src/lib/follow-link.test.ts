@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const state = vi.hoisted(() => ({
   selectedPath: 'inbox/Current.md' as string | null,
@@ -99,6 +99,45 @@ describe('followLinkTarget: creating without asking (#768)', () => {
 
     expect(state.selectNote).toHaveBeenCalledWith('inbox/Current.md')
     expect(createNoteFromLinkNow).not.toHaveBeenCalled()
+  })
+})
+
+// A wikilink names a note. Followed as an href, `[[2024.01.15]]` passed the
+// bare-domain guess and opened https://2024.01.15 in the browser.
+describe('followLinkTarget: wikilink names that look like domains', () => {
+  const open = vi.fn()
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.stubGlobal('open', open)
+    state.notes.push({ path: 'inbox/2024.01.15.md', title: '2024.01.15', folder: 'inbox' })
+  })
+  afterEach(() => {
+    state.notes.splice(1)
+    vi.unstubAllGlobals()
+  })
+
+  it('opens the note [[2024.01.15]] names, not https://2024.01.15', () => {
+    expect(followLinkTarget('2024.01.15', { kind: 'wikilink' })).toBe(true)
+
+    expect(open).not.toHaveBeenCalled()
+    expect(state.selectNote).toHaveBeenCalledWith('inbox/2024.01.15.md')
+  })
+
+  it('creates a dated note that does not exist yet instead of opening the browser', () => {
+    expect(followLinkTarget('2025.12.31', { kind: 'wikilink', createWithoutAsking: true })).toBe(true)
+
+    expect(open).not.toHaveBeenCalled()
+    expect(createNoteFromLinkNow).toHaveBeenCalledWith('2025.12.31')
+  })
+
+  it('still opens a wikilink written with a scheme, and a bare-domain href (#201)', () => {
+    followLinkTarget('https://example.net', { kind: 'wikilink' })
+    followLinkTarget('example.com')
+
+    expect(open.mock.calls).toEqual([
+      ['https://example.net', '_blank'],
+      ['https://example.com', '_blank']
+    ])
   })
 })
 

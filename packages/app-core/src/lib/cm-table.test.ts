@@ -708,6 +708,34 @@ describe('table cell link following (#445)', () => {
     view.destroy()
   })
 
+  it('follows a dotted [[2024.01.15]] in a cell to its note, not to a web address', () => {
+    const open = vi.fn()
+    vi.stubGlobal('open', open)
+    for (const vimMode of [false, true]) {
+      const selectNote = setup(vimMode)
+      useStore.setState({
+        notes: [{ path: '2024.01.15.md', title: '2024.01.15', folder: 'inbox' }]
+      } as never)
+      const view = mount('| A | B |\n| --- | --- |\n| x | [[2024.01.15]] |')
+      if (vimMode) {
+        const cell = [...view.dom.querySelectorAll<HTMLElement>('.cm-table-cell')].find(
+          (c) => c.dataset.raw === '[[2024.01.15]]'
+        )
+        cell?.focus()
+        cell?.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', bubbles: true }))
+        cell?.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true }))
+      } else {
+        view.dom
+          .querySelector<HTMLAnchorElement>('.cm-table-cell a.wikilink')
+          ?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }))
+      }
+      expect(selectNote, `vim ${vimMode}`).toHaveBeenCalledWith('2024.01.15.md')
+      view.destroy()
+    }
+    expect(open).not.toHaveBeenCalled()
+    vi.unstubAllGlobals()
+  })
+
   it('follows the link under the cursor on `gd` in a cell (Vim)', () => {
     const selectNote = setup(true)
     const view = mount(WIKILINK_DOC)

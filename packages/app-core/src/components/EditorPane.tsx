@@ -31,7 +31,6 @@ import {
   type DecorationSet,
   EditorView,
   WidgetType,
-  drawSelection,
   highlightActiveLine,
   highlightActiveLineGutter,
   keymap,
@@ -359,6 +358,7 @@ import {
 } from '../lib/keymaps'
 import { isTabStripOverflowing } from '../lib/tab-strip-overflow'
 import { editorTabSize } from '../lib/editor-tab-size'
+import { cursorDrawSelection } from '../lib/cm-cursor-blink'
 
 const MODE_OPTIONS: Array<{
   mode: PaneMode
@@ -929,6 +929,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const vault = useStore((s) => s.vault)
   const refreshNotes = useStore((s) => s.refreshNotes)
   const refreshAssets = useStore((s) => s.refreshAssets)
+  const indexImportedAssets = useStore((s) => s.indexImportedAssets)
   const loading = useStore((s) => s.loadingNote && isActive)
 
   const setActivePane = useStore((s) => s.setActivePane)
@@ -2128,9 +2129,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               initialBody
             )
           ),
-          drawSelectionCompartment.of(
-            drawSelection({ cursorBlinkRate: s0.cursorBlink ? 1200 : 0 })
-          ),
+          drawSelectionCompartment.of(cursorDrawSelection(s0.cursorBlink)),
           tabSizeCompartment.of([
             editorTabSize(s0.editorTabSize),
             listIndentWidth(s0.editorTabSize),
@@ -2219,7 +2218,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                     if (
                       link &&
                       pointerOverRange(view, link.from, link.to, event.clientX, event.clientY) &&
-                      followLinkTarget(link.target, { createWithoutAsking: true })
+                      followLinkTarget(link.target, { createWithoutAsking: true, kind: link.kind })
                     ) {
                       // Following the link ends its status-bar hover; a tap
                       // never sends the mouseleave that would (#820).
@@ -2952,13 +2951,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     const view = viewRef.current
     const comp = drawSelectionCompartmentRef.current
     if (!view || !comp) return
-    // 0 disables blinking for both the drawn caret and the Vim block cursor
-    // (both read cursorBlinkRate from the drawSelection config). (#160)
-    view.dispatch({
-      effects: comp.reconfigure(
-        drawSelection({ cursorBlinkRate: cursorBlink ? 1200 : 0 })
-      )
-    })
+    view.dispatch({ effects: comp.reconfigure(cursorDrawSelection(cursorBlink)) })
   }, [cursorBlink])
   useEffect(() => {
     const view = viewRef.current
@@ -3279,6 +3272,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const before = insertAt > 0 ? doc.sliceString(insertAt - 1, insertAt) : ''
       const after = insertAt < doc.length ? doc.sliceString(insertAt, insertAt + 1) : ''
       const insert = formatImportedAssetsForInsertion(imported, before, after)
+      // The files are on disk, but the listing that would carry them lands
+      // after the embeds; until then each embed would say its file is not on
+      // this device.
+      indexImportedAssets(imported)
       view.dispatch({
         changes: { from: insertAt, to: insertAt, insert },
         selection: { anchor: insertAt + insert.length }
@@ -3287,7 +3284,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setFocusedPanel('editor')
       view.focus()
     },
-    [refreshNotes, setFocusedPanel]
+    [indexImportedAssets, refreshNotes, setFocusedPanel]
   )
 
   const insertExistingVaultAssets = useCallback(
@@ -5007,7 +5004,7 @@ function copyableLinkAtPointer(view: EditorView, x: number, y: number): Copyable
   if (pos == null) return null
   const range = linkRangeAtCursor(view.state.doc.toString(), pos)
   if (!range || !pointerOverRange(view, range.from, range.to, x, y)) return null
-  return copyableLink(range.target)
+  return copyableLink(range.target, range.kind)
 }
 
 function buildEditorContextItems(

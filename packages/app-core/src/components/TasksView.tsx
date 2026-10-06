@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { isTasksViewActive, useStore, type TasksViewMode } from '../store'
+import { isTasksViewActive, useStore, type KanbanCardSort, type TasksViewMode } from '../store'
 import { filterTasksForDisplay, inferDailyTaskDueDates, type VaultTask } from '@shared/tasks'
 import { buildDailyNoteDateByPath } from '../lib/vault-layout'
 import { computeTasksRender, filterTasks, isOverdue } from '../lib/tasks-filter'
@@ -12,7 +12,7 @@ import { advanceSequence, getKeymapBinding, matchesSequenceToken } from '../lib/
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
 import { isImeComposing } from '../lib/ime'
-import { isAppOverlayOpen } from '../lib/overlay-open'
+import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 import { promptApp } from '../lib/prompt-requests'
 import { useToastStore } from '../lib/toast'
 import { findSavedTaskFilterName, savedTaskFilterNameForQuery } from '../lib/saved-task-filters'
@@ -451,6 +451,26 @@ export function TasksView(): JSX.Element {
         )
         return
       }
+      // `:order due` sorts every Kanban column by due date, `:order manual`
+      // brings back the dragged arrangement, and bare `:order` switches
+      // between the two, like `s` on the board. (#889)
+      if (head === 'order') {
+        const wanted = arg.toLowerCase()
+        if (wanted && wanted !== 'due' && wanted !== 'manual') {
+          toast('Usage: :order due | manual')
+          return
+        }
+        const store = useStore.getState()
+        const next: KanbanCardSort = wanted
+          ? (wanted as KanbanCardSort)
+          : store.kanbanCardSort === 'due'
+            ? 'manual'
+            : 'due'
+        store.setKanbanCardSort(next)
+        setViewMode('kanban')
+        toast(next === 'due' ? 'Kanban cards ordered by due date' : 'Kanban cards in your own order')
+        return
+      }
       if (head === 'delfilter' || head === 'df') {
         if (!arg) {
           toast('Usage: :delfilter <name>')
@@ -563,9 +583,10 @@ export function TasksView(): JSX.Element {
   useEffect(() => {
     if (!isActivePanel) return
     const handler = (e: KeyboardEvent): void => {
-      // A modal/menu owns the keyboard while open — don't fire list shortcuts
-      // through it. (songgenqing report)
-      if (isAppOverlayOpen()) return
+      // A modal or menu owns the keyboard while open, so list shortcuts never
+      // fire through it (songgenqing report). Settings counts: `1`/`2`/`3`
+      // switched the view behind it, and `a` opened the new-task prompt.
+      if (isOverlayOrDialogOpen()) return
       // While the Vim hint overlay is open it owns the keyboard; don't let
       // task navigation (or Esc closing the view) steal its keys. (#151)
       if (document.querySelector('[data-vim-hint-overlay]')) return
@@ -1026,7 +1047,7 @@ export function TasksView(): JSX.Element {
                 ? 'h/j/k/l day · [ ] month · Tab pick · x toggle · i start · c cancel · F saved filters · drag to move · right-click actions · :q'
                 : '←/→/↑/↓ day · Tab pick · Space toggle · drag to move · right-click actions'
               : vimMode
-                ? 'h/l column · j/k card · x toggle · i start · c cancel · Enter open · F saved filters · right-click actions · :q close'
+                ? 'h/l column · j/k card · x toggle · i start · c cancel · Enter open · s order · F saved filters · right-click actions · :q close'
                 : '←/→ column · ↑/↓ card · Space toggle · Enter open · right-click actions'}
         </div>
       )}

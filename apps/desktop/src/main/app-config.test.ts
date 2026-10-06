@@ -17,6 +17,21 @@ vi.mock('electron', () => ({
   }
 }))
 
+// A gate on the atomic writer, so a test can hold one of the module's own
+// writes mid-flight: the moment a watcher read can still observe the write
+// before it. Every other write goes straight through.
+const writeGate: { hold: Promise<void> | null } = { hold: null }
+vi.mock('./vault', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./vault')>()
+  return {
+    ...actual,
+    writeFileAtomic: async (absPath: string, data: string): Promise<void> => {
+      if (writeGate.hold) await writeGate.hold
+      return actual.writeFileAtomic(absPath, data)
+    }
+  }
+})
+
 import {
   getConfigDir,
   getConfigFilePath,
@@ -59,6 +74,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  writeGate.hold = null
   await stopAppConfigWatcher()
   for (const key of ENV_KEYS) {
     if (savedEnv[key] === undefined) delete process.env[key]
@@ -115,6 +131,7 @@ describe('TOML serialization', () => {
       systemFolderLabels: { inbox: 'In' },
       savedTaskFilters: { 'Project alpha': '@project:alpha', Blocked: '@status:blocked' },
       kanbanGroupBy: 'folder',
+      kanbanCardSort: 'due',
       kanbanFolderRoot: 'Projects',
       externalApplicationSchemes: ['zotero', 'obsidian'],
       ignoredKeys: ['KanaMode', 'F24']
@@ -146,6 +163,8 @@ describe('TOML serialization', () => {
     // The [saved_filters] table keeps the order the chips show (#731).
     expect(text).toContain('kanban_folder_root = "Projects"')
     expect(round.kanbanGroupBy).toBe('folder')
+    expect(text).toContain('kanban_card_sort = "due"')
+    expect(round.kanbanCardSort).toBe('due')
     expect(round.kanbanFolderRoot).toBe('Projects')
     expect(text).toContain('ignored_keys = ["KanaMode", "F24"]')
     expect(round.externalApplicationSchemes).toEqual(['zotero', 'obsidian'])
@@ -245,24 +264,39 @@ describe('persistence + cache', () => {
   })
 
   it('does not let a stale watcher read of an earlier own-write clobber the cache', async () => {
-    // Regression for a Windows CI flake: two rapid writes let the file watcher
-    // observe the FIRST own-write out of order; with only a single-value
-    // loop-guard it treated that stale read as an external edit and reverted
-    // the freshly-merged cache. The watcher must recognize any recent own-write.
+    // Regression for a Windows CI flake: with two writes in a row, the watcher
+    // can read the file while the second is still landing and see the FIRST.
+    // With only a single-value loop-guard that read counted as an external
+    // edit and reverted the freshly-merged cache.
     process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-stale-')
-    await initAppConfig(() => {})
+    const changes: AppConfigPortable[] = []
+    await initAppConfig((next) => changes.push(next))
 
     await setPortableConfig({ editorFontSize: 18 })
-    const staleText = await readFile(getConfigFilePath(), 'utf8')
-    await setPortableConfig({ editorFontSize: 22 })
+    const earlierText = await readFile(getConfigFilePath(), 'utf8')
+    // Let that write settle, so only the second one being in flight is what
+    // makes the read below stale.
+    await delay(1800)
 
-    // Write the earlier own-write back and let the debounced watcher process it.
-    await writeFile(getConfigFilePath(), staleText)
-    await new Promise((resolve) => setTimeout(resolve, 700))
-
-    // It's a known own-write, so the cache keeps the latest merged value.
+    // Hold the second write mid-flight, and let the watcher read the file
+    // meanwhile: it still holds the earlier own-write.
+    let release = (): void => {}
+    writeGate.hold = new Promise<void>((resolve) => (release = resolve))
+    const second = setPortableConfig({ editorFontSize: 22 })
+    await writeFile(getConfigFilePath(), earlierText)
+    await delay(800)
     expect(getPortableConfigSnapshot().editorFontSize).toBe(22)
-  })
+
+    writeGate.hold = null
+    release()
+    await second
+    // Past the settle window the file holds the newer write, so the re-check
+    // finds nothing to apply either.
+    await delay(2500)
+    expect(getPortableConfigSnapshot().editorFontSize).toBe(22)
+    expect(changes).toHaveLength(0)
+    expect(await readFile(getConfigFilePath(), 'utf8')).toContain('font_size = 22')
+  }, 10000)
 
   it('ensureConfigFile creates the file when missing', async () => {
     process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg2-')
@@ -299,6 +333,47 @@ describe('persistence + cache', () => {
 })
 
 describe('file watching', () => {
+  it('applies a hand edit that puts back an earlier version of the file', async () => {
+    // The user changes a setting in the app, then sets it back in config.toml:
+    // the file is now byte for byte a text the app wrote before. It is still
+    // the user's edit, and the file is the source of truth.
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-putback-')
+    const changes: AppConfigPortable[] = []
+    await initAppConfig((next) => changes.push(next))
+
+    await setPortableConfig({ editorFontSize: 18 })
+    const earlierText = await readFile(getConfigFilePath(), 'utf8')
+    await setPortableConfig({ editorFontSize: 22 })
+    await delay(2000)
+
+    await writeFile(getConfigFilePath(), earlierText)
+    await waitFor(() => changes.length > 0, 4000)
+    expect(changes.at(-1)?.editorFontSize).toBe(18)
+    expect(getPortableConfigSnapshot().editorFontSize).toBe(18)
+  }, 10000)
+
+  it('applies a put-back that lands while the app is still writing, once its writes settle', async () => {
+    // Right after the app's own write, the watcher cannot tell a stale read of
+    // that earlier text from the user putting it back. It waits for the writes
+    // to settle and looks again; a text still in the file then is the user's.
+    process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg-putback-early-')
+    const changes: AppConfigPortable[] = []
+    await initAppConfig((next) => changes.push(next))
+
+    await setPortableConfig({ editorFontSize: 18 })
+    const earlierText = await readFile(getConfigFilePath(), 'utf8')
+    await setPortableConfig({ editorFontSize: 22 })
+    await writeFile(getConfigFilePath(), earlierText)
+
+    // First read: possibly stale, so the cache holds.
+    await delay(700)
+    expect(getPortableConfigSnapshot().editorFontSize).toBe(22)
+    // The re-check after the writes settle finds it still there.
+    await waitFor(() => changes.length > 0, 6000)
+    expect(changes.at(-1)?.editorFontSize).toBe(18)
+    expect(getPortableConfigSnapshot().editorFontSize).toBe(18)
+  }, 10000)
+
   it('notifies on external edits but not on its own writes', async () => {
     process.env.ZENNOTES_CONFIG_DIR = await tmp('zen-cfg4-')
     const changes: AppConfigPortable[] = []

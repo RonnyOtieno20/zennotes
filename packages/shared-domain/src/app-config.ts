@@ -156,6 +156,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   tasksViewMode: 'list',
   showArchivedTasks: false,
   kanbanGroupBy: 'status',
+  kanbanCardSort: 'manual',
   kanbanFolderRoot: '',
   kanbanColumnTitles: {},
   kanbanStatuses: [],
