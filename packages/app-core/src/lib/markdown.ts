@@ -1,6 +1,7 @@
 import { unified } from 'unified'
 import DOMPurify from 'dompurify'
 import { classifyApplicationLink } from '@shared/application-links'
+import { remarkSingleDashParagraph } from '@shared/single-dash-underline'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
@@ -1013,6 +1014,7 @@ function remarkTypstMathPlaceholders() {
 function createProcessor(mathRenderer: 'katex' | 'typst') {
   const base = unified()
     .use(remarkParse)
+    .use(remarkSingleDashParagraph)
     .use(remarkFrontmatter, ['yaml', 'toml'])
     .use(remarkGfm)
     .use(remarkMath)

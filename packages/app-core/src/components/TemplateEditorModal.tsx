@@ -21,6 +21,7 @@ import { useStore } from '../store'
 import { parseFrontmatter, slugifyTemplateName } from '@shared/template-files'
 import { renderTemplate } from '../lib/template-render'
 import { resolveCodeLanguage } from '../lib/cm-code-languages'
+import { singleDashParagraphs } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
@@ -133,7 +134,8 @@ export function TemplateEditorModal({
           content: markdown({
             base: markdownLanguage,
             codeLanguages: resolveCodeLanguage,
-            addKeymap: false
+            addKeymap: false,
+            extensions: singleDashParagraphs
           })
         }),
         customCodeFenceHighlightExtension,
