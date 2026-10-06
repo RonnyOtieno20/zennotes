@@ -141,11 +141,6 @@ stdenv.mkDerivation (finalAttrs: {
     mkdir -p $out/share/zennotes
     cp -r . $out/share/zennotes
 
-    # sass, which Excalidraw lists and never loads, brings @parcel/watcher's
-    # prebuilt binaries. The musl one needs a libc no NixOS system provides,
-    # so autoPatchelf fails the build on it, and nothing ever loads it.
-    rm -rf $out/share/zennotes/resources/app.asar.unpacked/node_modules/@parcel/watcher-linux-*-musl
-
     # Icons + desktop entry ship inside the tarball's arch-extras tree.
     for icon in $out/share/zennotes/resources/arch-extras/icons/*.png; do
       size="$(basename "$icon" .png)"
