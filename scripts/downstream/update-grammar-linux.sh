@@ -54,7 +54,9 @@ restore_local_changes() {
   [[ -n "$stash_ref" ]] || return 0
 
   restore_branch="$starting_branch"
-  if [[ -z "$restore_branch" ]] || \
+  # sync/* branches are throwaway merge candidates; once promoted they are stale,
+  # so never leave the working checkout parked on one.
+  if [[ -z "$restore_branch" || "$restore_branch" == sync/* ]] || \
     ! git show-ref --verify --quiet "refs/heads/$restore_branch"; then
     restore_branch="$downstream_branch"
   fi
@@ -158,6 +160,22 @@ sync_branch="$(printf '%s\n' "$sync_output" | sed -n 's/^SYNC_BRANCH=//p')"
 resolved_tag="$(printf '%s\n' "$sync_output" | sed -n 's/^UPSTREAM_TAG=//p')"
 test -n "$sync_branch"
 test -n "$resolved_tag"
+
+# Transient network failures were the most common cause of a failed daily run
+# (a single timed-out registry or Electron download aborted the whole build).
+export npm_config_fetch_retries=6 npm_config_fetch_retry_mintimeout=5000 \
+  npm_config_fetch_retry_maxtimeout=120000 npm_config_fetch_timeout=300000
+export ELECTRON_GET_RETRIES=5
+
+# Keep only the two newest builds so dist/ cannot fill the disk.
+prune_dist() {
+  local f
+  for ext in 'linux-amd64.deb' 'linux-x86_64.AppImage'; do
+    ls -1t dist/ZenNotes-Grammar-*-"$ext" 2>/dev/null | tail -n +3 | while read -r f; do rm -f -- "$f"; done
+  done
+  ls -1t dist/ZenNotes-Grammar-*-SHA256SUMS.txt 2>/dev/null | tail -n +3 | while read -r f; do rm -f -- "$f"; done
+}
+prune_dist
 
 corepack npm run dist:grammar-linux
 version="$(node -p "require('./apps/desktop/package.json').version")"
