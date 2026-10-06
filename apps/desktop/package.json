@@ -124,7 +124,10 @@
     },
     "files": [
       "out/**/*",
-      "!**/*.map"
+      "!**/*.map",
+      "!**/node_modules/sass/**",
+      "!**/node_modules/@parcel/watcher/**",
+      "!**/node_modules/@parcel/watcher-*/**"
     ],
     "extraResources": [
       {
