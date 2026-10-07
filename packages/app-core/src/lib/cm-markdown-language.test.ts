@@ -272,3 +272,37 @@ describe('noteMarkdown: incremental parsing', () => {
     expect(names(after)).toContain('HorizontalRule')
   })
 })
+
+describe('a lone dash under a line of text (#898)', () => {
+  it('keeps the line a paragraph, with the dash as its last line', () => {
+    for (const dash of ['-', '- ', '   -  ']) {
+      const doc = `Some text\n${dash}\n`
+      const { tree } = parse(doc)
+      expect(names(tree)).not.toContain('SetextHeading2')
+      expect(nodes(tree)).toContain(`Paragraph[0,${'Some text\n'.length + dash.length}]`)
+    }
+  })
+
+  it('still reads two or more dashes, and an = underline, as a heading', () => {
+    expect(names(parse('Some text\n--\n').tree)).toContain('SetextHeading2')
+    expect(names(parse('Some text\n---\n').tree)).toContain('SetextHeading2')
+    expect(names(parse('Some text\n=\n').tree)).toContain('SetextHeading1')
+  })
+
+  it('ends the paragraph on the dash line, where the heading would have ended', () => {
+    const { tree } = parse('Some text\n-\nmore text\n- item\n')
+    const all = nodes(tree)
+    expect(all).toContain('Paragraph[0,11]')
+    expect(all).toContain('Paragraph[12,21]')
+    expect(names(tree)).toContain('BulletList')
+  })
+
+  it('applies inside a blockquote and leaves a dash after a blank line a list', () => {
+    const quoted = parse('> quoted\n> -\n').tree
+    expect(names(quoted)).not.toContain('SetextHeading2')
+    expect(nodes(quoted)).toContain('Paragraph[2,12]')
+    const list = parse('Some text\n\n-\n').tree
+    expect(names(list)).toContain('BulletList')
+    expect(nodes(list)).toContain('Paragraph[0,9]')
+  })
+})

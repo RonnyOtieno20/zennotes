@@ -20,7 +20,6 @@ import {
   type PortablePrefKey
 } from '@shared/app-config'
 import {
-  catalogDefaultBinding,
   KEYMAP_CATALOG,
   KEYMAP_GROUP_ORDER,
   KEYMAP_GROUP_LABELS
@@ -674,7 +673,16 @@ function keymapSectionLines(rawOverrides: unknown): string[] {
     lines.push(value === '' ? `${line}  # unbound` : line)
   }
 
-  lines.push('', '# --- All actions (defaults shown; uncomment + edit to override) ---')
+  // The reference must render the same bytes on every OS. Launch rewrites the
+  // file whenever its canonical text differs, so a reference built from this
+  // platform's defaults made a config synced between a Mac and a Linux box
+  // flip back and forth on every launch (#901). Each line shows the
+  // cross-platform default and notes the Mac one where it differs.
+  lines.push(
+    '',
+    '# --- All actions (defaults shown; uncomment + edit to override) ---',
+    '# A "(macOS: ...)" note marks an action whose Mac default differs.'
+  )
   for (const group of KEYMAP_GROUP_ORDER) {
     const entries = KEYMAP_CATALOG.filter(
       (entry) => entry.group === group && !(entry.id in overrides)
@@ -682,8 +690,12 @@ function keymapSectionLines(rawOverrides: unknown): string[] {
     if (entries.length === 0) continue
     lines.push(`# ${KEYMAP_GROUP_LABELS[group] ?? group}`)
     for (const entry of entries) {
+      const mac =
+        entry.defaultBindingMac !== undefined && entry.defaultBindingMac !== entry.defaultBinding
+          ? ` (macOS: ${tomlValue(entry.defaultBindingMac)})`
+          : ''
       lines.push(
-        `# ${tomlKey(entry.id)} = ${tomlValue(catalogDefaultBinding(entry, process.platform === 'darwin'))}  # ${entry.title}`
+        `# ${tomlKey(entry.id)} = ${tomlValue(entry.defaultBinding)}  # ${entry.title}${mac}`
       )
     }
   }

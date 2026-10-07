@@ -30,6 +30,7 @@ import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 import remarkFrontmatter from 'remark-frontmatter'
 import remarkMath from 'remark-math'
+import { remarkSingleDashParagraph } from '@shared/single-dash-underline'
 import type { AlignType, ListItem, PhrasingContent, Root, RootContent } from 'mdast'
 import {
   AlignmentType,
@@ -263,12 +264,14 @@ function blockOf(node: RootContent): IRBlock[] | null {
 export function noteMarkdownToIR(markdown: string): IRBlock[] {
   // `![[chart.png|600]]` becomes `![|600](chart.png)` before remark sees it (#629).
   markdown = rewriteWikilinkImageEmbeds(markdown)
-  const tree = unified()
+  const processor = unified()
     .use(remarkParse)
+    .use(remarkSingleDashParagraph)
     .use(remarkGfm)
     .use(remarkFrontmatter, ['yaml', 'toml'])
     .use(remarkMath)
-    .parse(stripBlockAnchorMarkers(markdown)) as Root
+  // runSync applies the single-dash rule, the only transformer here; parse alone skips it.
+  const tree = processor.runSync(processor.parse(stripBlockAnchorMarkers(markdown))) as Root
   return tree.children.flatMap((node) => blockOf(node) ?? [])
 }
 

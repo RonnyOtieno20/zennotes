@@ -205,3 +205,12 @@ describe('renderNoteDocx wikilink embeds', () => {
     }
   })
 })
+
+describe('noteMarkdownToIR: a lone dash under a line (#898)', () => {
+  it('keeps the line a paragraph, with the dash as text', () => {
+    const blocks = ir('Some text\n-\n')
+    expect(blocks).toHaveLength(1)
+    expect(blocks[0]).toMatchObject({ kind: 'paragraph' })
+    expect(ir('Some text\n--\n')[0]).toMatchObject({ kind: 'heading', level: 2 })
+  })
+})

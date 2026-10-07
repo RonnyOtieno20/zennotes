@@ -198,13 +198,51 @@ class NoteParser extends Parser {
   }
 }
 
+type MarkdownExtension = NonNullable<NonNullable<Parameters<typeof markdown>[0]>['extensions']>
+
+/**
+ * A lone `-` under a line of text keeps that line a paragraph instead of a
+ * setext heading (#898; the shared rule is described in
+ * @shared/single-dash-underline). This runs before Lezer's setext parser, under
+ * the same conditions (a line of the paragraph's own block, not a lazy one,
+ * less than four columns in), and closes the paragraph on the dash line, where
+ * the heading would have closed, so the Preview's remark rule parses the
+ * lines that follow the same way.
+ */
+export const singleDashParagraphs: MarkdownExtension = {
+  parseBlock: [
+    {
+      name: 'SingleDashParagraph',
+      before: 'SetextHeading',
+      leaf: () => ({
+        nextLine(cx, line, leaf) {
+          const lineDepth = (line as unknown as { depth?: number }).depth ?? cx.depth
+          if (lineDepth < cx.depth || line.next !== 45 || line.indent >= line.baseIndent + 4) return false
+          if (line.skipSpace(line.pos + 1) !== line.text.length) return false
+          // As Lezer's own continuation lines do: container markup becomes
+          // spaces, so content offsets stay document offsets.
+          leaf.content += `\n${line.baseIndent ? ' '.repeat(line.basePos) + line.text.slice(line.basePos) : line.text}`
+          cx.nextLine()
+          cx.addLeafElement(
+            leaf,
+            cx.elt('Paragraph', leaf.start, cx.prevLineEnd(), cx.parser.parseInline(leaf.content, leaf.start))
+          )
+          return true
+        },
+        finish: () => false
+      })
+    }
+  ]
+}
+
 /** The markdown language the body is parsed with: GFM plus the vault's code
  *  fence languages. Its keymap is left off; `vimAwareMarkdownKeymap` adds
  *  the same bindings with Vim deference. */
 const noteBody = markdown({
   base: markdownLanguage,
   codeLanguages: resolveCodeLanguage,
-  addKeymap: false
+  addKeymap: false,
+  extensions: singleDashParagraphs
 })
 
 export const noteLanguage = new Language(

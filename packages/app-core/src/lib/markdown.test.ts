@@ -634,3 +634,23 @@ describe('display math inside callouts (#748)', () => {
     expect(inside).toMatch(/<div class="callout"[^>]*>[\s\S]*\$\nx_1 = 2\n\$[\s\S]*<\/div>/)
   })
 })
+
+describe('a lone dash under a line of text (#898)', () => {
+  it('renders the line as a paragraph ending in the dash, not as a heading', () => {
+    for (const dash of ['-', '- ']) {
+      const html = renderMarkdown(`Some text\n${dash}`)
+      expect(html).not.toContain('<h2')
+      expect(html).toContain('Some text\n-')
+    }
+  })
+
+  it('still renders a line over two dashes as a heading', () => {
+    expect(renderMarkdown('Some text\n--')).toContain('<h2')
+  })
+
+  it('ends the paragraph on the dash line, as the editor does', () => {
+    const html = renderMarkdown('Some text\n-\nmore text')
+    expect(html.match(/<p[ >]/g)).toHaveLength(2)
+    expect(renderMarkdown('> quoted\n> -')).not.toContain('<h2')
+  })
+})

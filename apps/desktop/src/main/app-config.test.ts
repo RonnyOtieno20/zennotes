@@ -408,3 +408,32 @@ describe('unbound keymaps in config.toml', () => {
     expect(portable.keymapOverrides).toEqual({ 'global.zoomIn': '' })
   })
 })
+
+describe('keymap reference across platforms (#901)', () => {
+  const realPlatform = process.platform
+  const renderOn = (platform: NodeJS.Platform, portable: AppConfigPortable = {}): string => {
+    Object.defineProperty(process, 'platform', { value: platform, configurable: true })
+    try {
+      return serializeConfig(portable)
+    } finally {
+      Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
+    }
+  }
+
+  it('renders the same bytes on macOS, Linux and Windows, so a synced file stays put', () => {
+    const portable: AppConfigPortable = { keymapOverrides: { 'global.searchNotes': 'Mod+K' } }
+    const mac = renderOn('darwin', portable)
+    expect(renderOn('linux', portable)).toBe(mac)
+    expect(renderOn('win32', portable)).toBe(mac)
+  })
+
+  it('shows the cross-platform default and notes the Mac one where it differs', () => {
+    const text = renderOn('darwin')
+    expect(text).toContain('# "tabs.select1" = "Alt+1"  # Go to tab 1 (macOS: "Ctrl+1")')
+    expect(text).toContain('# "global.toggleRecentNote" = "Mod+Tab"  # Switch to previous note (macOS: "Ctrl+Tab")')
+    // An action with one default everywhere carries no note.
+    expect(text).toContain('# "global.searchNotes" = "Mod+P"  # Search notes\n')
+    // Every line is still a comment: the reference adds no binding.
+    expect(deserializeConfig(text).portable.keymapOverrides ?? {}).toEqual({})
+  })
+})
