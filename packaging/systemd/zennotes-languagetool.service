@@ -2,16 +2,23 @@
 Description=LanguageTool server for ZenNotes
 Documentation=https://dev.languagetool.org/http-server.html
 After=network.target
+# Started on demand: the first connection to zennotes-languagetool-proxy.socket
+# (127.0.0.1:8081) pulls this unit in through the proxy, and it stops again once
+# the proxy exits after ten idle minutes. Not enabled at login.
+StopWhenUnneeded=yes
 
 [Service]
 Type=simple
 WorkingDirectory=%h/.local/share/zennotes/languagetool/current
-ExecStart=/usr/bin/java -Xms64m -Xmx768m -cp %h/.local/share/zennotes/languagetool/current/languagetool-server.jar org.languagetool.server.HTTPServer --config %h/.config/zennotes/languagetool/server.properties --port 8081
+# English needs ~175 MB of live heap. 256 MB leaves room to work without GC churn;
+# the serial collector and compact object headers keep the rest of the JVM small.
+# Older JDKs skip the flags they don't know.
+ExecStart=/usr/bin/java -Xms32m -Xmx256m -Xss512k -XX:+UseSerialGC -XX:+IgnoreUnrecognizedVMOptions -XX:+UseCompactObjectHeaders -cp %h/.local/share/zennotes/languagetool/current/languagetool-server.jar org.languagetool.server.HTTPServer --config %h/.config/zennotes/languagetool/server.properties --port 8082
+# Only "started" once it answers, so the proxy never forwards to a server still booting.
+ExecStartPost=/bin/sh -c 'until curl -sf -o /dev/null http://127.0.0.1:8082/v2/languages; do sleep 0.3; done'
+TimeoutStartSec=90
 SuccessExitStatus=143
 Restart=on-failure
-RestartSec=3
+RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
-
-[Install]
-WantedBy=default.target

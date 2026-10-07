@@ -76,16 +76,17 @@ curl --fail \
 
 ### Service management
 
-The installer creates the user service `zennotes-languagetool.service`. ZenNotes starts
-it on demand when grammar checking first needs the managed local endpoint, stops it
-immediately when grammar is disabled, and stops it after five minutes without a check.
-The service is deliberately not enabled at login.
+The installer creates three user units. `zennotes-languagetool-proxy.socket` listens on
+`127.0.0.1:8081` from login and costs nothing until it is used. The first check starts
+`zennotes-languagetool.service` (LanguageTool itself, on the internal port 8082) through
+`zennotes-languagetool-proxy.service`; after ten minutes without a check the proxy exits
+and LanguageTool stops with it. Any other client, such as ZenNotes on a phone reaching
+this port over Tailscale, shares the same server.
 
 For manual diagnostics, use:
 
 ```bash
-systemctl --user status zennotes-languagetool.service
-systemctl --user restart zennotes-languagetool.service
+systemctl --user status zennotes-languagetool-proxy.socket zennotes-languagetool.service
 journalctl --user -u zennotes-languagetool.service
 ```
 

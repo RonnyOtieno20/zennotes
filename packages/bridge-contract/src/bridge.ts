@@ -483,7 +483,6 @@ export interface ZenBridge {
   /** Optional because browser hosts do not expose arbitrary provider access. */
   grammarCheck?(request: GrammarCheckRequest): Promise<GrammarCheckResponse>
   grammarCancel?(request: GrammarCancelRequest): Promise<GrammarCancelResponse>
-  grammarSetEnabled?(enabled: boolean): Promise<void>
 
   mcpGetRuntime(): Promise<McpServerRuntime>
   mcpGetStatuses(): Promise<McpClientStatus[]>

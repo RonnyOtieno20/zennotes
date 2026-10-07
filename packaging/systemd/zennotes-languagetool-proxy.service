@@ -1,0 +1,7 @@
+[Unit]
+Description=Forwards ZenNotes grammar checks to LanguageTool, starting it when needed
+Requires=zennotes-languagetool.service zennotes-languagetool-proxy.socket
+After=zennotes-languagetool.service
+
+[Service]
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --exit-idle-time=10min 127.0.0.1:8082

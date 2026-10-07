@@ -330,6 +330,7 @@ export function buildGrammarDecorations(
 
 export interface GrammarUiEffect {
   removeId?: string
+  removeIds?: readonly string[]
   selectId?: string | null
   openId?: string | null
 }
@@ -409,6 +410,10 @@ export const grammarEditorStateField = StateField.define<GrammarEditorState>({
       } else if (effect.is(updateGrammarUi)) {
         if (effect.value.removeId) {
           diagnostics = diagnostics.filter((item) => item.id !== effect.value.removeId)
+        }
+        if (effect.value.removeIds?.length) {
+          const removed = new Set(effect.value.removeIds)
+          diagnostics = diagnostics.filter((item) => !removed.has(item.id))
         }
         if (effect.value.selectId !== undefined) selected = effect.value.selectId
         if (effect.value.openId !== undefined) open = effect.value.openId
@@ -626,6 +631,89 @@ export function applyGrammarReplacement(
   }
 }
 
+/**
+ * Every issue that the same fix resolves: same rule, same flagged text, and the
+ * same replacement on offer (say each "color" in an en-GB note). Includes `diagnostic`.
+ */
+export function similarGrammarDiagnostics(
+  diagnostics: readonly GrammarDiagnostic[],
+  diagnostic: GrammarDiagnostic,
+  replacementIndex = 0
+): GrammarDiagnostic[] {
+  const value = diagnostic.replacements[replacementIndex]?.value
+  if (value === undefined || !diagnostic.original) return []
+  return diagnostics.filter(
+    (item) =>
+      item.ruleId === diagnostic.ruleId &&
+      item.original === diagnostic.original &&
+      item.replacements.some((replacement) => replacement.value === value)
+  )
+}
+
+/** Applies one fix to every similar issue as a single undoable transaction. */
+export function applyGrammarReplacementToAll(
+  view: EditorView,
+  diagnosticId: string,
+  replacementIndex: number
+): number {
+  const grammar = getGrammarEditorState(view.state)
+  const session = sessionFor(view)
+  const diagnostic = grammar?.diagnostics.find((item) => item.id === diagnosticId)
+  if (!grammar || !session || !diagnostic) return 0
+  const value = diagnostic.replacements[replacementIndex]?.value
+  if (value === undefined) return 0
+
+  const snapshot = session.getSnapshot()
+  const context = session.getDocumentContext()
+  const fixes: { diagnostic: GrammarDiagnostic; replacement: string }[] = []
+  let lastEnd = -1
+  for (const item of similarGrammarDiagnostics(grammar.diagnostics, diagnostic, replacementIndex)) {
+    const validation = validateGrammarReplacement({
+      diagnostic: item,
+      replacementIndex: item.replacements.findIndex((replacement) => replacement.value === value),
+      mappedRange: item.range,
+      document: view.state.doc,
+      snapshot,
+      currentDocument: context,
+      isDiagnosticCurrent: session.isDiagnosticCurrent?.bind(session),
+      validateApply: session.validateApply?.bind(session)
+    })
+    // Diagnostics are sorted by position; skip any that overlap an earlier fix.
+    if (!validation.valid || item.range.from < lastEnd) continue
+    fixes.push({ diagnostic: item, replacement: validation.replacement })
+    lastEnd = item.range.to
+  }
+  if (fixes.length === 0) return 0
+
+  const changes = ChangeSet.of(
+    fixes.map(({ diagnostic: item, replacement }) => ({
+      from: item.range.from,
+      to: item.range.to,
+      insert: replacement
+    })),
+    view.state.doc.length
+  )
+  view.dispatch({
+    changes,
+    effects: updateGrammarUi.of({
+      removeIds: fixes.map(({ diagnostic: item }) => item.id),
+      selectId: null,
+      openId: null
+    })
+  })
+  for (const { diagnostic: item, replacement } of fixes) {
+    session.onApplied?.({
+      diagnosticId: item.id,
+      replacement,
+      from: item.range.from,
+      to: item.range.to,
+      generation: item.generation
+    })
+  }
+  session.selectDiagnostic?.(null)
+  return fixes.length
+}
+
 export function applyGrammarReplacementAndNext(
   view: EditorView,
   diagnosticId: string,
@@ -713,6 +801,22 @@ function suggestionTooltip(diagnostic: GrammarDiagnostic): Tooltip {
           view.focus()
         })
       })
+
+      const similar = similarGrammarDiagnostics(
+        getGrammarEditorState(view.state)?.diagnostics ?? [],
+        diagnostic
+      ).length
+      if (similar > 1) {
+        const fixAll = document.createElement('button')
+        fixAll.type = 'button'
+        fixAll.className = 'cm-grammar-suggestion'
+        fixAll.textContent = `Fix all ${similar}`
+        fixAll.title = `Replace every “${diagnostic.original}” with “${diagnostic.replacements[0]!.value}”`
+        addAction(fixAll, () => {
+          applyGrammarReplacementToAll(view, diagnostic.id, 0)
+          view.focus()
+        })
+      }
 
       const ignore = document.createElement('button')
       ignore.type = 'button'

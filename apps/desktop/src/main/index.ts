@@ -232,7 +232,6 @@ import { renderTikz } from "./tikz";
 import { fetchLinkMetadata } from "./link-metadata";
 import { RemoteRequestError, RemoteServerClient } from "./remote/server-client";
 import { LanguageToolTransport } from "./grammar/languagetool-transport";
-import { ManagedLanguageToolLifecycle } from "./grammar/managed-languagetool";
 import type {
   GrammarCancelRequest,
   GrammarCheckRequest,
@@ -2984,8 +2983,9 @@ const DEFAULT_LIST_NOTES_STREAM_CHUNK_SIZE = 500;
 const MAX_LIST_NOTES_STREAM_CHUNK_SIZE = 1000;
 const LIST_NOTES_STREAM_STATE_TTL_MS = 60_000;
 const listNotesStreamStates = new Map<string, ListNotesStreamState>();
-const grammarLifecycle = new ManagedLanguageToolLifecycle()
-const grammarTransport = new LanguageToolTransport(globalThis.fetch, grammarLifecycle)
+// LanguageTool itself starts on the first request and stops when idle: a systemd socket
+// (packaging/systemd) owns its lifecycle, shared with any other client such as the phone.
+const grammarTransport = new LanguageToolTransport(globalThis.fetch)
 const grammarOwnerCleanupRegistered = new WeakSet<WebContents>()
 
 function ensureGrammarOwnerCleanup(sender: WebContents): void {
@@ -2994,7 +2994,6 @@ function ensureGrammarOwnerCleanup(sender: WebContents): void {
   const ownerId = sender.id
   sender.once('destroyed', () => {
     grammarTransport.cancelOwner(ownerId)
-    void grammarLifecycle.removeOwner(ownerId)
   })
 }
 
@@ -3285,11 +3284,6 @@ function registerIpc(): void {
   })
   handle(IPC.GRAMMAR_CANCEL, (event, request: GrammarCancelRequest) => {
     return grammarTransport.cancel(request, event.sender.id)
-  })
-  handle(IPC.GRAMMAR_SET_ENABLED, async (event, enabled: boolean) => {
-    if (typeof enabled !== 'boolean') throw new TypeError('Expected grammar enabled state')
-    ensureGrammarOwnerCleanup(event.sender)
-    await grammarLifecycle.setOwnerEnabled(event.sender.id, enabled)
   })
   on(IPC.APP_RENDERER_READY, (event) => {
     const win = BrowserWindow.fromWebContents(event.sender);
@@ -5885,5 +5879,4 @@ app.on("before-quit", () => {
   stopRemoteWatch();
   quickCaptureQuitting = true;
   unregisterQuickCaptureHotkey();
-  void grammarLifecycle.shutdown();
 });

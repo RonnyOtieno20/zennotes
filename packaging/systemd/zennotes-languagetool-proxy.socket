@@ -1,0 +1,8 @@
+[Unit]
+Description=On-demand LanguageTool endpoint for ZenNotes
+
+[Socket]
+ListenStream=127.0.0.1:8081
+
+[Install]
+WantedBy=sockets.target

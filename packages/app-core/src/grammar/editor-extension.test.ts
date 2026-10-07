@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   applyGrammarReplacement,
   applyGrammarReplacementAndNext,
+  applyGrammarReplacementToAll,
+  similarGrammarDiagnostics,
   buildGrammarDecorations,
   getGrammarEditorState,
   grammarDiagnosticAt,
@@ -278,6 +280,25 @@ describe('grammar CodeMirror extension', () => {
     expect(view.state.doc.toString()).toBe('bad text')
     expect(redo(view)).toBe(true)
     expect(view.state.doc.toString()).toBe('good text')
+  })
+
+  it('fixes every instance of the same issue in one undoable transaction', () => {
+    const color = (id: string, from: number): GrammarDiagnostic => ({
+      ...diagnostic(id, from, from + 5, 'color', 'spelling'),
+      ruleId: 'MORFOLOGIK_RULE_EN_GB',
+      replacements: [{ value: 'colour' }, { value: 'collar' }]
+    })
+    const issues = [color('a', 4), diagnostic('other', 14, 17, 'bad'), color('b', 22)]
+    const session = makeSession({ documentId: 'note.md', generation: 4, diagnostics: issues })
+    const view = makeView('The color is bad; the color.', session)
+
+    expect(similarGrammarDiagnostics(issues, issues[0]!).map((item) => item.id)).toEqual(['a', 'b'])
+    expect(applyGrammarReplacementToAll(view, 'b', 0)).toBe(2)
+    expect(view.state.doc.toString()).toBe('The colour is bad; the colour.')
+    expect(session.onApplied).toHaveBeenCalledTimes(2)
+    expect(getGrammarEditorState(view.state)?.diagnostics.map((item) => item.id)).toEqual(['other'])
+    expect(undo(view)).toBe(true)
+    expect(view.state.doc.toString()).toBe('The color is bad; the color.')
   })
 
   it('rejects apply after an edit maps the local range away from the accepted snapshot', () => {

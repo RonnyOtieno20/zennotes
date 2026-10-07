@@ -1855,8 +1855,7 @@ describe('vimWrappedLineMotions (#638)', () => {
 
 describe('grammarEnabled (local grammar opt-in)', () => {
   it('defaults off and round-trips through local persistence', async () => {
-    const grammarSetEnabled = vi.fn().mockResolvedValue(undefined)
-    installZen({ grammarSetEnabled })
+    installZen({})
     const { useStore } = await loadStore()
     expect(useStore.getState().grammarEnabled).toBe(false)
 
@@ -1864,7 +1863,6 @@ describe('grammarEnabled (local grammar opt-in)', () => {
     expect(useStore.getState().grammarEnabled).toBe(true)
     const saved = JSON.parse(localStorage.getItem('zen:prefs:v2') ?? '{}')
     expect(saved.grammarEnabled).toBe(true)
-    expect(grammarSetEnabled).toHaveBeenCalledWith(true)
 
     vi.resetModules()
     const reloaded = await import('./store')

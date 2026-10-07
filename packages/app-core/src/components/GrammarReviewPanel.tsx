@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GrammarDocumentSessionState } from '../grammar/document-sessions'
 import type { GrammarCategory, GrammarDiagnostic } from '../grammar/types'
 import { canIgnoreGrammarRule } from '../grammar/preferences'
+import { similarGrammarDiagnostics } from '../grammar/editor-extension'
 import { usePanelResize } from '../lib/use-panel-resize'
 import { useStore } from '../store'
 import { PanelResizeHandle } from './PanelResizeHandle'
@@ -56,6 +57,7 @@ interface Props {
   onEnable(): void
   onSelect(diagnosticId: string): void
   onApply(diagnosticId: string, replacementIndex: number): void
+  onApplyAll?(diagnosticId: string, replacementIndex: number): void
   onIgnore(diagnosticId: string): void
   onIgnoreRule?(diagnostic: GrammarDiagnostic): void
   onAddToDictionary?(diagnostic: GrammarDiagnostic): void
@@ -70,6 +72,7 @@ export function GrammarReviewPanel({
   onEnable,
   onSelect,
   onApply,
+  onApplyAll,
   onIgnore,
   onIgnoreRule,
   onAddToDictionary,
@@ -335,6 +338,25 @@ export function GrammarReviewPanel({
                           {replacement.value || 'Delete'}
                         </button>
                       ))}
+                      {onApplyAll && diagnostic.replacements.length > 0 && (() => {
+                        const similar = similarGrammarDiagnostics(diagnostics, diagnostic).length
+                        if (similar < 2) return null
+                        const first = diagnostic.replacements[0]!.value || 'Delete'
+                        return (
+                          <button
+                            type="button"
+                            data-grammar-panel-control
+                            title={`Replace all ${similar} instances of “${diagnostic.original}” with “${first}”`}
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onApplyAll(diagnostic.id, 0)
+                            }}
+                            className="rounded-md border border-accent/35 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/10"
+                          >
+                            Fix all {similar}
+                          </button>
+                        )
+                      })()}
                       <button
                         type="button"
                         data-grammar-panel-control

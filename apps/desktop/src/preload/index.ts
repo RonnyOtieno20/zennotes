@@ -738,8 +738,6 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.GRAMMAR_CHECK, request),
   grammarCancel: (request: GrammarCancelRequest): Promise<GrammarCancelResponse> =>
     ipcRenderer.invoke(IPC.GRAMMAR_CANCEL, request),
-  grammarSetEnabled: (enabled: boolean): Promise<void> =>
-    ipcRenderer.invoke(IPC.GRAMMAR_SET_ENABLED, enabled),
 
   mcpGetRuntime: (): Promise<McpServerRuntime> => ipcRenderer.invoke(IPC.MCP_RUNTIME),
   mcpGetStatuses: (): Promise<McpClientStatus[]> => ipcRenderer.invoke(IPC.MCP_STATUS),

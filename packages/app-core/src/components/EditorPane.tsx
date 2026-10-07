@@ -151,6 +151,7 @@ import type { GrammarDocumentSessionState } from '../grammar/document-sessions'
 import type { GrammarDiagnostic } from '../grammar/types'
 import {
   applyGrammarReplacementAndNext,
+  applyGrammarReplacementToAll,
   closeGrammarSuggestionCard,
   getGrammarEditorState,
   ignoreGrammarDiagnosticOnce,
@@ -2806,6 +2807,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     [revealGrammarDiagnostic, setFocusedPanel]
   )
 
+  const applyGrammarReviewReplacementToAll = useCallback(
+    (diagnosticId: string, replacementIndex: number): void => {
+      const view = viewRef.current
+      if (!view || applyGrammarReplacementToAll(view, diagnosticId, replacementIndex) === 0) return
+      closeGrammarSuggestionCard(view)
+      setFocusedPanel('grammar')
+    },
+    [setFocusedPanel]
+  )
+
   const ignoreGrammarReviewDiagnostic = useCallback(
     (diagnosticId: string): void => {
       const view = viewRef.current
@@ -4838,6 +4849,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             onEnable={() => setGrammarEnabled(true)}
             onSelect={revealGrammarDiagnostic}
             onApply={applyGrammarReviewReplacement}
+            onApplyAll={applyGrammarReviewReplacementToAll}
             onIgnore={ignoreGrammarReviewDiagnostic}
             onIgnoreRule={(diagnostic) =>
               personalizeGrammarDiagnostic(diagnostic, 'rule')
