@@ -226,6 +226,67 @@ export function buildMermaidTheme(mode: "light" | "dark"): MermaidThemeConfig {
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Label measurement at fractional scales                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Mermaid decides whether an HTML label wraps by laying it out on one line
+ * under an inline `max-width: <wrappingWidth>px` and asking whether it came
+ * back exactly that wide (`bbox.width === width` in its addHtmlSpan,
+ * unchanged through 12.1). At a fractional device scale the browser lays the
+ * cap out in device pixels and hands back a width just off it: 200.0000152px
+ * at 120% app zoom on a 2x display, 199.9953px at a 1.333 display scale. The
+ * comparison fails, the label never wraps, its node is sized to the cap, and
+ * every long label is cut off at 200px (#911).
+ *
+ * While mermaid lays a diagram out, a label measured within half a device
+ * pixel of its own cap is reported at the cap. Laying the cap out in device
+ * pixels moves it by far less than that. A label that really is that much
+ * narrower than its cap still fits on one line once mermaid switches it to
+ * wrapping, so nothing visible changes for it.
+ */
+function reportedLabelWidth(element: Element, width: number): number {
+  if (!(element instanceof HTMLElement) || !element.style.maxWidth.endsWith("px")) return width;
+  if (!insideDiagramLabel(element)) return width;
+  const cap = Number.parseFloat(element.style.maxWidth);
+  return Math.abs(width - cap) <= 0.5 / (window.devicePixelRatio || 1) ? cap : width;
+}
+
+/** By local name rather than `closest("foreignObject")`: a selector's case
+ *  rules for SVG names differ between engines. */
+function insideDiagramLabel(element: Element): boolean {
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    if (node.localName === "foreignObject") return true;
+  }
+  return false;
+}
+
+/** Renders overlap (the live preview and Preview both draw), so the patch is
+ *  installed by the first and removed by the last. */
+let capAwareRenders = 0;
+let browserGetBoundingClientRect: Element["getBoundingClientRect"] | null = null;
+
+async function withCapAwareLabelMeasurement<T>(render: () => Promise<T>): Promise<T> {
+  if (capAwareRenders++ === 0) {
+    const original = Element.prototype.getBoundingClientRect;
+    browserGetBoundingClientRect = original;
+    Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
+      const rect = original.call(this);
+      const width = reportedLabelWidth(this, rect.width);
+      return width === rect.width ? rect : new DOMRect(rect.x, rect.y, width, rect.height);
+    };
+  }
+  try {
+    return await render();
+  } finally {
+    if (--capAwareRenders === 0 && browserGetBoundingClientRect) {
+      Element.prototype.getBoundingClientRect = browserGetBoundingClientRect;
+      browserGetBoundingClientRect = null;
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Rendered SVG, cached                                                      */
 /* -------------------------------------------------------------------------- */
 
@@ -282,7 +343,7 @@ export function renderMermaidSvg(
       // The id must be unique per render: mermaid puts it in the DOM and a
       // repeat collides with the diagram already on screen.
       const id = `${idPrefix}-${renderSeq++}`;
-      const { svg } = await mermaid.render(id, source);
+      const { svg } = await withCapAwareLabelMeasurement(() => mermaid.render(id, source));
       return { ok: true, svg };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) };
