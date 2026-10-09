@@ -195,6 +195,7 @@ import {
 import { CloudAuthManager, resolveCloudBaseUrl } from "./cloud-auth";
 import { shouldForceGnomeLibsecret } from "./linux-password-store";
 import { CloudAuthLoopbackServer } from "./cloud-auth-loopback";
+import type { DesktopPublishAssetFiles } from "./cloud-publish-assets";
 import { createCloudSyncClient } from "./cloud-sync-client";
 import { DesktopCloudSyncService } from "./cloud-sync-service";
 import { CloudSyncWindowBarrier } from "./cloud-sync-window-barrier";
@@ -462,6 +463,24 @@ function getCloudSyncService(): DesktopCloudSyncService {
     withWindowSync: (root, run) => cloudSyncWindowBarrier.run(root, run),
   });
   return cloudSyncService;
+}
+
+/**
+ * A published note's attachments, by the vault-relative paths the renderer
+ * names: resolved through the vault's traversal guard, never trusted as given.
+ */
+function publishAssetFiles(): DesktopPublishAssetFiles {
+  return {
+    localPath: (rel) =>
+      isRemoteWorkspaceActive()
+        ? null
+        : absolutePath(requireVault().root, String(rel ?? "")),
+    readRemote: async (rel) => {
+      const response =
+        await requireRemoteWorkspaceClient().fetchAssetResponse(String(rel ?? ""));
+      return new Uint8Array(await response.arrayBuffer());
+    },
+  };
 }
 
 function requireLocalCloudVaultRoot(): string {
@@ -3052,12 +3071,16 @@ function registerIpc(): void {
   handle(
     IPC.CLOUD_PUBLISHED_NOTE_CREATE,
     (_event, input: CloudPublishNoteInput) =>
-      getCloudSyncService().publishNote(input),
+      getCloudSyncService().publishNote(input, publishAssetFiles()),
   );
   handle(
     IPC.CLOUD_PUBLISHED_NOTE_UPDATE,
     (_event, shareId: number, input: CloudPublishNoteInput) =>
-      getCloudSyncService().updatePublishedNote(shareId, input),
+      getCloudSyncService().updatePublishedNote(
+        shareId,
+        input,
+        publishAssetFiles(),
+      ),
   );
   handle(IPC.CLOUD_PUBLISHED_NOTE_DELETE, (_event, shareId: number) =>
     getCloudSyncService().unpublishNote(shareId),

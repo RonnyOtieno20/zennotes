@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import type {
+  CloudPublishUploadRequest,
   CloudAccountStatus,
   CloudBackupSchedule,
   CloudBackupScheduleResponse,
@@ -175,7 +176,21 @@ async function setup(
     backupDownloadPath: vi.fn(
       (vaultId: string, backupId: string) =>
         `/api/v1/vaults/${vaultId}/backups/${backupId}/download`
-    )
+    ),
+    createPublishUpload: vi.fn(async (body: CloudPublishUploadRequest) => ({
+      data: {
+        id: '01upload',
+        expires_at: '2026-08-10T12:30:00.000Z',
+        uploads: body.assets.map((asset) => ({
+          ref: asset.ref,
+          method: 'PUT' as const,
+          url: `https://storage.test/${asset.ref}`,
+          headers: {}
+        }))
+      }
+    })),
+    abortPublishUpload: vi.fn(async () => {}),
+    uploadPublishAsset: vi.fn(async () => {})
   }
   const service = new DesktopCloudSyncService({
     storageDirectory,
@@ -337,14 +352,54 @@ describe('DesktopCloudSyncService', () => {
       markdown: '# Launch'
     }
 
+    const files = { localPath: () => null, readRemote: async () => new Uint8Array() }
+
     await expect(service.listPublishedNotes()).resolves.toEqual([])
-    await expect(service.publishNote(input)).resolves.toMatchObject({ id: 42 })
-    await expect(service.updatePublishedNote(42, input)).resolves.toMatchObject({ id: 42 })
+    await expect(service.publishNote(input, files)).resolves.toMatchObject({ id: 42 })
+    await expect(service.updatePublishedNote(42, input, files)).resolves.toMatchObject({ id: 42 })
     await expect(service.unpublishNote(42)).resolves.toBeUndefined()
 
-    expect(client.publishNote).toHaveBeenCalledWith(input)
-    expect(client.updatePublishedNote).toHaveBeenCalledWith(42, input)
+    expect(client.publishNote).toHaveBeenCalledWith({ ...input, assets: [] })
+    expect(client.updatePublishedNote).toHaveBeenCalledWith(42, { ...input, assets: [] })
     expect(client.unpublishNote).toHaveBeenCalledWith(42)
+  })
+
+  it('stages a note\'s attachments from disk and publishes naming the upload', async () => {
+    const { service, client, localRoot } = await setup()
+    const photo = path.join(localRoot, 'attachements', 'photo.png')
+    await mkdir(path.dirname(photo), { recursive: true })
+    await writeFile(photo, Buffer.from([1, 2, 3]))
+    const input = {
+      note_path: 'Notes/Launch.md',
+      title: 'Launch',
+      markdown: '![Photo](photo.png)',
+      assets: [{ ref: 'photo.png', name: 'photo.png', mime: 'image/png', path: 'attachements/photo.png' }]
+    }
+    const files = { localPath: (rel: string) => path.join(localRoot, rel), readRemote: vi.fn() }
+
+    await expect(service.publishNote(input, files)).resolves.toMatchObject({ id: 42 })
+
+    expect(client.createPublishUpload).toHaveBeenCalledWith({
+      assets: [{
+        ref: 'photo.png',
+        name: 'photo.png',
+        mime: 'image/png',
+        byte_length: 3,
+        sha256: createHash('sha256').update(Buffer.from([1, 2, 3])).digest('hex')
+      }]
+    })
+    expect(client.uploadPublishAsset).toHaveBeenCalledWith(
+      { ref: 'photo.png', method: 'PUT', url: 'https://storage.test/photo.png', headers: {} },
+      { mime: 'image/png', byteLength: 3, file: photo }
+    )
+    expect(client.publishNote).toHaveBeenCalledWith({
+      note_path: 'Notes/Launch.md',
+      title: 'Launch',
+      markdown: '![Photo](photo.png)',
+      upload_id: '01upload',
+      asset_refs: ['photo.png']
+    })
+    expect(files.readRemote).not.toHaveBeenCalled()
   })
 
   it('treats the optional published-note list as empty when publishing is unavailable', async () => {

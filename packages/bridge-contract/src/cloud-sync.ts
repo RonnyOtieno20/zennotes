@@ -481,14 +481,57 @@ export interface CloudPublishedNoteAppearance {
 export interface CloudPublishAppearanceInput {
   theme: string;
   /** Omitted preserves the current logo, null removes it, and a file replaces it. */
-  logo?: CloudPublishAssetInput | null;
+  logo?: CloudPublishEncodedAsset | null;
 }
 
+/**
+ * An attachment to publish, by its vault-relative path: the platform reads the
+ * file itself (desktop main, the phone shells), so its bytes never cross the
+ * bridge as base64.
+ */
 export interface CloudPublishAssetInput {
   ref: string;
   name: string;
   mime: string;
+  path: string;
+}
+
+/** An attachment carried inside a one-request (multipart) publish. */
+export interface CloudPublishEncodedAsset {
+  ref: string;
+  name: string;
+  mime: string;
   base64: string;
+}
+
+/** What the server is told about each attachment before it is uploaded. */
+export interface CloudPublishUploadAsset {
+  ref: string;
+  name: string;
+  mime: string;
+  byte_length: number;
+  sha256: string;
+}
+
+export interface CloudPublishUploadRequest {
+  /** The share a republish replaces; omitted for a new publish. */
+  share_id?: number;
+  assets: CloudPublishUploadAsset[];
+}
+
+export interface CloudPublishUploadTarget {
+  ref: string;
+  method: 'PUT';
+  url: string;
+  headers: Record<string, string>;
+}
+
+export interface CloudPublishUploadResponse {
+  data: {
+    id: string;
+    expires_at: string;
+    uploads: CloudPublishUploadTarget[];
+  };
 }
 
 export interface CloudPublishedNoteCollection {

@@ -37,6 +37,12 @@ import {
 import { setVaultSettings } from './vault'
 import type { CloudSyncApiClient } from '@zennotes/shared-domain/cloud-sync-api'
 import { CloudServiceRequestError, type DesktopCloudSyncClientOptions } from './cloud-sync-client'
+import { publishWithStagedUploads } from '@zennotes/shared-domain/cloud-publish-uploads'
+import {
+  desktopPublishAssetPlatform,
+  type DesktopPublishAssetFiles,
+  type PublishAssetUploader
+} from './cloud-publish-assets'
 import { CLOUD_VAULT_REMOVED_MESSAGE, confirmCloudVaultMissing, isCloudResourceMissing, sameCloudVaultLink } from '@zennotes/shared-domain/cloud-vault-availability'
 import { createDesktopCloudSyncCoordinator, DesktopCloudSyncStateStore } from './cloud-sync-filesystem'
 
@@ -46,6 +52,8 @@ type SyncClient = Pick<
   | 'listPublishedNotes'
   | 'publishNote'
   | 'updatePublishedNote'
+  | 'createPublishUpload'
+  | 'abortPublishUpload'
   | 'unpublishNote'
   | 'listVaults'
   | 'createVault'
@@ -64,7 +72,7 @@ type SyncClient = Pick<
   | 'backupRestore'
   | 'restoreBackupNote'
   | 'backupDownloadPath'
->
+> & PublishAssetUploader
 
 export interface DesktopCloudSyncServiceDependencies {
   storageDirectory: string
@@ -123,17 +131,23 @@ export class DesktopCloudSyncService {
     }
   }
 
-  async publishNote(input: CloudPublishNoteInput): Promise<CloudPublishedNoteResult> {
+  async publishNote(
+    input: CloudPublishNoteInput,
+    files: DesktopPublishAssetFiles
+  ): Promise<CloudPublishedNoteResult> {
     const { client } = await this.connection()
-    return await client.publishNote(input)
+    return await publishWithStagedUploads(client, input, desktopPublishAssetPlatform(client, files))
   }
 
   async updatePublishedNote(
     shareId: number,
-    input: CloudPublishNoteInput
+    input: CloudPublishNoteInput,
+    files: DesktopPublishAssetFiles
   ): Promise<CloudPublishedNoteResult> {
     const { client } = await this.connection()
-    return await client.updatePublishedNote(shareId, input)
+    return await publishWithStagedUploads(client, input, desktopPublishAssetPlatform(client, files), {
+      shareId
+    })
   }
 
   async unpublishNote(shareId: number): Promise<void> {

@@ -203,6 +203,45 @@ describe('createCloudSyncClient', () => {
     expect(new Headers(options?.headers).has('Content-Type')).toBe(false)
   })
 
+  it('streams a staged publish attachment to its presigned URL with an explicit length, never the token', async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'zennotes-publish-upload-'))
+    temporaryDirectories.push(directory)
+    const photo = path.join(directory, 'photo.png')
+    await writeFile(photo, Buffer.from([1, 2, 3, 4]))
+    const sent: Array<{ url: string; init: RequestInit; body: Buffer }> = []
+    const fetchImplementation = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const chunks: Buffer[] = []
+      for await (const chunk of init?.body as unknown as AsyncIterable<Buffer>) chunks.push(Buffer.from(chunk))
+      sent.push({ url: String(input), init: init ?? {}, body: Buffer.concat(chunks) })
+      return new Response(null, { status: 200 })
+    }) as unknown as typeof fetch
+    const client = createCloudSyncClient('https://zennotes.org', 'secret-token', fetchImplementation)
+    const target = { ref: 'photo.png', method: 'PUT' as const, url: 'https://storage.test/shares/abc/photo.png?sig=1', headers: { Host: 'storage.test' } }
+
+    await client.uploadPublishAsset(target, { mime: 'image/png', byteLength: 4, file: photo })
+
+    expect(sent).toHaveLength(1)
+    const headers = new Headers(sent[0]?.init.headers)
+    expect(sent[0]?.url).toBe(target.url)
+    expect(sent[0]?.init.method).toBe('PUT')
+    expect(sent[0]?.init.redirect).toBe('error')
+    expect(headers.get('content-length')).toBe('4')
+    expect(headers.get('content-type')).toBe('image/png')
+    expect(headers.get('authorization')).toBeNull()
+    expect([...(sent[0]?.body ?? [])]).toEqual([1, 2, 3, 4])
+
+    await expect(client.uploadPublishAsset(target, { mime: 'image/png', byteLength: 5, file: photo }))
+      .rejects.toMatchObject({ code: 'DIRECT_UPLOAD_SIZE_MISMATCH' })
+    await expect(client.uploadPublishAsset({ ...target, url: 'http://storage.test/x' }, { mime: 'image/png', byteLength: 4, file: photo }))
+      .rejects.toThrow()
+    expect(sent).toHaveLength(1)
+
+    const refused = createCloudSyncClient('https://zennotes.org', 'secret-token', (async () =>
+      new Response('denied', { status: 403 })) as unknown as typeof fetch)
+    await expect(refused.uploadPublishAsset(target, { mime: 'image/png', byteLength: 4, bytes: new Uint8Array([1, 2, 3, 4]) }))
+      .rejects.toMatchObject({ status: 403, code: 'DIRECT_UPLOAD_FAILED' })
+  })
+
   it('keeps files at the inline limit in the mutation request', async () => {
     const fetchImplementation = vi
       .fn<typeof fetch>()
