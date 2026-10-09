@@ -1,12 +1,15 @@
+import { execFileSync } from 'node:child_process'
 import { accessSync, constants as fsConstants } from 'node:fs'
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   probeNvmInstall,
   resetLoginShellResolutionForTests,
-  resolveCommandViaLoginShell
+  resolveCommandViaLoginShell,
+  resolveLoginShellPathDirs,
+  setLoginShellTimeoutForTests
 } from './login-shell-path'
 
 const onPosix = process.platform !== 'win32'
@@ -96,6 +99,110 @@ describe('rc-file-only PATH entries (#634)', () => {
       expect(await resolveCommandViaLoginShell(tool)).toBe(path.join(binDir, tool))
     }
   )
+})
+
+// Julie (Discord, 2026-10-09) launched ZenNotes from a terminal; opening
+// Settings > CLI spawned interactive shells that took her terminal and never
+// exited, and the page sat on "Checking install status..." for good.
+describe('shells started from a terminal', () => {
+  const savedEnv: Record<string, string | undefined> = {}
+  let tempDir: string | null = null
+  const marker = (dirs: string): string => `printf '\\n__ZENNOTES_LOGIN_SHELL__%s' "${dirs}"`
+
+  afterEach(async () => {
+    for (const [key, value] of Object.entries(savedEnv)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    resetLoginShellResolutionForTests()
+    if (tempDir) await rm(tempDir, { recursive: true, force: true })
+    tempDir = null
+  })
+
+  function overrideEnv(overrides: Record<string, string>): void {
+    for (const [key, value] of Object.entries(overrides)) {
+      if (!(key in savedEnv)) savedEnv[key] = process.env[key]
+      process.env[key] = value
+    }
+  }
+
+  // A killed process lingers as a zombie until its parent reaps it; that
+  // counts as gone.
+  function running(pid: number): boolean {
+    try {
+      return !execFileSync('ps', ['-o', 'stat=', '-p', String(pid)], { encoding: 'utf8' }).trim().startsWith('Z')
+    } catch {
+      return false
+    }
+  }
+
+  async function gone(pid: number): Promise<boolean> {
+    for (let i = 0; i < 40; i++) {
+      if (!running(pid)) return true
+      await new Promise((resolve) => setTimeout(resolve, 50))
+    }
+    return false
+  }
+
+  // Stands in for an interactive shell stuck on an rc prompt: it ignores
+  // SIGTERM, as interactive shells do, and never prints the marker.
+  it.skipIf(!onPosix)('gives up on a shell that ignores SIGTERM and leaves none of it running', async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'zen-stuck-shell-'))
+    const pids = path.join(tempDir, 'pids')
+    const stuck = path.join(tempDir, 'stuck-shell')
+    await makeExecutable(stuck, `#!/bin/sh\ntrap '' TERM\necho $$ > "${pids}"\nsleep 30 &\necho $! >> "${pids}"\nwait\n`)
+    overrideEnv({ SHELL: stuck, HOME: tempDir })
+    resetLoginShellResolutionForTests()
+    setLoginShellTimeoutForTests(1000)
+
+    const started = Date.now()
+    const dirs = await resolveLoginShellPathDirs()
+    // The standard shells tried after it still answer.
+    expect(dirs.length).toBeGreaterThan(0)
+    expect(Date.now() - started).toBeLessThan(4000)
+    const [shellPid, sleepPid] = (await readFile(pids, 'utf8')).trim().split('\n').map(Number)
+    expect(await gone(shellPid)).toBe(true)
+    expect(await gone(sleepPid)).toBe(true)
+  })
+
+  it.skipIf(!onPosix)('runs the shell in a session of its own, without a terminal', async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'zen-tty-shell-'))
+    const report = path.join(tempDir, 'report')
+    const shell = path.join(tempDir, 'tty-shell')
+    await makeExecutable(
+      shell,
+      `#!/bin/sh\nif (exec 3</dev/tty) 2>/dev/null; then tty=open; else tty=none; fi\necho "$tty $$ $(ps -o pgid= -p $$)" > "${report}"\n${marker('/usr/bin:/bin')}\n`
+    )
+    overrideEnv({ SHELL: shell, HOME: tempDir })
+    resetLoginShellResolutionForTests()
+
+    expect(await resolveLoginShellPathDirs()).toEqual(['/usr/bin', '/bin'])
+    const [tty, pid, group] = (await readFile(report, 'utf8')).trim().split(/\s+/)
+    // /dev/tty only tells the probes apart when the tests run in a terminal.
+    // The new session also makes the shell lead its own process group, which
+    // shows anywhere and is what lets a timeout kill the whole group.
+    expect(group).toBe(pid)
+    expect(tty).toBe('none')
+  })
+
+  it.skipIf(!onPosix)('shares one shell between callers that ask at the same time', async () => {
+    tempDir = await mkdtemp(path.join(os.tmpdir(), 'zen-shared-shell-'))
+    const runs = path.join(tempDir, 'runs')
+    const shell = path.join(tempDir, 'counting-shell')
+    await makeExecutable(shell, `#!/bin/sh\necho run >> "${runs}"\nsleep 0.3\n${marker('/usr/bin:/bin')}\n`)
+    overrideEnv({ SHELL: shell, HOME: tempDir })
+    resetLoginShellResolutionForTests()
+
+    const [dirs, sh, ls] = await Promise.all([
+      resolveLoginShellPathDirs(),
+      resolveCommandViaLoginShell('sh'),
+      resolveCommandViaLoginShell('ls')
+    ])
+    expect(dirs).toEqual(['/usr/bin', '/bin'])
+    expect(sh).toBeTruthy()
+    expect(ls).toBeTruthy()
+    expect((await readFile(runs, 'utf8')).trim().split('\n')).toHaveLength(1)
+  })
 })
 
 describe('probeNvmInstall', () => {
