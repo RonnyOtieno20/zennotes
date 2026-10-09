@@ -795,6 +795,14 @@ function renamePatternProblem(pattern: string): string | null {
   return null
 }
 
+/** A `tags` argument: one tag, or several stored comma-joined. */
+function tagList(value: string): string[] {
+  return value
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean)
+}
+
 /** Tags are hierarchical in ZenNotes, so `tag project` sees `project/compiler`,
  *  matching what clicking `project` in the tag tree shows. */
 function hasTag(note: WorkflowNote, tag: string): boolean {
@@ -978,7 +986,12 @@ async function runStep(
     case 'tag': {
       const tag = argString(step, 'tag')
       if (tag === null) return missingArg(state, step, 'tag')
-      return keep(workingNotes(await allNotes(state, step.line)).filter((note) => hasTag(note, tag)))
+      const tags = tagList(tag)
+      return keep(
+        workingNotes(await allNotes(state, step.line)).filter((note) =>
+          tags.some((one) => hasTag(note, one))
+        )
+      )
     }
 
     case 'search': {
@@ -1035,14 +1048,19 @@ async function runStep(
     case 'tagged': {
       const tag = argString(step, 'tag')
       if (tag === null) return missingArg(state, step, 'tag')
-      return keep(current.filter((note) => hasTag(note, tag)))
+      const tags = tagList(tag)
+      return keep(current.filter((note) => tags.some((one) => hasTag(note, one))))
     }
 
     case 'not-tagged': {
       const tag = argString(step, 'tag')
       if (tag === null) return missingArg(state, step, 'tag')
-      return keep(current.filter((note) => !hasTag(note, tag)))
+      const tags = tagList(tag)
+      return keep(current.filter((note) => !tags.some((one) => hasTag(note, one))))
     }
+
+    case 'no-tags':
+      return keep(current.filter((note) => note.tags.length === 0))
 
     case 'in': {
       const folder = argString(step, 'folder')

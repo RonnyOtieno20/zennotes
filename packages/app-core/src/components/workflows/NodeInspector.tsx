@@ -24,7 +24,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react'
 
-import { COMPARE_OPS, RENDER_STYLES, nodeDef, sanitizeTagChars } from '@shared/workflows/nodes'
+import { COMPARE_OPS, RENDER_STYLES, joinTagList, nodeDef, sanitizeTagChars } from '@shared/workflows/nodes'
 import type { NodeDef, ParamSpec } from '@shared/workflows/nodes'
 import { RAW_ARG } from '@shared/workflows/parse'
 import type { ArgValue, WorkflowStatement, WorkflowStep } from '@shared/workflows/types'
@@ -119,6 +119,15 @@ const WIRE_NAME_RE = /^[A-Za-z_][\w-]*$/
 
 function displayValue(value: ArgValue | undefined): string {
   return value === undefined ? '' : String(value)
+}
+
+/** A tag list the way the field shows it, `book, article`: the stored value
+ *  (`book,article`), or what a typed list stores as once it comes back. */
+function tagListDisplay(raw: string): string {
+  return joinTagList(raw.split(',').map((piece) => piece.trim()).filter(Boolean))
+    .split(',')
+    .filter(Boolean)
+    .join(', ')
 }
 
 const INPUT_CLASS =
@@ -276,13 +285,22 @@ function ParamControl({
   disabled: boolean
   onChange: (value: ArgValue) => void
 }): JSX.Element {
-  const stored = displayValue(value)
+  const stored = spec.type === 'tags' ? tagListDisplay(displayValue(value)) : displayValue(value)
   const [text, setText] = useState(stored)
+  const echo = useRef<string | null>(null)
+  const seededFor = useRef(nodeKey)
 
   // Re-seed from the file whenever the step changes or the stored value moves
   // underneath us (a text edit, an undo). A value we just pushed comes back
   // identical, so this is a no-op for our own echo and the caret stays put.
+  // A tag list is the exception: `book, ` comes back as `book`, so its echo is
+  // recognized by value instead, or the re-seed would eat the separator the
+  // author is about to type after.
   useEffect(() => {
+    const sameStep = seededFor.current === nodeKey
+    seededFor.current = nodeKey
+    if (sameStep && echo.current === stored) return
+    echo.current = null
     setText(stored)
   }, [nodeKey, stored])
 
@@ -296,6 +314,23 @@ function ParamControl({
         // field. `bindParams` strips the `#`, so the stored value never has one.
         const clean = sanitizeTagChars(next)
         setText(clean)
+        onChange(clean)
+        return
+      }
+      case 'tags': {
+        // Each comma-separated entry is cleaned like a single tag; the commas,
+        // and the space after one, stay so the next tag can be typed.
+        const clean = next
+          .split(',')
+          .map((piece, i) => {
+            const name = sanitizeTagChars(piece.trim())
+            if (i === 0) return name
+            // An entry still empty keeps the author's spacing, so Backspace works.
+            return name ? ` ${name}` : piece.startsWith(' ') ? ' ' : ''
+          })
+          .join(',')
+        setText(clean)
+        echo.current = tagListDisplay(clean)
         onChange(clean)
         return
       }
@@ -386,6 +421,8 @@ function ParamControl({
         return select(vocabulary.wires)
       case 'tag':
         return combobox(vocabulary.tags, 'book')
+      case 'tags':
+        return plain('book, article')
       case 'field':
         return combobox([...BUILTIN_FIELDS, ...vocabulary.fields], 'updated')
       case 'path':
@@ -430,6 +467,12 @@ function ParamControl({
       {spec.type === 'tag' && (
         <span className="text-2xs text-ink-400">
           Written to the file with a #. Nested tags match, so book keeps book/scifi.
+        </span>
+      )}
+      {spec.type === 'tags' && (
+        <span className="text-2xs text-ink-400">
+          One tag, or several separated by commas: book, article. Written to the file with #s,
+          and nested tags match.
         </span>
       )}
       {spec.type === 'rest' && (
