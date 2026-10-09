@@ -243,6 +243,43 @@ describe('tablePlugin', () => {
     view.destroy()
   })
 
+  const menuItem = (label: string): HTMLButtonElement =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>('.cm-table-menu .cm-table-menu-item')).find(
+      (button) => button.textContent === label
+    )!
+
+  it('the table menu copies the whole table as Markdown and keeps the caret', () => {
+    const bridge = window as unknown as { zen?: Record<string, unknown> }
+    const previous = bridge.zen
+    const clipboardWriteText = vi.fn()
+    bridge.zen = { ...(previous ?? {}), clipboardWriteText }
+    try {
+      const view = mount(TABLE_DOC)
+      const cell = view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="0"][data-col="0"]')!
+      cell.focus()
+      cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true, cancelable: true }))
+      menuItem('Copy table as Markdown').click()
+      expect(clipboardWriteText).toHaveBeenCalledWith(
+        '| Name  | Age |\n| ----- | --- |\n| Alice | 30  |\n| Bob   | 25  |'
+      )
+      expect(document.activeElement).toBe(cell)
+      expect(view.state.doc.toString()).toBe(TABLE_DOC)
+      view.destroy()
+    } finally {
+      bridge.zen = previous
+    }
+  })
+
+  it('the table menu duplicates the table right below itself', () => {
+    const view = mount(TABLE_DOC)
+    const cell = view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="1"][data-col="1"]')!
+    cell.dispatchEvent(new KeyboardEvent('keydown', { key: 'm', bubbles: true, cancelable: true }))
+    menuItem('Duplicate table').click()
+    const table = '| Name | Age |\n| --- | --- |\n| Alice | 30 |\n| Bob | 25 |'
+    expect(view.state.doc.toString()).toBe(`Intro text.\n\n${table}\n\n${table}\n\nOutro text.`)
+    view.destroy()
+  })
+
   it('supports x / dd / D editing operators in a cell', () => {
     const view = mount(TABLE_DOC)
     const cell = view.dom.querySelector<HTMLElement>(
@@ -500,6 +537,105 @@ describe('tablePlugin', () => {
     press(cell, 'v', 'l', 'y')
     expect(unnamedRegister().toString()).toBe('Al')
     expect(cell.dataset.raw).toBe('Alice')
+    view.destroy()
+  })
+
+  // Tornado300 (Discord, 2026-10-09): copying whole rows gave tab-separated cell
+  // text, and the platform copy shortcut ran as Vim's `c` and emptied the rows.
+  const typeKeys = (...keys: string[]): void => {
+    for (const key of keys) {
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
+    }
+  }
+  const chord = (key: string): void => {
+    document.activeElement?.dispatchEvent(
+      new KeyboardEvent('keydown', { key, ...modKey, bubbles: true, cancelable: true })
+    )
+  }
+  const cellTexts = (view: EditorView): string[] =>
+    Array.from(view.dom.querySelectorAll<HTMLElement>('.cm-table-widget .cm-table-cell')).map(
+      (cell) => cell.dataset.raw ?? ''
+    )
+  const WHOLE_TABLE = '| Name  | Age |\n| ----- | --- |\n| Alice | 30  |\n| Bob   | 25  |'
+
+  it('a visual-line yank from the header takes the rows as a Markdown table, linewise', () => {
+    const view = mount(TABLE_DOC)
+    unnamedRegister().setText('')
+    view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="-1"][data-col="0"]')!.focus()
+    typeKeys('V', 'j', 'j', 'y')
+    expect(unnamedRegister().toString()).toBe(`${WHOLE_TABLE}\n`)
+    expect((unnamedRegister() as unknown as { linewise: boolean }).linewise).toBe(true)
+    expect(cellTexts(view)).toEqual(['Name', 'Age', 'Alice', '30', 'Bob', '25'])
+    view.destroy()
+  })
+
+  it('a visual-line yank of body rows takes just those rows', () => {
+    const view = mount(TABLE_DOC)
+    unnamedRegister().setText('')
+    view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="0"][data-col="1"]')!.focus()
+    typeKeys('V', 'j', 'y')
+    expect(unnamedRegister().toString()).toBe('| Alice | 30  |\n| Bob   | 25  |\n')
+    view.destroy()
+  })
+
+  it('the platform copy shortcut copies a visual selection and keeps the cells', () => {
+    const bridge = window as unknown as { zen?: Record<string, unknown> }
+    const previous = bridge.zen
+    const clipboardWriteText = vi.fn()
+    bridge.zen = { ...(previous ?? {}), clipboardWriteText }
+    try {
+      const view = mount(TABLE_DOC)
+      view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="-1"][data-col="0"]')!.focus()
+      typeKeys('V', 'j', 'j')
+      chord('c')
+      expect(clipboardWriteText).toHaveBeenCalledWith(`${WHOLE_TABLE}\n`)
+      expect(cellTexts(view)).toEqual(['Name', 'Age', 'Alice', '30', 'Bob', '25'])
+      expect(view.dom.querySelectorAll('.cm-table-cell.is-vim-visual')).toHaveLength(0)
+      // Within a row, a charwise selection still copies the cells' text.
+      view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="0"][data-col="0"]')!.focus()
+      typeKeys('v', 'l')
+      chord('c')
+      expect(clipboardWriteText).toHaveBeenLastCalledWith('Al')
+      view.destroy()
+    } finally {
+      bridge.zen = previous
+    }
+  })
+
+  it('the platform cut shortcut copies a visual selection, then empties it', () => {
+    const bridge = window as unknown as { zen?: Record<string, unknown> }
+    const previous = bridge.zen
+    const clipboardWriteText = vi.fn()
+    bridge.zen = { ...(previous ?? {}), clipboardWriteText }
+    try {
+      const view = mount(TABLE_DOC)
+      view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="0"][data-col="0"]')!.focus()
+      typeKeys('V')
+      chord('x')
+      expect(clipboardWriteText).toHaveBeenCalledWith('| Alice | 30  |\n')
+      expect(cellTexts(view)).toEqual(['Name', 'Age', '', '', 'Bob', '25'])
+      view.destroy()
+    } finally {
+      bridge.zen = previous
+    }
+  })
+
+  it('other Cmd or Ctrl chords are left to the app instead of running as Vim letters', () => {
+    const view = mount(TABLE_DOC)
+    const alice = view.dom.querySelector<HTMLElement>('.cm-table-widget [data-row="0"][data-col="0"]')!
+    alice.focus()
+    // Save in NORMAL mode used to run `s`; with a visual selection, `s` changed it.
+    chord('s')
+    typeKeys('V')
+    chord('s')
+    chord('d')
+    expect(cellTexts(view)).toEqual(['Name', 'Age', 'Alice', '30', 'Bob', '25'])
+    expect(view.dom.querySelectorAll('.cm-table-cell.is-vim-visual')).toHaveLength(2)
+    typeKeys('Escape')
+    // Copy in NORMAL mode used to arm `c`, so the next motion changed text.
+    chord('c')
+    typeKeys('w')
+    expect(cellTexts(view)).toEqual(['Name', 'Age', 'Alice', '30', 'Bob', '25'])
     view.destroy()
   })
 
