@@ -280,9 +280,9 @@ export const HELP_CORE_CONCEPTS: HelpCard[] = [
       'A reading list is a checklist, not a to-do. Add `tasks: false` (or `off`) to a note’s frontmatter and its checkboxes stay checkboxes: they render and toggle exactly as before, but stop feeding the Tasks list, the boards, the calendars, `zn task list`, and the MCP tools. On a #task note, `tasks: note` keeps the note itself on the board while silencing its internal checklist, so a project note can be one card instead of twenty. To retire a whole folder (a media backlog, a reference library), right-click it in the sidebar and choose “Exclude from Tasks”, or manage the list under Settings → Tasks; the exclusion is stored in the vault’s own settings, so desktop, web, mobile, and the CLI all agree. When you do want to see past it, `zn task list --include-excluded` and the MCP `list_tasks` tool’s `includeExcluded` flag list everything.'
   },
   {
-    title: 'Any line becomes a checkbox with ⌘L',
+    title: 'Check off a task with ⌘L',
     body:
-      'Press `⌘L` (`Ctrl+L` on Windows/Linux) in the editor to turn the current line into a checkbox and toggle it on repeat: plain text becomes `- [ ] text`, an existing bullet or numbered item keeps its marker (`* note` becomes `* [ ] note`), and pressing again flips `[ ]` to `[x]` and back. An in-progress `[/]` checks off to `[x]`; forwarded `[>]` and cancelled `[-]` lines are left alone, since those states have their own commands. It applies to every line of a multi-line selection, works with Vim mode on or off, is remappable as `editor.toggleCheckbox` under `[keymaps]` in `config.toml`, and is also in the command palette as “Toggle Checkbox”.'
+      'Press `⌘L` (`Ctrl+L` on Windows/Linux) in the editor to mark the task under the cursor done, or to turn the current line into a checkbox and toggle it on repeat: plain text becomes `- [ ] text`, an existing bullet or numbered item keeps its marker (`* note` becomes `* [ ] note`), and pressing again flips `[ ]` to `[x]` and back. An in-progress `[/]` checks off to `[x]`; forwarded `[>]` and cancelled `[-]` lines are left alone, since those states have their own commands. It applies to every line of a multi-line selection, works with Vim mode on or off (in Vim it works from normal, insert, and visual mode and leaves you in the mode you were in, so `Vjj` then `⌘L` checks off three tasks and one `u` undoes them), is remappable as `editor.toggleCheckbox` under `[keymaps]` in `config.toml`, and is also in the command palette as “Toggle Checkbox”.'
   },
   {
     title: 'Reflow a hard-wrapped paragraph',
@@ -529,7 +529,7 @@ export const HELP_SHORTCUT_SECTIONS: HelpShortcutSection[] = [
       { keys: 'Shift+Mod+T', action: 'Reopen closed tab', detail: 'Reopen the most recently closed tab, restoring its position and pinned state. Repeat to walk back through your close history.' },
       { keys: 'Mod+O', action: 'Open file', detail: 'Desktop only: pick a Markdown file with the native dialog. A file inside a known vault opens against that vault; anything else opens in a standalone external-file window. Links in that window follow from the file\'s own folder: a relative link such as `../README.md` opens the file it names, and a `[[wikilink]]` finds a page of that name in the folder or below it, each in its own window (or in its vault, when the target lives in one).' },
       { keys: 'Mod+4 / Mod+5 / Mod+6', action: 'Edit / Split / Preview mode', detail: 'Switch the active note between the raw editor, side-by-side split, and rendered preview. Preview opens at the line you were editing; Edit and Split open on the section you were reading when you scrolled away from the cursor in Preview, and keep the cursor where it was when you only peeked.' },
-      { keys: 'Mod+L', action: 'Toggle checkbox', detail: 'Turn the current line into a checkbox and toggle it on repeat. See the “Any line becomes a checkbox” card in Core concepts for the full state rules.' },
+      { keys: 'Mod+L', action: 'Toggle checkbox', detail: 'Turn the current line into a checkbox and toggle it on repeat. See the “Check off a task with ⌘L” card in Core concepts for the full state rules.' },
       { keys: 'Alt+Q (macOS: Ctrl+Q)', action: 'Reflow paragraph', detail: 'Join the hard-wrapped lines of the paragraph under the cursor (or every paragraph in the selection) into one line, so the editor wraps it to the pane. Headings, lists, tables, code, and explicit line breaks are untouched. See the “Reflow a hard-wrapped paragraph” card. Remappable as editor.reflowParagraph.' },
       { keys: 'Shift+Mod+E', action: 'Export note as PDF', detail: 'Export the active note as a PDF file.' },
       { keys: 'Mod+=', action: 'Zoom in', detail: 'Scale the whole app up, including chrome, editor, and preview.' },
@@ -952,6 +952,11 @@ export const HELP_VIM_COMMANDS: HelpExCommand[] = [
     command: 'o / O',
     summary: 'Open a line, continuing the list',
     detail: 'On a list item, `o` (below) and `O` (above) carry the marker forward like pressing Enter: bullets repeat, numbered lists advance and renumber, checkboxes start a fresh unchecked box, and indentation is kept. On a non-list line they open a plain new line as usual.'
+  },
+  {
+    command: 'Mod+L',
+    summary: 'Check off the task under the cursor',
+    detail: 'Flips the checkbox on the cursor line between `[ ]` and `[x]` without leaving the mode you are in: normal mode stays normal, insert mode keeps typing. In visual mode it toggles every selected line (`Vjj` then Mod+L checks off three tasks), and one `u` undoes the lot. An in-progress `[/]` checks off to `[x]`, forwarded `[>]` and cancelled `[-]` lines are left alone, and a line with no checkbox becomes one. Rebind it as `editor.toggleCheckbox` (a single key chord, not a Vim sequence).'
   },
   {
     command: '<Tab> / <Shift-Tab> on the ex line',
