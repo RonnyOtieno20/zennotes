@@ -354,6 +354,12 @@ export function TagView(): JSX.Element {
     <div
       ref={rootRef}
       className="flex min-h-0 flex-1 flex-col bg-paper-100 text-ink-900"
+      // EditorPane claims 'editor' for any click or focus inside the pane, which
+      // made the key handler above stand down after the first click on a tag
+      // chip or the filter. Inner capture handlers run after the pane's, so the
+      // view wins it back, as Tasks and Atlas do.
+      onMouseDownCapture={() => useStore.getState().setFocusedPanel('tags')}
+      onFocusCapture={() => useStore.getState().setFocusedPanel('tags')}
     >
       <div className="flex items-center gap-2 border-b border-paper-300/50 px-4 py-3">
         <TagIcon width={18} height={18} />

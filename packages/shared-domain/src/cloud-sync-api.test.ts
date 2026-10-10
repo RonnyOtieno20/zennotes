@@ -323,6 +323,60 @@ describe('CloudSyncApiClient', () => {
     expect([...new Uint8Array(await (asset as File).arrayBuffer())]).toEqual([1, 2, 3])
   })
 
+  it('stages published-note attachments and publishes naming the upload, without files', async () => {
+    const requests: CloudSyncHttpRequest[] = []
+    const client = new CloudSyncApiClient({
+      async request<Response>(request: CloudSyncHttpRequest): Promise<Response> {
+        requests.push(request)
+        return {} as Response
+      }
+    })
+    const upload = {
+      share_id: 42,
+      assets: [{ ref: 'photo.png', name: 'photo.png', mime: 'image/png', byte_length: 3, sha256: 'a'.repeat(64) }]
+    }
+
+    await client.createPublishUpload(upload)
+    await client.updatePublishedNote(42, {
+      note_path: 'inbox/Photo.md',
+      title: 'Photo',
+      markdown: '![Photo](photo.png)',
+      appearance: { theme: 'paper', logo: null },
+      upload_id: '01upload',
+      asset_refs: ['photo.png']
+    })
+    await client.abortPublishUpload('01 upload')
+
+    expect(requests).toEqual([
+      { method: 'POST', path: '/api/v1/shares/uploads', body: upload },
+      {
+        method: 'PUT',
+        path: '/api/v1/shares/42',
+        body: {
+          payload: JSON.stringify({
+            note_path: 'inbox/Photo.md',
+            title: 'Photo',
+            markdown: '![Photo](photo.png)',
+            appearance: { theme: 'paper', logo_action: 'remove' },
+            tikz_svgs: [],
+            asset_refs: ['photo.png'],
+            upload_id: '01upload'
+          })
+        },
+        timeoutMs: 300_000
+      },
+      { method: 'DELETE', path: '/api/v1/shares/uploads/01%20upload' }
+    ])
+    await expect(client.publishNote({
+      note_path: 'inbox/Photo.md',
+      title: 'Photo',
+      markdown: '',
+      appearance: { theme: 'paper', logo: { ref: 'brand-logo', name: 'logo.png', mime: 'image/png', base64: 'AQID' } },
+      upload_id: '01upload',
+      asset_refs: []
+    })).rejects.toThrow('A staged publish cannot replace the logo.')
+  })
+
   it('serializes published appearance and a replacement logo', async () => {
     const requests: CloudSyncHttpRequest[] = []
     const client = new CloudSyncApiClient({

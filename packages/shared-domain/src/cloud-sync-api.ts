@@ -8,9 +8,12 @@ import type {
   CloudBackupSnapshotCollection,
   CloudBackupSnapshotItemCollection,
   CloudBackupSnapshotResponse,
+  CloudPublishAppearanceInput,
   CloudPublishedNoteCollection,
   CloudPublishedNoteResult,
-  CloudPublishNoteInput,
+  CloudPublishEncodedAsset,
+  CloudPublishUploadRequest,
+  CloudPublishUploadResponse,
   CloudServiceAccountResponse,
   CloudSyncChangeResponse,
   CloudSyncContentRequestOptions,
@@ -43,6 +46,23 @@ export {
   type CloudSyncRateLimitOptions,
   type CloudSyncResponseHeaders
 } from './cloud-sync-rate-limit'
+
+/** The note a publish sends, without its attachments. */
+export interface CloudPublishNoteFields {
+  note_path: string
+  title: string
+  markdown: string
+  appearance?: CloudPublishAppearanceInput
+}
+
+/**
+ * A publish as sent to the service: the attachments either ride inside the
+ * request (multipart, the one-request path) or were staged ahead of it and are
+ * named by the upload's id.
+ */
+export type CloudPublishRequest =
+  | (CloudPublishNoteFields & { assets?: CloudPublishEncodedAsset[] })
+  | (CloudPublishNoteFields & { upload_id: string; asset_refs: string[] })
 
 export interface CloudSyncHttpRequest {
   method: 'GET' | 'POST' | 'PUT' | 'DELETE'
@@ -171,7 +191,7 @@ export class CloudSyncApiClient {
     return this.http.request({ method: 'GET', path: '/api/v1/shares' })
   }
 
-  async publishNote(input: CloudPublishNoteInput): Promise<CloudPublishedNoteResult> {
+  async publishNote(input: CloudPublishRequest): Promise<CloudPublishedNoteResult> {
     return this.http.request({
       method: 'POST',
       path: '/api/v1/shares',
@@ -180,9 +200,22 @@ export class CloudSyncApiClient {
     })
   }
 
+  /** Stage a publish's attachments: answers one presigned PUT per file, or 404
+   * where the service has no staged uploads. */
+  async createPublishUpload(body: CloudPublishUploadRequest): Promise<CloudPublishUploadResponse> {
+    return this.http.request({ method: 'POST', path: '/api/v1/shares/uploads', body })
+  }
+
+  async abortPublishUpload(uploadId: string): Promise<void> {
+    await this.http.request({
+      method: 'DELETE',
+      path: `/api/v1/shares/uploads/${encodeURIComponent(uploadId)}`
+    })
+  }
+
   async updatePublishedNote(
     shareId: number,
-    input: CloudPublishNoteInput
+    input: CloudPublishRequest
   ): Promise<CloudPublishedNoteResult> {
     return this.http.request({
       method: 'PUT',
@@ -389,7 +422,24 @@ export class CloudSyncApiClient {
   }
 }
 
-function publishedNoteBody(input: CloudPublishNoteInput): { payload: string } | FormData {
+function publishedNoteBody(input: CloudPublishRequest): { payload: string } | FormData {
+  if ('upload_id' in input) {
+    // The files are already in storage; the publish names them and their upload.
+    const { upload_id, asset_refs, appearance, ...note } = input
+    if (appearance?.logo) throw new Error('A staged publish cannot replace the logo.')
+    return {
+      payload: JSON.stringify({
+        ...note,
+        ...(appearance === undefined
+          ? {}
+          : { appearance: { theme: appearance.theme, logo_action: appearance.logo === null ? 'remove' : 'keep' } }),
+        tikz_svgs: [],
+        asset_refs,
+        upload_id
+      })
+    }
+  }
+
   const { assets = [], appearance, ...note } = input
   const brandLogo = appearance?.logo
   const serializedAppearance =

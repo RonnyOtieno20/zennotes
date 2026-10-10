@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import WebSocket from 'ws'
+import { testWindowState } from './test-window-state.mjs'
 
 const scriptDir = dirname(fileURLToPath(import.meta.url))
 const repoRoot = resolve(scriptDir, '..', '..')
@@ -100,13 +101,7 @@ async function seedUserData(userDataRoot, configRoot, vaultRoot) {
         remoteWorkspace: null,
         remoteWorkspaceProfileId: null,
         remoteWorkspaceProfiles: [],
-        windowState: {
-          x: 60,
-          y: 60,
-          width: 1180,
-          height: 760,
-          isMaximized: false
-        },
+        windowState: testWindowState(1180, 760),
         zoomFactor: 1,
         quickCaptureHotkey: ''
       },

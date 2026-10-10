@@ -1,14 +1,13 @@
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { promises as fsp, constants as fsConstants } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { promisify } from 'node:util'
-
-const execFileAsync = promisify(execFile)
 
 // A login shell can be slow if the user's profile is heavy; cap it so a stuck
 // shell never blocks search. Resolution is memoized, so this runs rarely.
 const LOGIN_SHELL_TIMEOUT_MS = 5_000
+let loginShellTimeoutMs = LOGIN_SHELL_TIMEOUT_MS
+const LOGIN_SHELL_MAX_OUTPUT = 1024 * 1024
 // Memoize resolved locations so we don't spawn a shell on every capability
 // check / search. Short enough to self-heal after a tool is installed mid-run.
 const RESOLUTION_TTL_MS = 60_000
@@ -32,6 +31,9 @@ const SHELL_MODES = ['-lic', '-lc'] as const
 
 const cache = new Map<string, { at: number; value: string | null }>()
 let pathDirsCache: { at: number; value: string[] } | null = null
+// One probe at a time: the CLI page asks for the PATH, node and npm at once,
+// and each caller used to start its own shell while the first was running.
+let pathDirsInFlight: Promise<string[]> | null = null
 
 /**
  * Resolve a command to an absolute path using the user's login shell.
@@ -88,15 +90,30 @@ export async function resolveLoginShellPathDirs(): Promise<string[]> {
   const cached = pathDirsCache
   if (cached && Date.now() - cached.at < RESOLUTION_TTL_MS) return cached.value
 
-  const value = await queryLoginShellPathDirs()
-  pathDirsCache = { at: Date.now(), value }
-  return value
+  if (!pathDirsInFlight) {
+    pathDirsInFlight = queryLoginShellPathDirs()
+      .then((value) => {
+        pathDirsCache = { at: Date.now(), value }
+        return value
+      })
+      .finally(() => {
+        pathDirsInFlight = null
+      })
+  }
+  return pathDirsInFlight
 }
 
 /** Resolution is memoized; tests that vary HOME/SHELL/NVM_DIR reset it between cases. */
 export function resetLoginShellResolutionForTests(): void {
   cache.clear()
   pathDirsCache = null
+  pathDirsInFlight = null
+  loginShellTimeoutMs = LOGIN_SHELL_TIMEOUT_MS
+}
+
+/** Shortens the per-shell timeout so a test of a stuck shell does not take five seconds. */
+export function setLoginShellTimeoutForTests(ms: number): void {
+  loginShellTimeoutMs = ms
 }
 
 async function scanLoginShellPath(command: string): Promise<string | null> {
@@ -120,17 +137,8 @@ async function queryLoginShellPathDirs(): Promise<string[]> {
         await fsp.access(shellPath, fsConstants.X_OK)
         // printf interprets the leading \n itself, forcing our marker onto its
         // own line no matter what the rc files printed before it.
-        const { stdout } = await execFileAsync(
-          shellPath,
-          [mode, `printf '\\n${OUTPUT_MARKER}%s' "$PATH"`],
-          {
-            encoding: 'utf8',
-            timeout: LOGIN_SHELL_TIMEOUT_MS,
-            maxBuffer: 1024 * 1024,
-            windowsHide: true
-          }
-        )
-        const dirs = (extractMarkedLine(String(stdout)) ?? '')
+        const stdout = await runLoginShell(shellPath, mode, `printf '\\n${OUTPUT_MARKER}%s' "$PATH"`)
+        const dirs = (extractMarkedLine(stdout) ?? '')
           .split(path.delimiter)
           .map((entry) => entry.trim())
           .filter(Boolean)
@@ -145,6 +153,59 @@ async function queryLoginShellPathDirs(): Promise<string[]> {
     }
   }
   return []
+}
+
+/**
+ * Run one probe in the user's shell, cut off from any terminal.
+ *
+ * Launched from a terminal, ZenNotes owns that terminal, and an interactive
+ * shell started beneath it took it over: job control moved the terminal's
+ * foreground to the shell, and an rc file that waits on the terminal (an
+ * update prompt, a setup wizard, `exec tmux`) blocked there for good.
+ * Interactive shells ignore SIGTERM, so the timeout never ended them, the CLI
+ * settings page waited on them forever, and the user's terminal was left to
+ * the stuck shells. In a new session (`detached`) the shell has no
+ * controlling terminal, so `/dev/tty` fails at once instead of blocking, its
+ * stdin is empty, and a timeout kills its whole process group with SIGKILL.
+ */
+function runLoginShell(shellPath: string, mode: string, command: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(shellPath, [mode, command], {
+      detached: true,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true
+    })
+    let stdout = ''
+    let settled = false
+    const killGroup = (): void => {
+      try {
+        if (child.pid) process.kill(-child.pid, 'SIGKILL')
+      } catch {
+        /* the group is already gone */
+      }
+    }
+    const finish = (error: Error | null): void => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      if (error) reject(error)
+      else resolve(stdout)
+    }
+    const timer = setTimeout(() => {
+      killGroup()
+      finish(new Error(`${shellPath} ${mode} did not answer within ${loginShellTimeoutMs} ms`))
+    }, loginShellTimeoutMs)
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk: string) => {
+      stdout += chunk
+      if (stdout.length > LOGIN_SHELL_MAX_OUTPUT) {
+        killGroup()
+        finish(new Error(`${shellPath} ${mode} printed more than ${LOGIN_SHELL_MAX_OUTPUT} bytes`))
+      }
+    })
+    child.on('error', (error) => finish(error))
+    child.on('close', () => finish(null))
+  })
 }
 
 async function anyExistingDirectory(dirs: string[]): Promise<boolean> {

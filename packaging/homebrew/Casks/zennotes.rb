@@ -1,9 +1,9 @@
 cask "zennotes" do
   arch arm: "arm64", intel: "x64"
 
-  version "2.63.0"
-  sha256 arm:   "986b47bdd8879a36db725a36394a302b8638f9a89aff07c5f5af10797a30b374",
-         intel: "d82dbf467d50b07392ebe38ab1c4f0bcb64ccdf7832b5deecae249ee266c9588"
+  version "2.65.0"
+  sha256 arm:   "adc2c632fcb33d0c2ee97026d7bbfd88209594af620fd779b88646ab43e2254f",
+         intel: "1de4e1ea28909aa29bd48b10b7d29426da3ab9bf5412bb3bf2db467acfb3f506"
 
   url "https://github.com/ZenNotes/zennotes/releases/download/v#{version}/ZenNotes-#{version}-mac-#{arch}.dmg"
   name "ZenNotes"

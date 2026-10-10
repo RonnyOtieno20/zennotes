@@ -47,7 +47,8 @@ import { renderMarkdown } from './markdown'
 import { getCM, Vim } from '@replit/codemirror-vim'
 import { undo, redo } from '@codemirror/commands'
 import { useStore } from '../store'
-import { matchesSequenceToken, matchesShortcutBinding } from './keymaps'
+import { isMacPlatform, matchesSequenceToken, matchesShortcutBinding, type KeymapId } from './keymaps'
+import { writeClipboardText } from './clipboard-text'
 import { followLinkTarget } from './follow-link'
 import { linkRangeAtCursor, type LineLinkKind } from './internal-links'
 
@@ -104,6 +105,16 @@ function saveVimRegister(operator: 'yank' | 'delete' | 'change', text: string): 
   if (!text) return
   vimRegisters()?.pushText('"', operator, text, false, false)
 }
+
+/** Whole table rows go in as lines, so `p` in the note puts them on lines of their
+ *  own, the way a linewise yank does, instead of splicing them into a line. */
+function saveVimRegisterLines(text: string): void {
+  if (!text) return
+  vimRegisters()?.pushText('"', 'yank', text, true, false)
+}
+
+/** Navigation a user may have remapped onto a Ctrl chord (#213). */
+const NAV_KEYMAP_IDS: KeymapId[] = ['nav.moveLeft', 'nav.moveRight', 'nav.moveDown', 'nav.moveUp']
 
 /** The unnamed register's content flattened to fit a single-line cell: a
  *  linewise yank sheds its trailing newline, and interior line/cell breaks
@@ -720,7 +731,8 @@ class TableWidget extends WidgetType {
         col,
         model: this.model,
         apply: (next, focus) => this.applyMenuAction(next, focus, anchor),
-        convertToDatabase: () => this.convertToDatabase(anchor)
+        convertToDatabase: () => this.convertToDatabase(anchor),
+        duplicateTable: () => this.duplicateTable(anchor)
       })
     })
     cell.append(editable)
@@ -912,6 +924,17 @@ class TableWidget extends WidgetType {
         // still pass through.
         if (!event.metaKey && !event.ctrlKey && !event.altKey) {
           event.stopPropagation()
+        }
+        // A chord is an app or system shortcut, never a Vim command. Read as plain
+        // letters, the platform copy (Cmd-C, Ctrl-C off macOS) ran `c` and emptied a
+        // visual selection, and Cmd-S ran `s`. Copy and cut act on the selection;
+        // everything else is left to the app.
+        if (this.isAppChord(event)) {
+          if (this.visualMode && (this.isPlatformChord(event, 'c') || this.isPlatformChord(event, 'x'))) {
+            event.preventDefault()
+            this.copyVisualSelection(this.isPlatformChord(event, 'x'))
+          }
+          return
         }
         const cellText = editable.dataset.raw ?? ''
         if (this.visualMode) {
@@ -1793,8 +1816,57 @@ class TableWidget extends WidgetType {
     // the text can be pasted anywhere with `p` — another cell or the note body.
     // The system clipboard now follows the yank-to-clipboard setting (the
     // register patch mirrors it) instead of being written unconditionally.
-    saveVimRegister('yank', this.visualSelectionText(ranges))
+    const rows = this.visualSelectionMarkdown()
+    if (rows !== null) saveVimRegisterLines(rows)
+    else saveVimRegister('yank', this.visualSelectionText(ranges))
     this.finishVisualAtStart(first, false)
+  }
+
+  /** The platform copy or cut of a visual selection: the same text a yank takes,
+   *  written to the system clipboard. Cut then empties the cells, as `d` does. */
+  private copyVisualSelection(cut: boolean): void {
+    const ranges = this.visualSelectionRanges()
+    const first = ranges[0]
+    if (!first) return
+    const rows = this.visualSelectionMarkdown()
+    writeClipboardText(rows !== null ? `${rows}\n` : this.visualSelectionText(ranges))
+    if (cut) this.deleteVisualSelection(false)
+    else this.finishVisualAtStart(first, false)
+  }
+
+  /** A visual-line selection as Markdown table rows, laid out with the whole
+   *  table's column widths. The header brings its delimiter row, so a selection
+   *  from the header down pastes as a complete table. Null outside line mode. */
+  private visualSelectionMarkdown(): string | null {
+    if (this.visualMode !== 'line' || !this.visualAnchor || !this.visualHead) return null
+    this.syncFromDom()
+    const firstRow = Math.min(this.visualAnchor.row, this.visualHead.row)
+    const lastRow = Math.max(this.visualAnchor.row, this.visualHead.row)
+    // Header, delimiter, then one line per body row.
+    const lines = serializeTable({ ...this.model, colWidths: undefined }).split('\n')
+    const picked = firstRow < 0 ? [lines[0], lines[1]] : []
+    for (let row = Math.max(0, firstRow); row <= lastRow; row++) {
+      const line = lines[row + 2]
+      if (line !== undefined) picked.push(line)
+    }
+    return picked.join('\n')
+  }
+
+  /** A modified key the widget leaves to the app: anything with Cmd, and Ctrl
+   *  chords other than Vim's Ctrl-r redo or a navigation key remapped onto one.
+   *  Ctrl+Alt is AltGr, which types characters (`@` on a German layout). */
+  private isAppChord(event: KeyboardEvent): boolean {
+    if (event.metaKey) return true
+    if (!event.ctrlKey || event.altKey) return false
+    if (event.key === 'r') return false
+    const overrides = useStore.getState().keymapOverrides
+    return !NAV_KEYMAP_IDS.some((id) => matchesSequenceToken(event, overrides, id))
+  }
+
+  /** Cmd (Ctrl off macOS) plus `key`: the platform clipboard shortcut. */
+  private isPlatformChord(event: KeyboardEvent, key: string): boolean {
+    const primary = isMacPlatform() ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey
+    return primary && !event.altKey && event.key.toLowerCase() === key
   }
 
   /** Visual `p`/`P`: the register replaces the selection; the replaced text
@@ -2017,7 +2089,8 @@ class TableWidget extends WidgetType {
       col,
       model: this.model,
       apply: (next, focus) => this.applyMenuAction(next, focus, anchor),
-      convertToDatabase: () => this.convertToDatabase(anchor)
+      convertToDatabase: () => this.convertToDatabase(anchor),
+      duplicateTable: () => this.duplicateTable(anchor)
     })
   }
 
@@ -2029,6 +2102,20 @@ class TableWidget extends WidgetType {
     const pos = anchor ?? this.captureTableAnchor()
     if (pos == null) return
     void convertTableToDatabase(this.view, pos)
+  }
+
+  /** A copy of the table right below it, a blank line apart, with its column
+   *  widths: the table menu's Duplicate table. */
+  private duplicateTable(anchor?: number): void {
+    this.commitIfDirty()
+    const pos = anchor ?? this.captureTableAnchor()
+    if (pos == null) return
+    const range = tableBlockAt(this.view.state.doc, pos)
+    if (!range) return
+    this.view.dispatch({
+      changes: { from: range.to, insert: `\n\n${this.view.state.sliceDoc(range.from, range.to)}` }
+    })
+    requestAnimationFrame(() => this.view.focus())
   }
 
   ignoreEvent(): boolean {

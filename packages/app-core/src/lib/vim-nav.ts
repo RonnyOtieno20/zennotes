@@ -67,6 +67,7 @@ export interface PanelVisibility {
   calendarOpen: boolean
   tasksViewOpen: boolean
   atlasViewOpen?: boolean
+  tagsViewOpen?: boolean
 }
 
 /** Every panel on screen, ordered left to right — the focus order both pane
@@ -76,7 +77,15 @@ export function getVisiblePanels(visibility: PanelVisibility): Panel[] {
   const panels: Panel[] = []
   if (visibility.sidebarOpen) panels.push('sidebar')
   if (visibility.noteListOpen && !visibility.unifiedSidebar) panels.push('notelist')
-  panels.push(visibility.tasksViewOpen ? 'tasks' : visibility.atlasViewOpen ? 'atlas' : 'editor')
+  panels.push(
+    visibility.tasksViewOpen
+      ? 'tasks'
+      : visibility.atlasViewOpen
+        ? 'atlas'
+        : visibility.tagsViewOpen
+          ? 'tags'
+          : 'editor'
+  )
   if (visibility.connectionsOpen) panels.push('connections')
   if (visibility.commentsOpen) panels.push('comments')
   if (visibility.grammarOpen) panels.push('grammar')
@@ -109,6 +118,7 @@ export function getVisiblePanelsNow(state: {
   unifiedSidebar: boolean
   tasksViewOpen: boolean
   atlasViewOpen?: boolean
+  tagsViewOpen?: boolean
 }): Panel[] {
   const onScreen = (selector: string): boolean =>
     typeof document !== 'undefined' && document.querySelector(selector) !== null
@@ -118,6 +128,7 @@ export function getVisiblePanelsNow(state: {
     unifiedSidebar: state.unifiedSidebar,
     tasksViewOpen: state.tasksViewOpen,
     atlasViewOpen: state.atlasViewOpen,
+    tagsViewOpen: state.tagsViewOpen,
     connectionsOpen: onScreen(PANEL_MARKERS.connections),
     commentsOpen: onScreen(PANEL_MARKERS.comments),
     grammarOpen: onScreen(PANEL_MARKERS.grammar),

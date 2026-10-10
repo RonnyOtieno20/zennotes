@@ -6356,6 +6356,19 @@ export const useStore = create<Store>((set, get) => {
         composeTaskFile({ title, dateCreated: new Date().toISOString() })
       )
       await get().refreshTasks()
+      // On the Tasks view the new task shows up in the list. Anywhere else (the
+      // palette, `:newtask`, a phone's Action Button) nothing on screen
+      // changes, so say it landed and offer the note.
+      if (!isTasksViewActive(get())) {
+        useToastStore
+          .getState()
+          .addToast(
+            'Task added',
+            'success',
+            { label: 'Open', onClick: () => void get().selectNote(meta.path) },
+            6000
+          )
+      }
       return meta.path
     } catch (err) {
       console.error('newTaskFile failed', err)

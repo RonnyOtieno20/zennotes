@@ -10,6 +10,7 @@ import { createHash } from 'node:crypto'
 import { createReadStream, type ReadStream } from 'node:fs'
 import { stat } from 'node:fs/promises'
 import type {
+  CloudPublishUploadTarget,
   CloudSyncCapacityConflict,
   CloudSyncConflict,
   CloudSyncConflictCode,
@@ -57,12 +58,25 @@ export interface DesktopCloudSyncClientOptions {
   contentReferences?: boolean
 }
 
+/** One staged publish attachment to PUT: a local file streamed from disk, or a
+ * remote vault's file already in memory. */
+export interface PublishAssetSource {
+  mime: string
+  byteLength: number
+  file?: string
+  bytes?: Uint8Array
+}
+
+export type DesktopCloudSyncClient = CloudSyncApiClient & {
+  uploadPublishAsset(target: CloudPublishUploadTarget, source: PublishAssetSource): Promise<void>
+}
+
 export function createCloudSyncClient(
   baseUrl: string,
   token: string,
   fetchImplementation: typeof fetch = fetch,
   options: DesktopCloudSyncClientOptions = {}
-): CloudSyncApiClient {
+): DesktopCloudSyncClient {
   const accountId = options.accountId ?? createHash('sha256').update(token).digest('hex')
   return new DesktopCloudSyncApiClient(
     (options.rateLimits ?? cloudSyncRateLimits).wrap(
@@ -200,6 +214,56 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     }
 
     return await this.completeDirectUpload(vaultId, instruction.id, mutation)
+  }
+
+  /**
+   * PUT one staged publish attachment to the presigned URL the service gave it,
+   * with the same safeguards as a sync upload: HTTPS only, no redirects, and an
+   * explicit Content-Length (object storage refuses a chunked PUT, 411), from a
+   * file that must still be the size that was declared.
+   */
+  async uploadPublishAsset(target: CloudPublishUploadTarget, source: PublishAssetSource): Promise<void> {
+    this.signal?.throwIfAborted()
+    const uploadUrl = secureDirectUploadUrl(target.url)
+    const headers = new Headers(target.headers)
+    if (!headers.has('content-length')) headers.set('content-length', String(source.byteLength))
+    if (!headers.has('content-type')) headers.set('content-type', source.mime)
+
+    let reader: ReadStream | undefined
+    let body: FetchBody
+    if (source.file !== undefined) {
+      const sourceStats = await stat(source.file)
+      if (!sourceStats.isFile() || sourceStats.size !== source.byteLength) throw directUploadSizeMismatch()
+      body = (reader = createReadStream(source.file)) as unknown as FetchBody
+    } else if (source.bytes !== undefined) {
+      if (source.bytes.byteLength !== source.byteLength) throw directUploadSizeMismatch()
+      body = source.bytes as FetchBody
+    } else {
+      throw new Error('A publish upload needs a file or its bytes.')
+    }
+
+    let response: Response
+    try {
+      response = await this.fetchImplementation(uploadUrl, {
+        method: target.method,
+        headers,
+        body,
+        signal: requestSignal(this.signal, DIRECT_UPLOAD_TIMEOUT_MS),
+        redirect: 'error',
+        ...(reader ? { duplex: 'half' } : {})
+      })
+    } finally {
+      reader?.destroy()
+    }
+    await response.body?.cancel().catch(() => {})
+
+    if (!response.ok) {
+      throw new CloudServiceRequestError(
+        `ZenNotes Cloud object upload failed (${response.status}).`,
+        response.status,
+        'DIRECT_UPLOAD_FAILED'
+      )
+    }
   }
 
   private async abortQuietly(vaultId: string, uploadId: string): Promise<void> {

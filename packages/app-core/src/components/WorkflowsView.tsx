@@ -41,7 +41,7 @@ import {
   setStatementName,
   setStepArg
 } from '@shared/workflows/edit'
-import { serializeWorkflow } from '@shared/workflows/serialize'
+import { serializeWorkflow, tagListText } from '@shared/workflows/serialize'
 // The recipes the gallery offers and the completions the editor pops up. Both
 // are data derived from `NODE_DEFS`, which is why neither lives here: this file
 // renders them, it does not decide what the language contains.
@@ -282,6 +282,7 @@ function formatArg(spec: ParamSpec, value: ArgValue | undefined): string {
   // The parser strips the `#`; put it back so the node reads like the line the
   // author wrote.
   if (spec.type === 'tag') return `#${text}`
+  if (spec.type === 'tags') return tagListText(text)
   if (QUOTED_TYPES.has(spec.type) && /\s/.test(text)) return `"${text}"`
   return text
 }

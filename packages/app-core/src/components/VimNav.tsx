@@ -809,7 +809,8 @@ export function VimNav(): JSX.Element | null {
           noteListOpen: state.noteListOpen,
           unifiedSidebar: state.unifiedSidebar,
           tasksViewOpen: isTasksViewActive(state),
-          atlasViewOpen: isAtlasViewActive(state)
+          atlasViewOpen: isAtlasViewActive(state),
+          tagsViewOpen: isTagsViewActive(state)
         })
         const direction =
           matchesSequenceToken(e, overrides, 'vim.paneFocusLeft') ||

@@ -392,6 +392,32 @@ describe('filters', () => {
     expect(await outTitles([step('all'), step('not-tagged', ['#book'])])).toHaveLength(5)
   })
 
+  it('a tag list keeps a note carrying any of its tags, nested ones included', async () => {
+    expect(await outTitles([step('all'), step('tagged', ['#recipe,', '#project'])])).toEqual([
+      'Compiler',
+      'Engine',
+      'Recipe'
+    ])
+    expect(await outTitles([step('tag', ['#meeting,', '#recipe'])])).toEqual(['Meeting', 'Recipe'])
+  })
+
+  it('`not-tagged` with a list drops a note carrying any of them', async () => {
+    expect(await outTitles([step('all'), step('not-tagged', ['#book,', '#project'])])).toEqual([
+      'Meeting',
+      'Recipe',
+      'Pipes | Tubes'
+    ])
+  })
+
+  it('`no-tags` keeps only the notes with no tag at all', async () => {
+    const loose = note('inbox/Loose.md', 'Loose', 'inbox', [], {}, DAY)
+    expect(
+      await outTitles([step('all'), step('no-tags')], { notes: [...NOTES, loose] })
+    ).toEqual(['Loose'])
+    // The untagged archived note stays out with the rest of the archive.
+    expect(await outTitles([step('all'), step('no-tags')])).toEqual([])
+  })
+
   it('`in` narrows to a folder subtree', async () => {
     expect(await outTitles([step('all'), step('in', ['inbox/projects'])])).toEqual([
       'Compiler',
@@ -1278,6 +1304,18 @@ describe('invariants', () => {
     expect(plan.ops).toEqual([])
     expect(plan.diagnostics[0].message).toContain('`where` is missing field')
     expect(titles(plan.wires.out)).toHaveLength(4)
+  })
+
+  it('plans no writes for tags separated only by spaces', async () => {
+    // Older builds read `not-tagged #book #project` as `not-tagged #book`, so
+    // the line must not start meaning something wider now that lists exist.
+    const plan = await planPipeline([
+      step('all'),
+      step('not-tagged', ['#book', '#project']),
+      step('trash')
+    ])
+    expect(plan.ops).toEqual([])
+    expect(plan.diagnostics[0].severity).toBe('error')
   })
 
   it('aborts a pipeline at a source that is not its head', async () => {
