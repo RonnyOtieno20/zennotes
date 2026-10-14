@@ -1184,6 +1184,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const tabSizeCompartmentRef = useRef<Compartment | null>(null)
   const grammarCompartmentRef = useRef<Compartment | null>(null)
   const grammarBindingRef = useRef<GrammarEditorBinding | null>(null)
+  // Bumped whenever the CodeMirror view is created or destroyed. viewRef alone
+  // does not re-run effects, and a deferred hydration mounts the view in a
+  // later commit than the one that first ran the grammar binding effect.
+  const [editorViewGeneration, setEditorViewGeneration] = useState(0)
   const grammarSessionUnsubscribeRef = useRef<(() => void) | null>(null)
   // history() lives in a compartment so we can reset undo history on a note
   // switch — otherwise Cmd+Z crosses notes and overwrites the current one (#247).
@@ -2072,6 +2076,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         existingView?.destroy()
         viewRef.current = null
         grammarCompartmentRef.current = null
+        if (existingView) setEditorViewGeneration((generation) => generation + 1)
         return
       }
       if (viewRef.current) return
@@ -2381,6 +2386,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       })
       viewRef.current = view
       viewPathRef.current = initialPath
+      setEditorViewGeneration((generation) => generation + 1)
       loadNoteUndoFile(
         view,
         historyCompartment,
@@ -2734,6 +2740,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [
     addGrammarDictionaryEntry,
     content?.path,
+    editorViewGeneration,
     grammarEnabled,
     grammarPreferences,
     grammarSupported,
