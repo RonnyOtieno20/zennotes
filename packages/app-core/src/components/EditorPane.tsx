@@ -1333,6 +1333,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [revealSidePanel, setOutlineOpen])
 
   const toggleGrammarReviewPanel = useCallback(() => {
+    if (tuckedSidePanelsRef.current.includes('grammar')) {
+      revealSidePanel('grammar')
+      setFocusedPanel('grammar')
+      return
+    }
     setGrammarReviewOpen((open) => {
       const next = !open
       const view = viewRef.current
@@ -1345,7 +1350,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       return next
     })
-  }, [focusedPanel, setFocusedPanel])
+  }, [focusedPanel, revealSidePanel, setFocusedPanel])
 
   const toggleCommentsPanel = useCallback(() => {
     if (tuckedSidePanelsRef.current.includes('comments')) return revealSidePanel('comments')
@@ -1459,7 +1464,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     }
     window.addEventListener('zen:toggle-grammar-review', handler)
     return () => window.removeEventListener('zen:toggle-grammar-review', handler)
-  }, [isActive, toggleGrammarReviewPanel])
+  }, [panelShortcutsApply, toggleGrammarReviewPanel])
 
   useEffect(() => {
     if (!isActive) return
@@ -1468,6 +1473,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       if (!view) return
       if (grammarReviewOpen) {
         if (!selectAdjacentGrammarDiagnostic(view, 1)) return
+        if (tuckedSidePanelsRef.current.includes('grammar')) revealSidePanel('grammar')
         setFocusedPanel('grammar')
         return
       }
@@ -1480,6 +1486,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       if (!view) return
       if (grammarReviewOpen) {
         if (!selectAdjacentGrammarDiagnostic(view, -1)) return
+        if (tuckedSidePanelsRef.current.includes('grammar')) revealSidePanel('grammar')
         setFocusedPanel('grammar')
         return
       }
@@ -1493,10 +1500,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       window.removeEventListener('zen:next-grammar-issue', next)
       window.removeEventListener('zen:previous-grammar-issue', previous)
     }
-  }, [grammarReviewOpen, isActive, setFocusedPanel])
+  }, [grammarReviewOpen, isActive, revealSidePanel, setFocusedPanel])
 
   useEffect(() => {
-    if (!isActive) return
+    if (!panelShortcutsApply) return
     const handler = (): void => {
       toggleCommentsPanel()
     }
@@ -1524,9 +1531,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setOutlineOpen(false)
       setCommentsOpen(false)
       setCalendarPanel(CALENDAR_PANEL_CLOSED)
+      setGrammarReviewOpen(false)
       setConnectionPreview(null)
       const panel = useStore.getState().focusedPanel
-      if (panel === 'connections' || panel === 'comments' || panel === 'hoverpreview') {
+      if (
+        panel === 'connections' ||
+        panel === 'comments' ||
+        panel === 'grammar' ||
+        panel === 'hoverpreview'
+      ) {
         setFocusedPanel('editor')
       }
     }
@@ -4031,6 +4044,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!content || zenMode) return open
     if (connectionsOpen && isActive) open.push('connections')
     if (commentsOpen) open.push('comments')
+    if (grammarReviewOpen) open.push('grammar')
     if (outlineOpen) open.push('outline')
     if (calendarOpen && calendarAvailable) open.push('calendar')
     return open
@@ -4040,6 +4054,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     commentsOpen,
     connectionsOpen,
     content,
+    grammarReviewOpen,
     isActive,
     outlineOpen,
     zenMode
@@ -4105,7 +4120,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               <CheckSquareIcon />
             </IconBtn>
             <IconBtn
-              title={connectionsOpen ? 'Hide connections' : 'Show connections'}
+              title={
+                connectionsOpen && !tucked.includes('connections')
+                  ? 'Hide connections'
+                  : 'Show connections'
+              }
               active={connectionsOpen}
               onClick={toggleConnectionsPanel}
             >
@@ -4114,10 +4133,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <IconBtn
               title={
                 grammarSupported
-                  ? grammarReviewOpen
-                    ? "Hide grammar review"
-                    : `Show grammar review${grammarSessionState?.diagnostics.length ? ` (${grammarSessionState.diagnostics.length})` : ""} (${getKeymapDisplay(tabNavOverrides, 'global.toggleGrammarReview')})`
-                  : "Grammar review is unavailable in this runtime"
+                  ? grammarReviewOpen && !tucked.includes('grammar')
+                    ? 'Hide grammar review'
+                    : `Show grammar review${grammarSessionState?.diagnostics.length ? ` (${grammarSessionState.diagnostics.length})` : ''} (${getKeymapDisplay(tabNavOverrides, 'global.toggleGrammarReview')})`
+                  : 'Grammar review is unavailable in this runtime'
               }
               active={grammarReviewOpen}
               disabled={!grammarSupported}
@@ -4127,7 +4146,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             </IconBtn>
             <IconBtn
               title={
-                commentsOpen
+                commentsOpen && !tucked.includes('comments')
                   ? 'Hide comments'
                   : `Show comments${openCommentCount > 0 ? ` (${openCommentCount})` : ''}`
               }
@@ -4836,8 +4855,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             onJump={jumpToComment}
           />
         )}
-        {content && grammarReviewOpen && !zenMode && (
+        {content && sidePanelShown('grammar') && (
           <GrammarReviewPanel
+            fitWidth={sidePanelFit.widths.grammar}
             enabled={grammarEnabled}
             supported={grammarSupported}
             state={grammarSessionState}
@@ -4860,7 +4880,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             onRecheck={recheckGrammarReview}
           />
         )}
-        {content && outlineOpen && !zenMode && (
+        {content && sidePanelShown('outline') && (
           <OutlinePanel
             note={content}
             fitWidth={sidePanelFit.widths.outline}

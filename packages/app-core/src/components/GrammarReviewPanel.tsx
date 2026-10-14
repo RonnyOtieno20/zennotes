@@ -62,6 +62,9 @@ interface Props {
   onIgnoreRule?(diagnostic: GrammarDiagnostic): void
   onAddToDictionary?(diagnostic: GrammarDiagnostic): void
   onRecheck(): void
+  /** Width to render at when the pane has less room than the width the user
+   *  chose; see lib/side-panel-fit. (#805) */
+  fitWidth?: number
 }
 
 export function GrammarReviewPanel({
@@ -76,7 +79,8 @@ export function GrammarReviewPanel({
   onIgnore,
   onIgnoreRule,
   onAddToDictionary,
-  onRecheck
+  onRecheck,
+  fitWidth
 }: Props): JSX.Element {
   const [filter, setFilter] = useState<GrammarReviewFilter>('all')
   const selectedCardRef = useRef<HTMLElement | null>(null)
@@ -86,7 +90,7 @@ export function GrammarReviewPanel({
   const setFocusedPanel = useStore((store) => store.setFocusedPanel)
   const cursorIndex = useStore((store) => store.grammarCursorIndex)
   const setCursorIndex = useStore((store) => store.setGrammarCursorIndex)
-  const { startResize } = usePanelResize(width, (px) => setPanelWidth('grammar', px))
+  const { startResize } = usePanelResize(fitWidth ?? width, (px) => setPanelWidth('grammar', px))
   const diagnostics = state?.diagnostics ?? []
   const counts = useMemo(() => countGrammarDiagnostics(diagnostics), [diagnostics])
   const filtered = useMemo(
@@ -172,7 +176,7 @@ export function GrammarReviewPanel({
     <section
       aria-label="Grammar review"
       data-grammar-panel
-      style={{ width }}
+      style={{ width: fitWidth ?? width }}
       className="relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18"
       onMouseDown={() => setFocusedPanel('grammar')}
       onFocusCapture={() => setFocusedPanel('grammar')}
