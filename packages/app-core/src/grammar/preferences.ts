@@ -1,3 +1,4 @@
+import { isLoopbackHostname } from '@bridge-contract/grammar'
 import { DEFAULT_LANGUAGE_TOOL_ENDPOINT } from './providers/bridge-transport'
 import type { GrammarCategory } from './types'
 
@@ -67,17 +68,6 @@ const BROAD_SPELLING_RULE_PATTERN = /^MORFOLOGIK_RULE(?:_|$)/u
  */
 export function canIgnoreGrammarRule(ruleId: string): boolean {
   return RULE_ID_PATTERN.test(ruleId) && !BROAD_SPELLING_RULE_PATTERN.test(ruleId)
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase()
-  if (normalized === 'localhost' || normalized === '[::1]') return true
-  const octets = normalized.split('.')
-  return (
-    octets.length === 4 &&
-    octets[0] === '127' &&
-    octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
-  )
 }
 
 export function classifyGrammarEndpoint(endpoint: string): GrammarEndpointClassification {

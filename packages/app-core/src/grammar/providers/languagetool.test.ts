@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { GRAMMAR_MAX_TEXT_BYTES } from '@bridge-contract/grammar'
 import type { ProseSegment } from '../types'
 import {
   LanguageToolProvider,
@@ -13,6 +14,16 @@ function segment(
   sourceRange = { from: 5, to: 23 }
 ): ProseSegment {
   return { id: 'paragraph-1', text, sourceRange, sourceMap }
+}
+
+/** A segment whose source map is the identity over its own length, for batch-size tests. */
+function segmentFor(id: string, text: string): ProseSegment {
+  return {
+    id,
+    text,
+    sourceRange: { from: 0, to: text.length },
+    sourceMap: Array.from({ length: text.length + 1 }, (_, index) => index)
+  }
 }
 
 function responseWith(match: Record<string, unknown>): unknown {
@@ -180,11 +191,10 @@ describe('LanguageToolProvider', () => {
     })
 
     expect(result).toEqual([])
-    expect(check).toHaveBeenCalledTimes(2)
-    expect(check).toHaveBeenNthCalledWith(
-      1,
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(check).toHaveBeenCalledWith(
       {
-        text: 'One two',
+        text: 'One two\n\nBad',
         language: 'en-US',
         enabledCategories: ['GRAMMAR'],
         enabledRules: ['RULE_A'],
@@ -192,11 +202,157 @@ describe('LanguageToolProvider', () => {
       },
       signal
     )
-    expect(check).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ text: 'Bad', language: 'en-US' }),
-      signal
+  })
+
+  it('batches segments into one request and maps each match back to its own segment', async () => {
+    const check = vi.fn<LanguageToolTransport['check']>(async () => ({
+      matches: [
+        { ...grammarMatch, context: undefined, offset: 0, length: 3 },
+        { ...grammarMatch, context: undefined, offset: 9, length: 3 }
+      ]
+    }))
+    const provider = new LanguageToolProvider({ check })
+    const second = {
+      ...segment('Bad', [30, 31, 32, 33], { from: 30, to: 33 }),
+      id: 'paragraph-2'
+    }
+
+    const result = await provider.check({
+      segments: [segment(), second],
+      generation: 1,
+      language: 'en-US',
+      signal: new AbortController().signal
+    })
+
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(
+      result.map((diagnostic) => [diagnostic.segmentId, diagnostic.range, diagnostic.original])
+    ).toEqual([
+      ['paragraph-1', { from: 5, to: 8 }, 'One'],
+      ['paragraph-2', { from: 30, to: 33 }, 'Bad']
+    ])
+  })
+
+  it('drops matches that cross a segment boundary or sit in the separator', async () => {
+    const check = vi.fn<LanguageToolTransport['check']>(async () => ({
+      matches: [
+        { ...grammarMatch, context: undefined, offset: 6, length: 4 },
+        { ...grammarMatch, context: undefined, offset: 7, length: 2 },
+        { ...grammarMatch, context: undefined, offset: 9, length: 3 }
+      ]
+    }))
+    const provider = new LanguageToolProvider({ check })
+    const second = { ...segment('Bad', [30, 31, 32, 33], { from: 30, to: 33 }), id: 'paragraph-2' }
+
+    const result = await provider.check({
+      segments: [segment(), second],
+      generation: 1,
+      language: 'en-US',
+      signal: new AbortController().signal
+    })
+
+    expect(result.map((diagnostic) => diagnostic.segmentId)).toEqual(['paragraph-2'])
+  })
+
+  it('maps UTF-16 offsets across multi-byte characters in a batch', async () => {
+    // Response offsets index the batch text 'Café\n\né 😀x' in UTF-16 units.
+    const check = vi.fn<LanguageToolTransport['check']>(async () => ({
+      matches: [
+        { ...grammarMatch, context: undefined, offset: 3, length: 1 },
+        { ...grammarMatch, context: undefined, offset: 8, length: 2 },
+        { ...grammarMatch, context: undefined, offset: 10, length: 1 }
+      ]
+    }))
+    const provider = new LanguageToolProvider({ check })
+    const first = segment('Café', [5, 6, 7, 8, 9], { from: 5, to: 9 })
+    const second = {
+      ...segment('é 😀x', [30, 31, 32, 33, 34, 35], { from: 30, to: 35 }),
+      id: 'paragraph-2'
+    }
+
+    const result = await provider.check({
+      segments: [first, second],
+      generation: 1,
+      language: 'en-US',
+      signal: new AbortController().signal
+    })
+
+    expect(check).toHaveBeenCalledWith(
+      expect.objectContaining({ text: 'Café\n\né 😀x' }),
+      expect.any(AbortSignal)
     )
+    expect(
+      result.map((diagnostic) => [diagnostic.segmentId, diagnostic.range, diagnostic.original])
+    ).toEqual([
+      ['paragraph-1', { from: 8, to: 9 }, 'é'],
+      ['paragraph-2', { from: 32, to: 34 }, '😀'],
+      ['paragraph-2', { from: 34, to: 35 }, 'x']
+    ])
+  })
+
+  it('packs segments by UTF-8 bytes, not UTF-16 units, against the request limit', async () => {
+    const check = vi.fn<LanguageToolTransport['check']>(async () => ({ matches: [] }))
+    const provider = new LanguageToolProvider({ check })
+    // 1 200 UTF-8 bytes but only 600 UTF-16 units: a length-based packer would fit both in one request.
+    const accented = 'é'.repeat(600)
+
+    await provider.check({
+      segments: [
+        segmentFor('paragraph-1', 'x'.repeat(GRAMMAR_MAX_TEXT_BYTES - 1000)),
+        segmentFor('paragraph-2', accented)
+      ],
+      generation: 1,
+      language: 'en-US',
+      signal: new AbortController().signal
+    })
+
+    expect(check).toHaveBeenCalledTimes(2)
+    for (const [request] of check.mock.calls) {
+      expect(new TextEncoder().encode(request.text).length).toBeLessThanOrEqual(
+        GRAMMAR_MAX_TEXT_BYTES
+      )
+    }
+  })
+
+  it('leaves out a segment over the request limit and still checks the others', async () => {
+    const check = vi.fn<LanguageToolTransport['check']>(async () => ({ matches: [] }))
+    const provider = new LanguageToolProvider({ check })
+
+    await provider.check({
+      segments: [
+        segmentFor('paragraph-1', 'é'.repeat(GRAMMAR_MAX_TEXT_BYTES / 2 + 1)),
+        segmentFor('paragraph-2', 'Fine.')
+      ],
+      generation: 1,
+      language: 'en-US',
+      signal: new AbortController().signal
+    })
+
+    expect(check).toHaveBeenCalledOnce()
+    expect(check.mock.calls[0][0].text).toBe('Fine.')
+  })
+
+  it('stops between batches when the signal is aborted', async () => {
+    const controller = new AbortController()
+    const reason = new Error('superseded')
+    const check = vi.fn<LanguageToolTransport['check']>(async () => {
+      controller.abort(reason)
+      return { matches: [] }
+    })
+    const provider = new LanguageToolProvider({ check })
+
+    await expect(
+      provider.check({
+        segments: [
+          segmentFor('paragraph-1', 'x'.repeat(GRAMMAR_MAX_TEXT_BYTES)),
+          segmentFor('paragraph-2', 'Bad')
+        ],
+        generation: 1,
+        language: 'en-US',
+        signal: controller.signal
+      })
+    ).rejects.toBe(reason)
+    expect(check).toHaveBeenCalledTimes(1)
   })
 
   it('stops before another segment when the signal is aborted', async () => {

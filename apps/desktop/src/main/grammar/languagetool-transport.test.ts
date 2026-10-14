@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { GRAMMAR_MAX_TEXT_BYTES, isLoopbackHostname } from '@zennotes/bridge-contract/grammar'
 import {
   GRAMMAR_MAX_RESPONSE_BYTES,
-  GRAMMAR_MAX_TEXT_BYTES,
   GrammarTransportError,
   LanguageToolTransport,
   resolveLanguageToolCheckUrl
@@ -22,6 +22,37 @@ function jsonResponse(value: unknown, init?: ResponseInit): Response {
     headers: { 'content-type': 'application/json', ...init?.headers }
   })
 }
+
+describe('isLoopbackHostname', () => {
+  it('accepts localhost, bracketed IPv6 loopback, and the whole 127/8 IPv4 range', () => {
+    for (const hostname of [
+      'localhost',
+      'LOCALHOST',
+      '[::1]',
+      '127.0.0.1',
+      '127.42.0.1',
+      '127.255.255.255'
+    ]) {
+      expect(isLoopbackHostname(hostname), hostname).toBe(true)
+    }
+  })
+
+  it('rejects other hosts, malformed IPv4 octets, and lookalike names', () => {
+    for (const hostname of [
+      'example.com',
+      '10.0.0.1',
+      '128.0.0.1',
+      '127.0.0',
+      '127.0.0.256',
+      '127.0.0.x',
+      '127.0.0.1.example.com',
+      '::1',
+      ''
+    ]) {
+      expect(isLoopbackHostname(hostname), hostname).toBe(false)
+    }
+  })
+})
 
 describe('resolveLanguageToolCheckUrl', () => {
   it('allows HTTP only for loopback and appends the check path', () => {

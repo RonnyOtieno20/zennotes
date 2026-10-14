@@ -1,5 +1,6 @@
 import type { EditorState, Extension } from '@codemirror/state'
 import { ViewPlugin, type EditorView, type ViewUpdate } from '@codemirror/view'
+import { GRAMMAR_MAX_TEXT_BYTES, utf8ByteLength } from '@bridge-contract/grammar'
 import type { GrammarCheckOutcome } from './coordinator'
 import {
   GrammarDocumentSessionRegistry,
@@ -24,7 +25,6 @@ import { LanguageToolProvider } from './providers/languagetool'
 import type { GrammarDiagnostic } from './types'
 
 const DEFAULT_LANGUAGE = 'en-US'
-const MAX_AUTOMATIC_CHECK_CHARACTERS = 120_000
 const AUTOMATIC_PARSE_BUDGET_MS = 8
 const AUTOMATIC_PARSE_RETRY_MS = 100
 const AUTOMATIC_PARSE_RETRY_LIMIT = 20
@@ -44,7 +44,8 @@ export interface GrammarEditorBinding {
 
 export interface GrammarEditorBindingOptions {
   language?: string
-  maxAutomaticCheckCharacters?: number
+  /** Largest note, in UTF-8 bytes, checked automatically. */
+  maxAutomaticCheckBytes?: number
   automaticChecks?: boolean
   providerConfigKey?: string
   proseOptions?: GrammarProseOptions
@@ -124,7 +125,7 @@ function grammarCheckExtension(
   options: GrammarEditorBindingOptions
 ): Extension {
   const language = options.language ?? DEFAULT_LANGUAGE
-  const maxCharacters = options.maxAutomaticCheckCharacters ?? MAX_AUTOMATIC_CHECK_CHARACTERS
+  const maxBytes = options.maxAutomaticCheckBytes ?? GRAMMAR_MAX_TEXT_BYTES
   const automaticChecks = options.automaticChecks !== false
   const automaticParseReady = options.automaticParseReady ?? ensureGrammarSyntaxTree
   const automaticParseRetryMs = options.automaticParseRetryMs ?? AUTOMATIC_PARSE_RETRY_MS
@@ -199,7 +200,7 @@ function grammarCheckExtension(
 
           const state = this.view.state
           const text = state.doc.toString()
-          if (!automaticChecks || text.length > maxCharacters) {
+          if (!automaticChecks || utf8ByteLength(text) > maxBytes) {
             this.cancelParseRetry()
             this.parseRetryCount = 0
             void session.schedule({
@@ -248,7 +249,7 @@ export function createGrammarEditorBinding(
   const lease: GrammarDocumentSessionLease = registry.acquire(documentKey)
   const editorSession = createGrammarEditorSession(lease.session, options)
   const language = options.language ?? DEFAULT_LANGUAGE
-  const maxCharacters = options.maxAutomaticCheckCharacters ?? MAX_AUTOMATIC_CHECK_CHARACTERS
+  const maxBytes = options.maxAutomaticCheckBytes ?? GRAMMAR_MAX_TEXT_BYTES
   let released = false
 
   return {
@@ -263,7 +264,7 @@ export function createGrammarEditorBinding(
     checkNow(state) {
       const text = state.doc.toString()
       if (
-        text.length > maxCharacters ||
+        utf8ByteLength(text) > maxBytes ||
         !ensureGrammarSyntaxTree(state, MANUAL_PARSE_BUDGET_MS)
       ) {
         return lease.session.checkNow({

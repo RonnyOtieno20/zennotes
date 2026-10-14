@@ -67,7 +67,7 @@ function mount(
   const binding = createGrammarEditorBinding(
     registry,
     { vaultId: '/vault', notePath },
-    { maxAutomaticCheckCharacters: 10_000, ...options }
+    { maxAutomaticCheckBytes: 10_000, ...options }
   )
   const parent = document.createElement('div')
   document.body.appendChild(parent)
@@ -182,7 +182,7 @@ describe('grammar editor runtime', () => {
       debounceMs: 10
     })
     const { binding } = mount(registry, 'large.md', 'A bad sentence beyond the limit.', {
-      maxAutomaticCheckCharacters: 12
+      maxAutomaticCheckBytes: 12
     })
 
     await flushCheck(10)
@@ -191,6 +191,28 @@ describe('grammar editor runtime', () => {
       status: 'disabled',
       diagnostics: []
     })
+  })
+
+  it('measures the large-note limit in UTF-8 bytes, not UTF-16 units', async () => {
+    vi.useFakeTimers()
+    const grammarProvider = providerWithBadDiagnostic()
+    const registry = new GrammarDocumentSessionRegistry(grammarProvider, {
+      debounceMs: 10
+    })
+    // Seven accented letters are seven UTF-16 units but fourteen UTF-8 bytes.
+    const { binding } = mount(registry, 'accents.md', 'é'.repeat(7), {
+      maxAutomaticCheckBytes: 12
+    })
+
+    await flushCheck(10)
+    expect(grammarProvider.check).not.toHaveBeenCalled()
+    expect(binding.session.getState().status).toBe('disabled')
+
+    // Six accented letters are exactly twelve bytes, so they are still within the limit.
+    mount(registry, 'within.md', 'é'.repeat(6), { maxAutomaticCheckBytes: 12 })
+
+    await flushCheck(10)
+    expect(grammarProvider.check).toHaveBeenCalledOnce()
   })
 
   it('deduplicates the provider check for two panes on the same note', async () => {
