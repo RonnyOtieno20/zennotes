@@ -285,6 +285,7 @@ export function supportsDefaultGrammarEditor(): boolean {
 
 function getDefaultRegistry(preferences: GrammarPreferences): GrammarDocumentSessionRegistry {
   const registryKey = JSON.stringify([
+    preferences.provider,
     preferences.endpoint,
     preferences.debounceMs,
     preferences.enabledCategories,
@@ -292,7 +293,9 @@ function getDefaultRegistry(preferences: GrammarPreferences): GrammarDocumentSes
     preferences.customDictionary
   ])
   if (!defaultRegistry || defaultRegistryKey !== registryKey) {
-    defaultRegistry?.dispose()
+    // Do not dispose the superseded registry here: bindings still holding its
+    // sessions release them in their own cleanup, and disposing would silently
+    // stop checks for any binding that has not yet been torn down.
     defaultRegistry = new GrammarDocumentSessionRegistry(
       new LanguageToolProvider(
         new BridgeLanguageToolTransport({

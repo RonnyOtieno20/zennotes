@@ -6,7 +6,12 @@ import { EditorView } from '@codemirror/view'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GrammarDocumentSessionRegistry } from './document-sessions'
 import { applyGrammarReplacement, getGrammarEditorState } from './editor-extension'
-import { createGrammarEditorBinding, type GrammarEditorBindingOptions } from './editor-runtime'
+import {
+  createDefaultGrammarEditorBinding,
+  createGrammarEditorBinding,
+  type GrammarEditorBindingOptions
+} from './editor-runtime'
+import { DEFAULT_GRAMMAR_PREFERENCES } from './preferences'
 import type { GrammarProvider } from './provider'
 import type { GrammarDiagnostic } from './types'
 
@@ -316,5 +321,28 @@ describe('grammar editor runtime', () => {
 
     resolvers[1]?.([])
     await Promise.resolve()
+  })
+
+  it('keeps a held default binding usable after a personalization change rebuilds the registry', async () => {
+    Object.assign(window, {
+      zen: { getCapabilities: () => ({ supportsGrammarProviderTransport: true }) }
+    })
+    try {
+      const key = { vaultId: '/vault', notePath: 'note.md' }
+      const held = createDefaultGrammarEditorBinding(key, DEFAULT_GRAMMAR_PREFERENCES)
+      const rebuilt = createDefaultGrammarEditorBinding(key, {
+        ...DEFAULT_GRAMMAR_PREFERENCES,
+        customDictionary: ['Zen']
+      })
+
+      await expect(
+        held.session.schedule({ text: 'text', segments: [], language: 'en-US', enabled: false })
+      ).resolves.toMatchObject({ accepted: false, reason: 'disabled' })
+
+      held.release()
+      rebuilt.release()
+    } finally {
+      delete (window as { zen?: unknown }).zen
+    }
   })
 })
