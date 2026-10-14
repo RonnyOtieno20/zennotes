@@ -4679,6 +4679,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             onApply={grammar.applyReplacement}
             onApplyAll={grammar.applyReplacementToAll}
             onIgnore={grammar.ignoreDiagnostic}
+            onIgnoreRuleInNote={grammar.ignoreRuleInNote}
             onIgnoreRule={grammar.ignoreRule}
             onAddToDictionary={grammar.addToDictionary}
             onRecheck={grammar.recheck}

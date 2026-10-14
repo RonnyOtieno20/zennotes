@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { ChangeSet, EditorState } from '@codemirror/state'
+import { ChangeSet, EditorState, StateEffect } from '@codemirror/state'
 import { history, redo, undo } from '@codemirror/commands'
 import { EditorView, runScopeHandlers } from '@codemirror/view'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -14,6 +14,7 @@ import {
   grammarDiagnosticAt,
   grammarEditorExtension,
   ignoreGrammarDiagnosticOnce,
+  ignoreGrammarRuleInNote,
   mapGrammarDiagnostics,
   nextGrammarDiagnostic,
   openAdjacentGrammarSuggestionCard,
@@ -425,12 +426,49 @@ describe('grammar CodeMirror extension', () => {
     expect(buttons.map((button) => button.textContent)).toEqual([
       'good',
       'Ignore once',
-      'Ignore rule',
+      'Ignore in note',
+      'Ignore everywhere',
       'Add word',
       'Dismiss'
     ])
-    buttons.find((button) => button.textContent === 'Ignore rule')?.click()
+    buttons.find((button) => button.textContent === 'Ignore everywhere')?.click()
     expect(ignoreRule).toHaveBeenCalledWith('rule-one')
+  })
+
+  it('ignores a rule in this note by adding it to the front matter, as one undoable edit', () => {
+    const one = diagnostic('one', 0, 3, 'bad')
+    const again = { ...diagnostic('again', 9, 12, 'bad'), ruleId: 'rule-one' }
+    const other = diagnostic('two', 13, 18, 'other')
+    const session = makeSession({
+      documentId: 'note.md',
+      generation: 4,
+      diagnostics: [one, again, other]
+    })
+    const text = 'bad text bad other'
+    const view = makeView(text, session)
+    view.dispatch({ effects: updateGrammarUi.of({ openId: 'one' }) })
+
+    ;[...document.querySelectorAll<HTMLButtonElement>('.cm-grammar-suggestion-card button')]
+      .find((button) => button.textContent === 'Ignore in note')
+      ?.click()
+
+    expect(view.state.doc.toString()).toBe(`---\ngrammar-ignore: [rule-one]\n---\n${text}`)
+    expect(getGrammarEditorState(view.state)?.diagnostics.map((item) => item.id)).toEqual(['two'])
+    expect(document.querySelector('.cm-grammar-suggestion-card')).toBeNull()
+
+    undo(view)
+    expect(view.state.doc.toString()).toBe(text)
+  })
+
+  it('does not offer to ignore a rule in a read-only note', () => {
+    const session = makeSession({
+      documentId: 'note.md',
+      generation: 4,
+      diagnostics: [diagnostic('one', 0, 3, 'bad')]
+    })
+    const view = makeView('bad text', session)
+    view.dispatch({ effects: StateEffect.appendConfig.of(EditorState.readOnly.of(true)) })
+    expect(ignoreGrammarRuleInNote(view, 'one')).toBe(false)
   })
 
   it('does not offer to ignore an entire spelling engine', () => {
@@ -450,7 +488,8 @@ describe('grammar CodeMirror extension', () => {
     const labels = [
       ...document.querySelectorAll<HTMLButtonElement>('.cm-grammar-suggestion-card button')
     ].map((button) => button.textContent)
-    expect(labels).not.toContain('Ignore rule')
+    expect(labels).not.toContain('Ignore everywhere')
+    expect(labels).not.toContain('Ignore in note')
     expect(labels).toContain('Add word')
   })
 

@@ -1,6 +1,7 @@
 import { ChangeSet } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import type { GrammarDiagnostic } from './types'
+import { addNoteIgnoredGrammarRule } from './note-ignored-rules'
 import {
   grammarDiagnosticAt,
   mapGrammarDiagnostics,
@@ -279,5 +280,30 @@ export function ignoreGrammarDiagnosticOnce(view: EditorView, diagnosticId: stri
   })
   session.ignoreOnce(diagnostic.id)
   session.selectDiagnostic?.(next?.id ?? null)
+  return true
+}
+
+/**
+ * Hides an issue's rule in this note only, by adding it to the note's
+ * `grammar-ignore` front matter. A normal edit, so it saves with the note and
+ * undoes like any other change.
+ */
+export function ignoreGrammarRuleInNote(view: EditorView, diagnosticId: string): boolean {
+  const grammar = getGrammarEditorState(view.state)
+  const diagnostic = grammar?.diagnostics.find((item) => item.id === diagnosticId)
+  if (!grammar || !diagnostic || view.state.readOnly) return false
+  const change = addNoteIgnoredGrammarRule(view.state.doc.toString(), diagnostic.ruleId)
+  if (!change) return false
+  view.dispatch({
+    changes: change,
+    effects: updateGrammarUi.of({
+      removeIds: grammar.diagnostics
+        .filter((item) => item.ruleId === diagnostic.ruleId)
+        .map((item) => item.id),
+      selectId: null,
+      openId: null
+    })
+  })
+  sessionFor(view)?.selectDiagnostic?.(null)
   return true
 }

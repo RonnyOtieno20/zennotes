@@ -59,6 +59,7 @@ interface Props {
   onApply(diagnosticId: string, replacementIndex: number): void
   onApplyAll?(diagnosticId: string, replacementIndex: number): void
   onIgnore(diagnosticId: string): void
+  onIgnoreRuleInNote?(diagnostic: GrammarDiagnostic): void
   onIgnoreRule?(diagnostic: GrammarDiagnostic): void
   onAddToDictionary?(diagnostic: GrammarDiagnostic): void
   onRecheck(): void
@@ -77,6 +78,7 @@ export function GrammarReviewPanel({
   onApply,
   onApplyAll,
   onIgnore,
+  onIgnoreRuleInNote,
   onIgnoreRule,
   onAddToDictionary,
   onRecheck,
@@ -395,17 +397,32 @@ export function GrammarReviewPanel({
                       >
                         Ignore once
                       </button>
+                      {onIgnoreRuleInNote && canIgnoreGrammarRule(diagnostic.ruleId) && (
+                        <button
+                          type="button"
+                          data-grammar-panel-control
+                          title={`Hide ${diagnostic.ruleId} in this note (saved in its front matter)`}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onIgnoreRuleInNote(diagnostic)
+                          }}
+                          className="rounded-md border border-paper-300/70 px-2 py-1 text-xs text-ink-500 hover:bg-paper-200"
+                        >
+                          Ignore in note
+                        </button>
+                      )}
                       {onIgnoreRule && canIgnoreGrammarRule(diagnostic.ruleId) && (
                         <button
                           type="button"
                           data-grammar-panel-control
+                          title={`Hide ${diagnostic.ruleId} in every note`}
                           onClick={(event) => {
                             event.stopPropagation()
                             onIgnoreRule(diagnostic)
                           }}
                           className="rounded-md border border-paper-300/70 px-2 py-1 text-xs text-ink-500 hover:bg-paper-200"
                         >
-                          Ignore rule
+                          Ignore everywhere
                         </button>
                       )}
                       {diagnostic.original && onAddToDictionary && (

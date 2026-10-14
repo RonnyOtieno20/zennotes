@@ -6,6 +6,7 @@ import {
   type GrammarCoordinatorState
 } from './coordinator'
 import { hashText } from './hash'
+import { noteIgnoredGrammarRules } from './note-ignored-rules'
 import type { GrammarProvider } from './provider'
 import type { GrammarCategory, GrammarDiagnostic, ProseSegment, SourceRange } from './types'
 
@@ -314,6 +315,8 @@ export class GrammarDocumentSession {
   /** The text the ignored ranges point into. Ahead of `documentText` between an edit and its check. */
   private ignoredText = ''
   private documentText = ''
+  /** Rules the note's own front matter ignores (`grammar-ignore`). */
+  private noteIgnoredRules: ReadonlySet<string> = new Set()
   private coordinatorState: GrammarCoordinatorState
   private allDiagnostics: readonly GrammarDiagnostic[] = []
   private selectedDiagnosticId: string | null = null
@@ -486,6 +489,7 @@ export class GrammarDocumentSession {
     }
     if (input.text !== this.documentText || this.generation === 0) {
       this.documentText = input.text
+      this.noteIgnoredRules = new Set(noteIgnoredGrammarRules(input.text))
       this.documentFingerprint = fingerprintGrammarDocument(input.text)
       this.generation += 1
       this.selectedDiagnosticId = null
@@ -541,6 +545,7 @@ export class GrammarDocumentSession {
     return this.allDiagnostics.filter(
       (diagnostic) =>
         keepsDiagnostic(this.personalization, diagnostic) &&
+        !this.noteIgnoredRules.has(diagnostic.ruleId) &&
         !this.ignored.some((issue) => isSameIssue(issue, diagnostic))
     )
   }

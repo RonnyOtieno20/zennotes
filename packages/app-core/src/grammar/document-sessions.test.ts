@@ -263,6 +263,47 @@ describe('GrammarDocumentSessionRegistry', () => {
     }
   })
 
+  it('hides the rules a note ignores in its own front matter, in that note only', async () => {
+    vi.useFakeTimers()
+    try {
+      const frontMatter = '---\ngrammar-ignore: [TEST_RULE]\n---\n'
+      const prose = segment('paragraph', 'Bad sentence.', frontMatter.length)
+      const grammarProvider = provider(async ({ segments, generation }) =>
+        segments.map((item) => diagnostic(item, generation))
+      )
+      const registry = new GrammarDocumentSessionRegistry(grammarProvider, {
+        debounceMs: 0
+      })
+      const ignoring = registry.acquire(NOTE).session
+      const other = registry.acquire({ ...NOTE, notePath: 'other.md' }).session
+      await advanceCheck(
+        ignoring.schedule({
+          text: frontMatter + prose.text,
+          segments: [prose],
+          language: 'en-US'
+        })
+      )
+      await advanceCheck(
+        other.schedule({
+          text: prose.text,
+          segments: [segment('paragraph', 'Bad sentence.')],
+          language: 'en-US'
+        })
+      )
+      expect(ignoring.getState().diagnostics).toEqual([])
+      expect(other.getState().diagnostics).toHaveLength(1)
+
+      // Taking the rule out of the front matter shows the issue again.
+      const unignored = segment('paragraph', 'Bad sentence.', 0)
+      await advanceCheck(
+        ignoring.schedule({ text: unignored.text, segments: [unignored], language: 'en-US' })
+      )
+      expect(ignoring.getState().diagnostics).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps an ignored issue through an unrelated edit elsewhere in the note', async () => {
     vi.useFakeTimers()
     try {

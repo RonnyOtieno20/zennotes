@@ -26,6 +26,7 @@ import {
   closeGrammarSuggestionCard,
   getGrammarEditorState,
   ignoreGrammarDiagnosticOnce,
+  ignoreGrammarRuleInNote,
   openAdjacentGrammarSuggestionCard,
   selectAdjacentGrammarDiagnostic,
   selectGrammarDiagnostic,
@@ -155,6 +156,8 @@ export interface GrammarEditor {
   applyReplacement: (diagnosticId: string, replacementIndex: number) => void
   applyReplacementToAll: (diagnosticId: string, replacementIndex: number) => void
   ignoreDiagnostic: (diagnosticId: string) => void
+  /** Adds the rule to this note's `grammar-ignore` front matter. */
+  ignoreRuleInNote: (diagnostic: GrammarDiagnostic) => void
   ignoreRule: (diagnostic: GrammarDiagnostic) => void
   addToDictionary: (diagnostic: GrammarDiagnostic) => void
   recheck: () => void
@@ -352,6 +355,16 @@ export function useGrammarEditor({
     [revealDiagnostic, setFocusedPanel, viewRef]
   )
 
+  const ignoreRuleInNote = useCallback(
+    (diagnostic: GrammarDiagnostic): void => {
+      const view = viewRef.current
+      if (!view || !ignoreGrammarRuleInNote(view, diagnostic.id)) return
+      closeGrammarSuggestionCard(view)
+      setFocusedPanel('grammar')
+    },
+    [setFocusedPanel, viewRef]
+  )
+
   const ignoreRule = useCallback(
     (diagnostic: GrammarDiagnostic): void => {
       ignoreDiagnostic(diagnostic.id)
@@ -387,6 +400,7 @@ export function useGrammarEditor({
     applyReplacement,
     applyReplacementToAll,
     ignoreDiagnostic,
+    ignoreRuleInNote,
     ignoreRule,
     addToDictionary,
     recheck

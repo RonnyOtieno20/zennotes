@@ -7,7 +7,8 @@ import {
   applyGrammarReplacementAndNext,
   applyGrammarReplacementToAll,
   closeGrammarSuggestionCard,
-  ignoreGrammarDiagnosticOnce
+  ignoreGrammarDiagnosticOnce,
+  ignoreGrammarRuleInNote
 } from './editor-commands'
 
 function appendText(parent: HTMLElement, className: string, text: string): HTMLElement {
@@ -97,11 +98,24 @@ export function suggestionTooltip(diagnostic: GrammarDiagnostic): Tooltip {
         view.focus()
       })
 
+      if (canIgnoreGrammarRule(diagnostic.ruleId) && !view.state.readOnly) {
+        const ignoreInNote = document.createElement('button')
+        ignoreInNote.type = 'button'
+        ignoreInNote.className = 'cm-grammar-ignore-rule-in-note'
+        ignoreInNote.textContent = 'Ignore in note'
+        ignoreInNote.title = `Hide ${diagnostic.ruleId} in this note (saved in its front matter)`
+        addAction(ignoreInNote, () => {
+          ignoreGrammarRuleInNote(view, diagnostic.id)
+          view.focus()
+        })
+      }
+
       if (sessionFor(view)?.ignoreRule && canIgnoreGrammarRule(diagnostic.ruleId)) {
         const ignoreRule = document.createElement('button')
         ignoreRule.type = 'button'
         ignoreRule.className = 'cm-grammar-ignore-rule'
-        ignoreRule.textContent = 'Ignore rule'
+        ignoreRule.textContent = 'Ignore everywhere'
+        ignoreRule.title = `Hide ${diagnostic.ruleId} in every note`
         addAction(ignoreRule, () => {
           ignoreGrammarDiagnosticOnce(view, diagnostic.id)
           sessionFor(view)?.ignoreRule?.(diagnostic.ruleId)

@@ -320,7 +320,9 @@ export function GrammarSettings(): JSX.Element {
         <label className="block px-5 py-4">
           <span className="text-sm font-medium text-ink-800">Ignored rule IDs</span>
           <span className="mt-1 block text-xs leading-5 text-ink-500">
-            One LanguageTool rule ID per line.
+            One LanguageTool rule ID per line, ignored in every note. To ignore a rule in one note
+            only, list it in that note&rsquo;s front matter as{' '}
+            <code className="font-mono">grammar-ignore: [RULE_ID]</code>.
           </span>
           <textarea
             rows={5}

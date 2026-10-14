@@ -95,6 +95,7 @@ function renderPanel(
   onSelect: ReturnType<typeof vi.fn>
   onApply: ReturnType<typeof vi.fn>
   onIgnore: ReturnType<typeof vi.fn>
+  onIgnoreRuleInNote: ReturnType<typeof vi.fn>
   onIgnoreRule: ReturnType<typeof vi.fn>
   onAddToDictionary: ReturnType<typeof vi.fn>
   onRecheck: ReturnType<typeof vi.fn>
@@ -108,6 +109,7 @@ function renderPanel(
     onSelect: vi.fn(),
     onApply: vi.fn(),
     onIgnore: vi.fn(),
+    onIgnoreRuleInNote: vi.fn(),
     onIgnoreRule: vi.fn(),
     onAddToDictionary: vi.fn(),
     onRecheck: vi.fn()
@@ -173,14 +175,16 @@ describe('GrammarReviewPanel', () => {
   })
 
   it('exposes persistent rule and dictionary actions for each issue', () => {
-    const { container, onIgnoreRule, onAddToDictionary } = renderPanel()
+    const { container, onIgnoreRuleInNote, onIgnoreRule, onAddToDictionary } = renderPanel()
     const firstCard = container.querySelector('[data-grammar-id="spell"]')
     const button = (label: string): HTMLButtonElement | undefined =>
       [...(firstCard?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
         (candidate) => candidate.textContent === label
       )
 
-    click(button('Ignore rule') ?? null)
+    click(button('Ignore in note') ?? null)
+    expect(onIgnoreRuleInNote).toHaveBeenCalledWith(issues[0])
+    click(button('Ignore everywhere') ?? null)
     expect(onIgnoreRule).toHaveBeenCalledWith(issues[0])
     click(button('Add word') ?? null)
     expect(onAddToDictionary).toHaveBeenCalledWith(issues[0])

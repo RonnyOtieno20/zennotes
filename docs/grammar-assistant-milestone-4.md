@@ -49,8 +49,12 @@ and note paths are excluded.
 
 ## Personalization
 
-**Ignore rule** is available from both inline suggestion cards and review cards.
-It persists the LanguageTool rule ID. **Add word** stores the exact selected
+Inline suggestion cards and review cards offer two ways to ignore a rule.
+**Ignore everywhere** persists the LanguageTool rule ID in the grammar
+preferences. **Ignore in note** adds it to the note's own front matter as
+`grammar-ignore: [RULE_ID]`, as a normal undoable edit, so the rule stays
+ignored in that note only and follows it through renames, moves and sync.
+Removing the ID from the front matter shows the issues again. **Add word** stores the exact selected
 word or phrase in the local custom dictionary. Dictionary matching is
 case-insensitive. Neither is sent to the provider: visible categories, ignored
 rules and the dictionary filter the results each open note already has, so a
