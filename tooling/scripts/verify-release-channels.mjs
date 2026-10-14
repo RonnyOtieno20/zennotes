@@ -26,6 +26,7 @@ const SITE_PLATFORMS = [
   'mac',
   'mac-intel',
   'windows',
+  'windows-arm64',
   'linux-deb',
   'linux-pacman',
   'linux-appimage',

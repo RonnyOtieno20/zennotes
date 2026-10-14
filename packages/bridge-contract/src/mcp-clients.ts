@@ -35,6 +35,26 @@ export interface McpServerRuntime {
 }
 
 /**
+ * Settings → MCP → Server token (#830): whether assistants can authenticate
+ * to the ZenNotes Server the app is connected to, through the token file
+ * `zn connect` writes. The main process works it out from its own config;
+ * it never carries the token itself.
+ */
+export type McpServerTokenState =
+  /** Nothing to share: the vault is on this machine, or the server needs no
+   *  token. */
+  | { kind: 'none'; reason: 'local' | 'no-token' }
+  /** The server needs a token and the file has none for it. */
+  | { kind: 'missing'; serverUrl: string; credentialsPath: string }
+  /** The file holds the token the app connects with. */
+  | { kind: 'shared'; serverUrl: string; credentialsPath: string }
+  /** The file holds another token for this server (`zn connect`, or the
+   *  server's token changed since). */
+  | { kind: 'different'; serverUrl: string; credentialsPath: string }
+  /** The file is not zn's format; ZenNotes will not write to it. */
+  | { kind: 'unreadable'; serverUrl: string; credentialsPath: string; message: string }
+
+/**
  * Shape returned when the renderer asks for the current server-side
  * instructions. `defaultValue` is the compiled default; `current` is
  * what the MCP server will actually send (either the user override

@@ -40,6 +40,7 @@ import {
   type McpClientStatus,
   type McpInstructionsPayload,
   type McpServerRuntime,
+  type McpServerTokenState,
 } from "@shared/mcp-clients";
 import { normalizeTasksExcludedFolder } from "@shared/tasks-excluded-folders";
 import {
@@ -69,6 +70,7 @@ import {
   getKeymapDisplay,
   isMacPlatform,
   isUnboundBinding,
+  keymapAvailableOnHost,
   sequenceTokenFromEvent,
   shortcutBindingFromEvent,
   UNBOUND_BINDING,
@@ -5553,6 +5555,7 @@ export function SettingsModal(): JSX.Element {
         "claude",
         "claude code",
         "claude desktop",
+        "code tab",
         "codex",
         "anthropic",
         "openai",
@@ -5579,6 +5582,22 @@ export function SettingsModal(): JSX.Element {
             "client",
             "install",
             "uninstall",
+          ],
+        },
+        {
+          id: "mcp-server-token",
+          title: "MCP server token",
+          description:
+            "Let assistants use the auth token of the ZenNotes Server this vault is on.",
+          keywords: [
+            "token",
+            "auth",
+            "server",
+            "remote",
+            "credentials",
+            "zn connect",
+            "share",
+            "assistant",
           ],
         },
         {
@@ -6020,6 +6039,10 @@ export function SettingsModal(): JSX.Element {
                         key={result.id}
                         ref={selected ? selectedResultRef : undefined}
                         type="button"
+                        // The phone shells hide whole sections (MCP, CLI,
+                        // and Keymap on a phone); this lets them hide the
+                        // search results that would open one.
+                        data-settings-result-category={result.category.id}
                         onClick={() => openSearchResult(result)}
                         className={[
                           "w-full rounded-xl px-3 py-2.5 text-left transition-colors",
@@ -6159,9 +6182,11 @@ function KeymapSettings({
 
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
+    const capabilities = getZenBridge().getCapabilities();
     return getKeymapDefinitionsByGroup()
       .map((group) => {
         const items = group.items.filter((definition) => {
+          if (!keymapAvailableOnHost(definition.id, capabilities)) return false;
           if (
             definition.vimOnly &&
             !vimMode &&
@@ -9027,6 +9052,8 @@ function McpSettings(): JSX.Element {
         )}
       </Section>
 
+      <McpServerTokenSetting />
+
       <AgentEditReviewSetting />
 
       <McpInstructionsEditor />
@@ -9045,6 +9072,176 @@ function UsageCountSetting(): JSX.Element {
         value={usageCount}
         onChange={setUsageCount}
       />
+    </Section>
+  );
+}
+
+const NO_SERVER_TOKEN: McpServerTokenState = { kind: "none", reason: "local" };
+
+/**
+ * Settings → MCP → Server token (#830): lets assistants use the token of the
+ * ZenNotes Server the app is on, without a terminal. Main reads the server and
+ * the token from its own config and reports only the state of zn's token
+ * file, so the token never reaches this page.
+ */
+function McpServerTokenSetting(): JSX.Element {
+  const [state, setState] = useState<McpServerTokenState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // The section is about the server the app is on: ask again when it changes.
+  const serverUrl = useStore((s) => s.remoteWorkspaceInfo?.baseUrl ?? null);
+
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      // Desktop only: a bridge without it has no assistants to hand a token to.
+      setState((await window.zen.mcpGetServerTokenState?.()) ?? NO_SERVER_TOKEN);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh, serverUrl]);
+
+  const run = async (
+    action: () => Promise<McpServerTokenState>,
+  ): Promise<void> => {
+    setBusy(true);
+    try {
+      setState(await action());
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const code = (text: string): JSX.Element => (
+    <code className="break-all font-mono text-ink-800">{text}</code>
+  );
+
+  let body: JSX.Element;
+  if (state == null) {
+    body = <InlineNote>{"Checking\u2026"}</InlineNote>;
+  } else if (state.kind === "none") {
+    body = (
+      <InlineNote>
+        {state.reason === "local"
+          ? "For a vault on a ZenNotes Server that requires an auth token. Assistants can\u2019t read the copy ZenNotes keeps in your system\u2019s secure storage, so this is where you let them use it."
+          : "This vault\u2019s ZenNotes Server needs no auth token, so assistants reach it as they are."}
+      </InlineNote>
+    );
+  } else {
+    let summary: JSX.Element;
+    let detail: React.ReactNode;
+    let action: JSX.Element;
+    if (state.kind === "missing") {
+      summary = (
+        <>
+          Assistants can{"\u2019"}t reach {code(state.serverUrl)} yet. The
+          server needs an auth token, and ZenNotes keeps its copy in your
+          system{"\u2019"}s secure storage, where they can{"\u2019"}t read it.
+        </>
+      );
+      detail = (
+        <>
+          Let assistants use it saves the token to{" "}
+          {code(state.credentialsPath)}, the file {code("zn connect")} writes,
+          where any program running as you can read it.
+        </>
+      );
+      action = (
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => (await window.zen.mcpShareServerToken?.()) ?? NO_SERVER_TOKEN)
+          }
+        >
+          Let assistants use it
+        </Button>
+      );
+    } else if (state.kind === "shared") {
+      summary = (
+        <>
+          Assistants can reach {code(state.serverUrl)}: its auth token is
+          saved in {code(state.credentialsPath)}, where zn reads it too.
+        </>
+      );
+      detail =
+        "Stop sharing removes it from that file. Forgetting the server in Settings \u2192 Vault removes it too, and a new token you save for the server in ZenNotes replaces it.";
+      action = (
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => (await window.zen.mcpRemoveServerToken?.()) ?? NO_SERVER_TOKEN)
+          }
+        >
+          Stop sharing
+        </Button>
+      );
+    } else if (state.kind === "different") {
+      summary = (
+        <>
+          {code(state.credentialsPath)} holds a different auth token for{" "}
+          {code(state.serverUrl)}, saved by {code("zn connect")} or before the
+          server{"\u2019"}s token changed.
+        </>
+      );
+      detail =
+        "If assistants are turned away, replace it with the token ZenNotes connects with. zn reads the same file.";
+      action = (
+        <Button
+          variant="primary"
+          size="sm"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => (await window.zen.mcpShareServerToken?.()) ?? NO_SERVER_TOKEN)
+          }
+        >
+          Replace it
+        </Button>
+      );
+    } else {
+      summary = <>{state.message}</>;
+      detail =
+        "ZenNotes won\u2019t write to it, so the tokens it holds stay safe.";
+      action = (
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={busy}
+          onClick={() => void refresh()}
+        >
+          Check again
+        </Button>
+      );
+    }
+    body = (
+      <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 space-y-1.5 text-xs leading-5">
+          <p className="text-ink-700">{summary}</p>
+          <p className="text-ink-500">{detail}</p>
+        </div>
+        <div className="shrink-0">{action}</div>
+      </div>
+    );
+  }
+
+  return (
+    <Section title="Server token" settingId="mcp-server-token">
+      {body}
+      {error && (
+        <InlineNote>
+          <span className="text-ink-900">Something went wrong:</span> {error}
+        </InlineNote>
+      )}
     </Section>
   );
 }

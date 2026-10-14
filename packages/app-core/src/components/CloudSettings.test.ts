@@ -460,6 +460,69 @@ describe("CloudSettings", () => {
     expect(host.textContent).not.toContain("Cursor 7");
   });
 
+  it("shows an encrypted vault's name once this device unlocks, without reopening Settings", async () => {
+    const encrypted = {
+      id: "vault-e",
+      cursor: 1,
+      created_at: "2026-10-12T12:00:00.000Z",
+      updated_at: "2026-10-12T12:30:00.000Z",
+      encryption: {
+        scheme: "zne1" as const,
+        key_id: "0123456789abcdef0123456789abcdef",
+        key_version: 1,
+        vault_key_envelope: "sealed",
+        name: "sealed-name",
+      },
+    };
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+    mocks.getCloudVaultLink.mockResolvedValue(null);
+    mocks.listCloudVaults
+      .mockResolvedValueOnce([{ ...encrypted, name: "Encrypted vault" }])
+      .mockResolvedValue([{ ...encrypted, name: "Work notes" }]);
+    let unlocked = false;
+    const bridge = mocks as unknown as Record<string, unknown>;
+    bridge.getCloudEncryptionStatus = vi.fn(async () => ({ available: true, keyset: true, unlocked }));
+    bridge.unlockCloudEncryption = vi.fn(async () => {
+      unlocked = true;
+    });
+    try {
+      await act(async () =>
+        root.render(
+          createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+          }),
+        ),
+      );
+      // The vault's placeholder name, not the panel's "Encrypted vaults sync…".
+      expect(host.textContent).toMatch(/Encrypted vault(?!s)/);
+      expect(mocks.listCloudVaults).toHaveBeenCalledTimes(1);
+
+      const open = [...host.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Unlock this device",
+      );
+      await act(async () => open!.click());
+      const input = document.querySelector<HTMLInputElement>('input[type="password"]');
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "correct horse");
+        input!.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const unlock = [...document.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Unlock",
+      );
+      await act(async () => unlock!.click());
+
+      expect(bridge.unlockCloudEncryption).toHaveBeenCalledOnce();
+      expect(mocks.listCloudVaults).toHaveBeenCalledTimes(2);
+      expect(host.textContent).toContain("Work notes");
+      expect(host.textContent).not.toMatch(/Encrypted vault(?!s)/);
+    } finally {
+      delete bridge.getCloudEncryptionStatus;
+      delete bridge.unlockCloudEncryption;
+    }
+  });
+
   it("separates unlinking this device from permanently deleting the cloud vault", async () => {
     mocks.getCloudAccountStatus.mockResolvedValue(connected);
     mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
@@ -760,6 +823,57 @@ describe("CloudSettings", () => {
 
       expect(host.querySelector("[data-cloud-vault-removed]")).toBeNull();
       expect(useCloudSyncStatusStore.getState().removedVault).toBeNull();
+    });
+  });
+
+  describe("a vault another device encrypted", () => {
+    const replaced = {
+      phase: "unlinked" as const,
+      removedVault: { vaultName: "Notes", reason: "encrypted" as const },
+    };
+    const renderSettings = () =>
+      act(async () =>
+        root.render(
+          createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+          }),
+        ),
+      );
+
+    beforeEach(() => {
+      mocks.getCloudAccountStatus.mockResolvedValue(connected);
+      mocks.getCloudServiceAccount.mockResolvedValue(serviceAccount);
+      mocks.getCloudVaultLink.mockResolvedValue(null);
+      mocks.listCloudVaults.mockResolvedValue([]);
+    });
+
+    afterEach(() => {
+      delete (mocks as Record<string, unknown>).getCloudEncryptionStatus;
+    });
+
+    it("says the vault was replaced, not deleted, and asks a locked device to unlock first", async () => {
+      useCloudSyncStatusStore.setState(replaced);
+      await renderSettings();
+
+      const notice = host.querySelector<HTMLElement>("[data-cloud-vault-removed]");
+      expect(notice?.textContent).toContain("Cloud vault now encrypted");
+      expect(notice?.textContent).toContain(
+        "“Notes” was replaced by an end-to-end encrypted Cloud vault, so this vault stopped syncing. Your notes on this device are untouched. Unlock this device under End-to-end encryption, then choose the encrypted vault.",
+      );
+      expect(notice?.textContent).not.toContain("deleted");
+    });
+
+    it("points an unlocked device straight at the encrypted vault", async () => {
+      Object.assign(mocks, {
+        getCloudEncryptionStatus: vi.fn(async () => ({ available: true, keyset: true, unlocked: true })),
+      });
+      useCloudSyncStatusStore.setState(replaced);
+      await renderSettings();
+
+      expect(host.querySelector("[data-cloud-vault-removed]")?.textContent).toContain(
+        "Choose the encrypted vault to sync it again.",
+      );
     });
   });
 
@@ -1930,6 +2044,79 @@ describe("CloudSettings", () => {
     expect(mocks.createAndLinkCloudVault).toHaveBeenCalledWith("Notes");
     expect(mocks.requestCloudAutoSync).toHaveBeenCalledWith("vault-link");
     expect(host.textContent).toContain("Linked to Notes");
+  });
+
+  it.each([
+    ["a phone, which cannot open the archive", {}, false],
+    ["the desktop app", { supportsEncryptedBackupArchive: true }, true],
+  ])("offers Save archive for an encrypted vault only where it works: %s", async (_host, capabilities, offered) => {
+    mocks.getCloudAccountStatus.mockResolvedValue(connected);
+    mocks.getCloudServiceAccount.mockResolvedValue({
+      ...serviceAccount,
+      features: {
+        ...serviceAccount.features,
+        backup: { active: true, limits: { max_snapshots: 30 } },
+      },
+    });
+    mocks.listCloudVaults.mockResolvedValue([
+      {
+        id: "vault-e",
+        name: "Work notes",
+        cursor: 3,
+        created_at: "2026-10-12T12:00:00.000Z",
+        updated_at: "2026-10-12T12:30:00.000Z",
+        encryption: {
+          scheme: "zne1",
+          key_id: "0123456789abcdef0123456789abcdef",
+          key_version: 1,
+          vault_key_envelope: "sealed",
+          name: "sealed-name",
+        },
+      },
+    ]);
+    mocks.getCloudVaultLink.mockResolvedValue({
+      base_url: "https://zennotes.org",
+      vault_id: "vault-e",
+      vault_name: "Work notes",
+      linked_at: "2026-10-12T12:00:00.000Z",
+    });
+    mocks.listCloudBackups.mockResolvedValue([
+      {
+        id: "backup-1",
+        label: "Before migration",
+        trigger: "manual",
+        status: "ready",
+        cursor: 3,
+        item_count: 8,
+        total_bytes: 2048,
+        archive_bytes: 1024,
+        expires_at: "2026-11-09T12:00:00.000Z",
+        created_at: "2026-10-12T12:00:00.000Z",
+      },
+    ]);
+    const bridge = mocks as unknown as Record<string, unknown>;
+    bridge.getCapabilities = vi.fn(() => capabilities);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(CloudSettings, {
+            localVaultAvailable: true,
+            localVaultName: "Notes",
+          }),
+        ),
+      );
+      expect(host.textContent).toContain("Before migration");
+      const saveArchive = [...host.querySelectorAll("button")].find(
+        (button) => button.textContent?.trim() === "Save archive",
+      );
+      expect(!!saveArchive).toBe(offered);
+      expect(!!host.querySelector("[data-cloud-archive-desktop-only]")).toBe(!offered);
+      // Browse and Restore work on every host.
+      expect(host.textContent).toContain("Browse notes");
+      expect(host.textContent).toContain("Restore");
+    } finally {
+      delete bridge.getCapabilities;
+    }
   });
 
   it("creates and safely restores backups for a linked vault", async () => {

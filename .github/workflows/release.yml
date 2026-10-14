@@ -3,7 +3,10 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
+      # A digit after the v: the boundary packages publish tags such as
+      # viewer-2.69.0-viewer.h5e7e..., which "v*" also matched, and every one
+      # built and uploaded a whole desktop release onto its pre-release.
+      - "v[0-9]*"
   # Rebuild one platform of a release that already has its tag. A re-run of the
   # tag's own run can only repeat every failed job with the workflow as it was
   # at the tag; this runs the workflow from the branch it is dispatched on,

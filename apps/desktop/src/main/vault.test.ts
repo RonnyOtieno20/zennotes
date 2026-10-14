@@ -55,6 +55,7 @@ import {
 } from './vault'
 
 import { registerEphemeralRoot, unregisterEphemeralRoot } from './ephemeral-vaults'
+import { NEIGHBOUR_FILE_IDS, useWindowsFileIds } from './windows-file-ids.testing'
 
 const tempDirs: string[] = []
 
@@ -631,6 +632,23 @@ describe('deleteAsset', () => {
     const duplicated = await duplicateAsset(root, moved.path)
     expect(duplicated.path).toBe('media/screenshots/Renamed copy.png')
     await expect(readFile(path.join(root, duplicated.path), 'utf8')).resolves.toBe('image-bytes')
+  })
+
+  it('refuses a rename onto another asset whose Windows file id rounds to the same number', async () => {
+    const root = await makeTempDir('zennotes-asset-rename-taken-')
+    await ensureVaultLayout(root)
+    await writeFile(path.join(root, 'One.png'), 'first', 'utf8')
+    await writeFile(path.join(root, 'Two.png'), 'second', 'utf8')
+    const ids = useWindowsFileIds({ 'One.png': NEIGHBOUR_FILE_IDS[0], 'Two.png': NEIGHBOUR_FILE_IDS[1] })
+    try {
+      await expect(renameAsset(root, 'One.png', 'Two.png')).rejects.toThrow(
+        'An asset named "Two.png" already exists in this folder.'
+      )
+    } finally {
+      ids.mockRestore()
+    }
+    await expect(readFile(path.join(root, 'One.png'), 'utf8')).resolves.toBe('first')
+    await expect(readFile(path.join(root, 'Two.png'), 'utf8')).resolves.toBe('second')
   })
 
   it('rewrites every reference to a renamed asset, in the shapes people write them (#785)', async () => {

@@ -27,6 +27,7 @@ import { CloudTaskConflictIndicator } from './CloudTaskConflictIndicator'
 import { resolveWeekStartDay } from '../lib/week-start'
 import { ContextMenu, type ContextMenuItem } from './ContextMenu'
 import { buildTaskMenuItems } from '../lib/task-context-menu'
+import { isOverlayOrDialogOpen } from '../lib/overlay-open'
 
 interface Props {
   tasks: VaultTask[]
@@ -354,6 +355,12 @@ export function TasksCalendar({
   // sidebar bindings (same trick TasksView's list mode uses).
   useEffect(() => {
     const handler = (e: KeyboardEvent): void => {
+      // A modal, menu or Settings owns the keyboard while open, as in the list
+      // and the board. This handler runs first (capture phase), so without it
+      // Space on a button in Settings or What's New marked the day's task
+      // done behind the dialog, Tab cycled the calendar's tasks instead of
+      // the dialog's buttons, and in Vim mode `dd` deleted a task.
+      if (isOverlayOrDialogOpen()) return
       // While the Vim hint overlay is open it owns the keyboard; yield to it. (#151)
       if (document.querySelector('[data-vim-hint-overlay]')) return
       const active = document.activeElement as HTMLElement | null

@@ -16,6 +16,7 @@ import { recordMainPerf } from './perf'
 import { resolveCommandViaLoginShell } from './login-shell-path'
 import { isEphemeralRoot } from './ephemeral-vaults'
 import { atomicWriteTarget, renameWithRetry } from './atomic-write'
+import { fileIdentity, isSameFile } from './same-file'
 
 export { renameWithRetry }
 import {
@@ -3622,13 +3623,13 @@ export async function renameNote(
     // Said plainly, since the app shows this reason to whoever is renaming. A
     // case-only rename finds the note itself on a case-insensitive disk.
     const [source, taken] = await Promise.all([
-      fs.stat(abs),
-      fs.stat(target).catch((error: NodeJS.ErrnoException) => {
+      fileIdentity(abs),
+      fileIdentity(target).catch((error: NodeJS.ErrnoException) => {
         if (error.code === 'ENOENT') return null
         throw error
       })
     ])
-    if (taken && (taken.ino !== source.ino || taken.dev !== source.dev))
+    if (taken && !isSameFile(taken, source))
       throw new Error(`A note named “${trimmed}” already exists in this folder`)
   }
   // Snapshot the vault before the rename so inbound [[wikilinks]] still
@@ -3832,8 +3833,8 @@ export async function renameAsset(
   if (willRename) {
     try {
       await fs.access(destAbs)
-      const [srcStat, dstStat] = await Promise.all([fs.stat(source.abs), fs.stat(destAbs)])
-      if (srcStat.ino !== dstStat.ino) {
+      const [srcStat, dstStat] = await Promise.all([fileIdentity(source.abs), fileIdentity(destAbs)])
+      if (!isSameFile(srcStat, dstStat)) {
         throw new Error(`An asset named "${cleanName}" already exists in this folder.`)
       }
     } catch (e) {
@@ -4107,8 +4108,8 @@ export async function renameFolder(
   try {
     await fs.access(newAbs)
     // Check if old and new are the same file (case-only rename)
-    const [oldStat, newStat] = await Promise.all([fs.stat(oldAbs), fs.stat(newAbs)])
-    if (oldStat.ino !== newStat.ino) {
+    const [oldStat, newStat] = await Promise.all([fileIdentity(oldAbs), fileIdentity(newAbs)])
+    if (!isSameFile(oldStat, newStat)) {
       throw new Error(`A folder already exists at "${newClean}"`)
     }
   } catch (e) {

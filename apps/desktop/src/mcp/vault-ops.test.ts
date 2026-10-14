@@ -14,6 +14,7 @@ import {
   searchText,
   toggleTaskInBody
 } from './vault-ops'
+import { TASK_LINE_RE as SHARED_TASK_LINE_RE } from '@shared/tasklists'
 
 // Every note-shaped MCP result carries `link`, the zennotes:// deep link a
 // model renders as a markdown link so the user can click from chat straight
@@ -88,6 +89,34 @@ describe('mcp task states', () => {
     expect(byContent.get('scrapped')?.cancelled).toBe(true)
     expect(byContent.get('open')?.inProgress).toBe(false)
     expect(byContent.get('done')?.checked).toBe(true)
+  })
+
+  // The app's Tasks view reads task lines with @shared/tasklists; the MCP
+  // scanner kept its own copy, which missed ordered lists and quotes, so an
+  // assistant never saw tasks the app listed.
+  it('sees the task lines the app sees: ordered lists and quotes too', async () => {
+    const body = [
+      '- [ ] bullet',
+      '1. [ ] ordered',
+      '2) [x] ordered done',
+      '> - [ ] quoted',
+      '> > 3. [/] deeply quoted',
+      '-[ ] not a task',
+      'text [ ] not a task',
+      ''
+    ].join('\n')
+    await writeFile(path.join(root, 'inbox', 'Shapes.md'), `# Shapes\n\n${body}`)
+    const tasks = (await scanAllTasks(root)).filter((t) => t.sourcePath === 'inbox/Shapes.md')
+    expect(tasks.map((t) => t.content)).toEqual(['bullet', 'ordered', 'ordered done', 'quoted', 'deeply quoted'])
+    expect(tasks.map((t) => t.content)).toHaveLength(body.split('\n').filter((line) => SHARED_TASK_LINE_RE.test(line)).length)
+    expect(tasks.find((t) => t.content === 'ordered done')?.checked).toBe(true)
+    expect(tasks.find((t) => t.content === 'deeply quoted')?.inProgress).toBe(true)
+  })
+
+  it('toggles an ordered or quoted task in place', () => {
+    const body = '1. [ ] first\n> - [ ] quoted\n'
+    expect(toggleTaskInBody(body, 0)).toBe('1. [x] first\n> - [ ] quoted\n')
+    expect(toggleTaskInBody(body, 1)).toBe('1. [ ] first\n> - [x] quoted\n')
   })
 
   it('toggle follows the app rules: [/] checks off, records stay (#599)', () => {

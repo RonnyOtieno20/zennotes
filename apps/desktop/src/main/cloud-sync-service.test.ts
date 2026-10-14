@@ -13,6 +13,7 @@ import type {
   CloudSyncVault
 } from '@zennotes/bridge-contract/cloud-sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CLOUD_VAULT_SUPERSEDED_MESSAGE } from '@zennotes/shared-domain/cloud-vault-availability'
 import { CloudServiceRequestError, createCloudSyncClient } from './cloud-sync-client'
 import { DesktopCloudSyncService, type DesktopCloudSyncServiceDependencies } from './cloud-sync-service'
 
@@ -971,7 +972,8 @@ describe('deleted Cloud vault recovery (#791)', () => {
     ['unauthenticated', new CloudServiceRequestError('Sign in again', 401, 'UNAUTHENTICATED')],
     ['forbidden', new CloudServiceRequestError('Access denied', 403, 'FORBIDDEN')],
     ['server failure', new CloudServiceRequestError('Try later', 503, null)],
-    ['unstructured proxy 404', new CloudServiceRequestError('Not found', 404, null)]
+    ['unstructured proxy 404', new CloudServiceRequestError('Not found', 404, null)],
+    ['410 without Cloud\'s code', new CloudServiceRequestError('Gone', 410, null)]
   ])('keeps the association and cursor after %s', async (_label, failure) => {
     const { service, client, localRoot, storageDirectory } = await setup([cloudVault()])
     const link = await service.link(localRoot, 'vault-1')
@@ -1036,5 +1038,52 @@ describe('deleted Cloud vault recovery (#791)', () => {
     await rejected
 
     expect(await service.linkedVault(localRoot)).toEqual(replacement)
+  })
+})
+
+describe('Cloud vault replaced by an encrypted one', () => {
+  const cloudVault = (): CloudSyncVault => ({
+    id: 'vault-1', name: 'Notes', cursor: 0,
+    created_at: '2026-10-13T12:00:00.000Z', updated_at: '2026-10-13T12:00:00.000Z'
+  })
+  const superseded = () => new CloudServiceRequestError(
+    'This vault was replaced by an end-to-end encrypted vault. Update ZenNotes on this device to keep syncing it.',
+    410, 'VAULT_SUPERSEDED', { successor_vault_id: 'vault-2' }
+  )
+  const fingerprint = (value: string) => createHash('sha256').update(value).digest('hex')
+  const savedStatePath = (storage: string, root: string) => path.join(
+    storage, 'states', fingerprint(path.resolve(root)), fingerprint('https://zennotes.org'),
+    `${fingerprint('vault-1')}.json`
+  )
+
+  it('unlinks on the first 410 and says the vault is now encrypted, leaving local notes alone', async () => {
+    const { service, client, localRoot, storageDirectory } = await setup([cloudVault()])
+    await service.link(localRoot, 'vault-1')
+    await service.sync(localRoot)
+    const note = Buffer.from('Unsent local edit 📝\r\n')
+    await writeFile(path.join(localRoot, 'note.md'), note)
+    client.changes.mockRejectedValue(superseded())
+    client.manifest.mockRejectedValue(superseded())
+
+    await expect(service.sync(localRoot)).rejects.toThrow(CLOUD_VAULT_SUPERSEDED_MESSAGE)
+
+    expect(await service.linkedVault(localRoot)).toBeNull()
+    await expect(readFile(savedStatePath(storageDirectory, localRoot))).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(await readFile(path.join(localRoot, 'note.md'))).toEqual(note)
+    expect(client.deleteVault).not.toHaveBeenCalled()
+  })
+
+  it('unlinks the same way when the background probe meets the 410 first', async () => {
+    const { service, client, localRoot } = await setup([cloudVault()])
+    await service.link(localRoot, 'vault-1')
+    await service.sync(localRoot)
+    client.manifest.mockRejectedValue(superseded())
+
+    await expect(service.hasRemoteChanges(localRoot)).rejects.toThrow(CLOUD_VAULT_SUPERSEDED_MESSAGE)
+
+    expect(await service.linkedVault(localRoot)).toBeNull()
+    client.manifest.mockClear()
+    expect(await service.hasRemoteChanges(localRoot)).toBe(false)
+    expect(client.manifest).not.toHaveBeenCalled()
   })
 })

@@ -8,6 +8,7 @@ import path from 'node:path'
 import type { WorkflowFile, WriteWorkflowInput } from '@zennotes/bridge-contract/workflows'
 import { WORKFLOWS_REL_DIR } from '@shared/workflows-view'
 import { writeFileAtomic } from './vault'
+import { fileIdentity, isSameFile } from './same-file'
 
 function workflowsDir(root: string): string {
   return path.join(root, '.zennotes', 'workflows')
@@ -148,8 +149,8 @@ export async function writeWorkflowFile(
   if (prevAbs && prevAbs !== abs) {
     let sameFile = false
     try {
-      const [prevStat, newStat] = await Promise.all([fs.stat(prevAbs), fs.stat(abs)])
-      sameFile = prevStat.dev === newStat.dev && prevStat.ino === newStat.ino
+      const [prevStat, newStat] = await Promise.all([fileIdentity(prevAbs), fileIdentity(abs)])
+      sameFile = isSameFile(prevStat, newStat)
     } catch {
       // Either side unstattable: the remove below treats a missing file as done.
     }

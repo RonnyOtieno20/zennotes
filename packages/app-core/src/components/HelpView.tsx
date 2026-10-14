@@ -17,6 +17,7 @@ import {
   HELP_VIM_COMMANDS
 } from '../lib/help'
 import { parseHelpKeys } from '../lib/help-keys'
+import { helpSearchText, renderHelpRichText } from '../lib/help-rich-text'
 import { SearchIcon } from './icons'
 import { Button } from './ui/Button'
 
@@ -214,7 +215,8 @@ function commandExAlias(id: string): string {
 
 function matchesQuery(query: string, ...parts: Array<string | undefined>): boolean {
   if (!query) return true
-  return parts.some((part) => part?.toLowerCase().includes(query))
+  const needle = query.replace(/\s+/g, ' ')
+  return parts.some((part) => part !== undefined && helpSearchText(part).toLowerCase().includes(needle))
 }
 
 export function HelpView(): JSX.Element {
@@ -487,7 +489,7 @@ export function HelpView(): JSX.Element {
                   <h3 className="text-base font-semibold text-ink-900">{section.title}</h3>
                   {section.description && (
                     <p className="mt-1 max-w-prose text-sm leading-6 text-ink-500">
-                      {renderRichText(section.description, 'text-xs')}
+                      {renderHelpRichText(section.description, 'text-xs')}
                     </p>
                   )}
                   <ReferenceList>
@@ -667,37 +669,6 @@ function SectionShell({
   )
 }
 
-// Renders a help string with Markdown-style backtick code spans. Short spans
-// become inline code; long or multi-line spans become a code block so shell
-// commands stay readable instead of wrapping through prose. `codeSize` keeps
-// inline code a step below the text around it.
-function renderRichText(text: string, codeSize: 'text-xs' | 'text-sm'): React.ReactNode {
-  return text.split(/(`[^`]+`)/g).map((seg, i) => {
-    if (seg.length > 1 && seg.startsWith('`') && seg.endsWith('`')) {
-      const code = seg.slice(1, -1)
-      if (code.includes('\n') || code.length > 60) {
-        return (
-          <code
-            key={i}
-            className="my-3 block overflow-x-auto whitespace-pre-wrap break-words rounded-lg border border-paper-300/60 bg-paper-200/60 px-3 py-2 font-mono text-xs leading-6 text-ink-800"
-          >
-            {code}
-          </code>
-        )
-      }
-      return (
-        <code
-          key={i}
-          className={`rounded border border-paper-300/60 bg-paper-200/60 px-1 py-px font-mono text-ink-800 ${codeSize}`}
-        >
-          {code}
-        </code>
-      )
-    }
-    return seg
-  })
-}
-
 /** Guides and concepts: a title and a paragraph, kept to a readable measure. */
 function ArticleList({ cards }: { cards: { title: string; body: string }[] }): JSX.Element {
   return (
@@ -706,7 +677,7 @@ function ArticleList({ cards }: { cards: { title: string; body: string }[] }): J
         <article key={card.title}>
           <h3 className="text-base font-semibold text-ink-900">{card.title}</h3>
           <div className="mt-2 max-w-prose text-base leading-7 text-ink-700">
-            {renderRichText(card.body, 'text-sm')}
+            {renderHelpRichText(card.body, 'text-sm')}
           </div>
         </article>
       ))}
@@ -743,7 +714,7 @@ function ReferenceRow({
       </dt>
       {detail && (
         <dd className="mt-1 max-w-prose text-sm leading-6 text-ink-600">
-          {renderRichText(detail, 'text-xs')}
+          {renderHelpRichText(detail, 'text-xs')}
         </dd>
       )}
     </div>

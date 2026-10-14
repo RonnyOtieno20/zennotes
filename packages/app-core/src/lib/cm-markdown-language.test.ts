@@ -2,7 +2,7 @@ import { markdownLanguage } from '@codemirror/lang-markdown'
 import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import type { SyntaxNode, Tree } from '@lezer/common'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { frontmatterRange } from './cm-frontmatter'
 import { noteMarkdown } from './cm-markdown-language'
 
@@ -188,9 +188,17 @@ describe('noteMarkdown: incremental parsing', () => {
   const BODY = paragraphs.join('\n\n')
 
   function update(state: EditorState, from: number, to: number, insert: string): EditorState {
-    const next = state.update({ changes: { from, to, insert } }).state
-    // The state update parses for a bounded slice of time; make sure the
-    // tree is complete before comparing it.
+    // The state update parses for a 20 ms slice of time, and on a slow CI
+    // runner the slice ran out before the reused blocks ("no block at 634").
+    // A frozen clock lets this update's own parse finish, which is the one
+    // that reuses blocks.
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(Date.now())
+    let next: EditorState
+    try {
+      next = state.update({ changes: { from, to, insert } }).state
+    } finally {
+      clock.mockRestore()
+    }
     ensureSyntaxTree(next, next.doc.length, 5000)
     return next
   }

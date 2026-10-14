@@ -2060,6 +2060,24 @@ export function describeCurrentBinding(
   return getKeymapDisplay(overrides, id);
 }
 
+/**
+ * Whether a shortcut belongs to a feature this host has. Agent edit review
+ * needs `supportsAgentEditReview` and Harper needs `supportsHarper`; where
+ * they are absent (the web client, the phones and iPads) the shortcuts can
+ * never fire, so Settings → Keymap leaves them out instead of offering keys
+ * for a review or a grammar check that does not exist there.
+ */
+export function keymapAvailableOnHost(
+  id: KeymapId,
+  capabilities: { supportsAgentEditReview?: boolean; supportsHarper?: boolean },
+): boolean {
+  if (id.startsWith("editor.review") || id.startsWith("vim.review")) {
+    return capabilities.supportsAgentEditReview === true;
+  }
+  if (id.startsWith("vim.harper")) return capabilities.supportsHarper === true;
+  return true;
+}
+
 export function getKeymapDefinitionsByGroup(): Array<{
   group: KeymapGroup;
   label: string;

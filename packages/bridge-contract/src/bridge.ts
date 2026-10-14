@@ -98,7 +98,8 @@ import type {
   McpClientId,
   McpClientStatus,
   McpInstructionsPayload,
-  McpServerRuntime
+  McpServerRuntime,
+  McpServerTokenState
 } from './mcp-clients.js'
 import type { AppConfigPortable } from './app-config.js'
 import type { ExternalUrlResult } from './application-links.js'
@@ -137,6 +138,11 @@ export interface ZenCapabilities {
    *  be reviewed. Absent where records are not reachable yet (the web client
    *  and the phones), which hides the review. */
   supportsAgentEditReview?: boolean
+  /** The host can save a readable archive of an end-to-end encrypted vault's
+   *  backup: the desktop app opens the service's archive item by item. The
+   *  phones refuse it, so where this is absent Settings says where to save
+   *  one instead of offering a button that can only fail. */
+  supportsEncryptedBackupArchive?: boolean
   /** Host-mediated provider transport; false/absent on the web runtime. */
   supportsGrammarProviderTransport?: boolean
 }
@@ -526,6 +532,14 @@ export interface ZenBridge {
   mcpGetStatuses(): Promise<McpClientStatus[]>
   mcpInstall(id: McpClientId): Promise<McpClientStatus>
   mcpUninstall(id: McpClientId): Promise<McpClientStatus>
+  /** Desktop only: whether assistants can use the token of the server the app
+   *  is on (#830). Optional so the web and phone bridges need no stub. */
+  mcpGetServerTokenState?(): Promise<McpServerTokenState>
+  /** Desktop only: saves the app's token for that server where zn and the MCP
+   *  servers look. */
+  mcpShareServerToken?(): Promise<McpServerTokenState>
+  /** Desktop only: removes it again, only when it is still the app's token. */
+  mcpRemoveServerToken?(): Promise<McpServerTokenState>
   mcpGetInstructions(): Promise<McpInstructionsPayload>
   mcpSetInstructions(next: string | null): Promise<McpInstructionsPayload>
   cliGetStatus(): Promise<CliInstallStatus>

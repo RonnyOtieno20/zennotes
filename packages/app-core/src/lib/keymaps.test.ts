@@ -10,6 +10,7 @@ import {
   getKeymapDisplay,
   getSequenceTokens,
   isKeymapUnbound,
+  keymapAvailableOnHost,
   labelWithShortcut,
   matchesSequenceToken,
   matchesShortcut,
@@ -518,5 +519,29 @@ describe('unbound keymaps (an override of "")', () => {
   it('labels a tooltip with the key only while there is one', () => {
     expect(labelWithShortcut('Go back', '⌃O')).toBe('Go back (⌃O)')
     expect(labelWithShortcut('Go back', '')).toBe('Go back')
+  })
+})
+
+describe('keymapAvailableOnHost', () => {
+  const ids = getKeymapDefinitions().map((definition) => definition.id)
+  const review = ids.filter((id) => /^(editor|vim)\.review/.test(id))
+  const harper = ids.filter((id) => id.startsWith('vim.harper'))
+
+  it('leaves out the review and Harper keys where those features are missing', () => {
+    expect(review).toHaveLength(8)
+    expect(harper.length).toBeGreaterThan(0)
+    for (const id of [...review, ...harper]) expect(keymapAvailableOnHost(id, {})).toBe(false)
+  })
+
+  it('keeps each one on a host that has its feature', () => {
+    for (const id of review) expect(keymapAvailableOnHost(id, { supportsAgentEditReview: true })).toBe(true)
+    for (const id of harper) expect(keymapAvailableOnHost(id, { supportsHarper: true })).toBe(true)
+    expect(keymapAvailableOnHost(review[0], { supportsHarper: true })).toBe(false)
+  })
+
+  it('keeps every other key everywhere', () => {
+    const rest = ids.filter((id) => !review.includes(id) && !harper.includes(id))
+    expect(rest.length).toBeGreaterThan(50)
+    for (const id of rest) expect(keymapAvailableOnHost(id, {})).toBe(true)
   })
 })

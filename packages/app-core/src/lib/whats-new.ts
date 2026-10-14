@@ -40,6 +40,40 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.69.1',
+    highlights: [
+      {
+        title: 'Renames on Windows',
+        body: 'Renaming a note or an attachment to a name another one already has now always stops and says so on Windows, instead of sometimes replacing the other file.'
+      }
+    ]
+  },
+  {
+    version: '2.69.0',
+    highlights: [
+      {
+        title: 'Assistants reach your server',
+        body: 'Settings → MCP → Server token lets Claude, Codex and other assistants use a ZenNotes Server that needs a token, with no terminal step.'
+      },
+      {
+        title: 'Which Claude, which tab',
+        body: 'The MCP integrations say which part of the Claude app they reach: its Code tab uses the Claude Code entry.'
+      },
+      {
+        title: 'Setup for a server vault',
+        body: 'Connecting to a ZenNotes Server during setup skips the layout step: the server’s vault already has one.'
+      },
+      {
+        title: 'Clearer keys for a new note',
+        body: 'The New note form in search names the keys that work in the field you are in.'
+      },
+      {
+        title: 'Encrypted vaults say so',
+        body: 'A Cloud vault that another device encrypted end to end reads as encrypted, not deleted.'
+      }
+    ]
+  },
+  {
     version: '2.68.0',
     highlights: [
       {

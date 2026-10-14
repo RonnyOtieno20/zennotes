@@ -1644,6 +1644,8 @@ describe('ops after a path op follow the note', () => {
 })
 
 describe('one run at a time per vault', () => {
+  // Many journaled, fsynced writes in a row: on a slow Windows runner the
+  // file-system-heavy suites ran 4 to 6 times slower and this passed 5 s.
   it('concurrent applies serialize instead of interleaving read-modify-write', async () => {
     const root = await makeVault()
     await seed(root, 'inbox/Log.md', 'start\n')
@@ -1660,7 +1662,7 @@ describe('one run at a time per vault', () => {
     for (const receipt of receipts) expect(receipt.rolledBack).toBeUndefined()
     const body = (await readOrNull(root, 'inbox/Log.md')) ?? ''
     for (const text of lines) expect(body).toContain(text)
-  })
+  }, 30_000)
 
   it('an undo queued behind a run sees the run completed, not half of it', async () => {
     const root = await makeVault()

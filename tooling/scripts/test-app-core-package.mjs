@@ -193,6 +193,7 @@ function Browse() {
     <button data-batch-trash onClick={() => void run(async () => (await notes.requestNoteBatch(host, lifecycle.notes.filter(note => note.path.startsWith('inbox/Batch boundary/')).map(note => note.path), 'trash')).status)}>Trash batch</button>
     <button data-empty-trash onClick={() => void run(() => notes.requestEmptyTrash(host))}>Empty trash</button>
     <button data-browse-create onClick={() => void run(() => browse.requestCreateBrowseFolder(host, directory))}>New folder</button>
+    <button data-browse-create-note onClick={() => void run(() => browse.requestCreateBrowseNote(host, directory))}>New note</button>
     <button data-browse-create-database onClick={() => void run(() => browse.createBrowseDatabase(host, directory))}>New database</button>
     {rows.folders.map(row => <div key={row.directory}>
       <button data-browse-folder={row.directory} onClick={() => setDirectory(row.directory)}>{row.title}</button>

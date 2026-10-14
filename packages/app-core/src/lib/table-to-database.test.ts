@@ -8,6 +8,7 @@ import { EditorView } from '@codemirror/view'
 import type { DatabaseDoc } from '@shared/databases'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { tablePlugin } from './cm-table'
+import { noteMarkdown } from './cm-markdown-language'
 import { closeTableContextMenu, openTableContextMenu } from './cm-table-menu'
 import { parseTable } from './markdown-table'
 import { registerNoteEditor } from './note-editor-context'
@@ -125,6 +126,22 @@ describe('defaultDatabaseTitle / headingAbove', () => {
     expect(headingAbove(view.state, tableStart(NOTE))).toBe('Roadmap')
     expect(defaultDatabaseTitle(view.state, tableStart(NOTE), 'Weekly plan')).toBe('Roadmap')
     view.destroy()
+  })
+
+  it('names the heading right above in a long note the parser has not reached yet', () => {
+    const filler = Array.from({ length: 50 }, (_, i) => `Paragraph ${i}.`).join('\n\n')
+    const doc = `# Early\n\n${filler}\n\n# Roadmap\n\n| A | B |\n| - | - |\n| 1 | 2 |\n`
+    // A slow machine: every clock read moves 30 ms, so the editor's first parse
+    // stops long before the table, as it does in a large note.
+    let now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => (now += 30))
+    let state: EditorState
+    try {
+      state = EditorState.create({ doc, extensions: [noteMarkdown()] })
+    } finally {
+      clock.mockRestore()
+    }
+    expect(headingAbove(state, doc.indexOf('| A |'))).toBe('Roadmap')
   })
 
   it('skips a # comment inside a fenced code block', () => {

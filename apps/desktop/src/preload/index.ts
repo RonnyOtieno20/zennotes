@@ -119,7 +119,8 @@ import type {
   McpClientId,
   McpClientStatus,
   McpInstructionsPayload,
-  McpServerRuntime
+  McpServerRuntime,
+  McpServerTokenState
 } from '@shared/mcp-clients'
 
 const DESKTOP_CAPABILITIES: ZenCapabilities = {
@@ -139,6 +140,7 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsWorkflows: true,
   supportsUndoFile: true,
   supportsAgentEditReview: true,
+  supportsEncryptedBackupArchive: true,
   supportsGrammarProviderTransport: true
 }
 
@@ -772,6 +774,12 @@ const api: ZenBridge = {
   mcpInstall: (id: McpClientId): Promise<McpClientStatus> => ipcRenderer.invoke(IPC.MCP_INSTALL, id),
   mcpUninstall: (id: McpClientId): Promise<McpClientStatus> =>
     ipcRenderer.invoke(IPC.MCP_UNINSTALL, id),
+  mcpGetServerTokenState: (): Promise<McpServerTokenState> =>
+    ipcRenderer.invoke(IPC.MCP_SERVER_TOKEN_STATE),
+  mcpShareServerToken: (): Promise<McpServerTokenState> =>
+    ipcRenderer.invoke(IPC.MCP_SHARE_SERVER_TOKEN),
+  mcpRemoveServerToken: (): Promise<McpServerTokenState> =>
+    ipcRenderer.invoke(IPC.MCP_REMOVE_SERVER_TOKEN),
   mcpGetInstructions: (): Promise<McpInstructionsPayload> =>
     ipcRenderer.invoke(IPC.MCP_GET_INSTRUCTIONS),
   mcpSetInstructions: (next: string | null): Promise<McpInstructionsPayload> =>

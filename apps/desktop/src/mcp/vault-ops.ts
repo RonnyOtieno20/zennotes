@@ -1,6 +1,8 @@
 import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, noteMetadataPath } from '../main/note-creation-metadata'
 import { noteCommentsPath, noteCommentsRoot, relocateFolderTrees, relocateNote } from '../main/note-sidecars'
 import { agentEditFolderPath, removeAgentEditRecord } from '../main/agent-edit-files'
+import { fileIdentity, isSameFile } from '../main/same-file'
+import { readSavedServerToken as readZnSavedServerToken } from '../main/remote/zn-credentials'
 /**
  * Vault operations used by the MCP server. Mirrors the filesystem
  * behavior of src/main/vault.ts, but without Electron dependencies —
@@ -229,10 +231,12 @@ async function folderRoot(root: string, folder: NoteFolder): Promise<string> {
 }
 
 const FENCE_LINE_RE = /^(\s{0,3})(`{3,}|~{3,})/
-// `>` = forwarded (#316), `-` = cancelled (#450), `/` = in progress (#512) —
-// all recognized so those tasks aren't invisible to the MCP scanner. Kept in
-// sync with @shared/tasklists.
-const TASK_LINE_RE = /^\s*[-*+]\s+\[([ xX>/-])\](.*)$/
+// The task lines @shared/tasklists' TASK_LINE_RE matches, so the MCP scanner
+// lists the tasks the app lists and counts them the same way: bullets,
+// ordered lists (`1.` and `1)`) and quoted tasks (`> - [ ]`). Every state the
+// app knows is recognized: `>` forwarded (#316), `-` cancelled (#450) and `/`
+// in progress (#512). Groups: the state char, then the text after `]`.
+const TASK_LINE_RE = /^\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+\[([ xX>/-])\](.*)$/
 
 export interface NoteMeta {
   path: string
@@ -341,6 +345,16 @@ export function portableConfigDir(): string {
     return path.join(appData || path.join(os.homedir(), 'AppData', 'Roaming'), 'zennotes')
   }
   return path.join(os.homedir(), '.config', 'zennotes')
+}
+
+/**
+ * The token `zn connect` saved for a server, or null (#830): zn's
+ * credentials.toml beside config.toml, read under zn's rules (see
+ * main/remote/zn-credentials). Settings → MCP can put the app's own token
+ * there too.
+ */
+export async function readSavedServerToken(baseUrl: string): Promise<string | null> {
+  return await readZnSavedServerToken(portableConfigDir(), baseUrl)
 }
 
 /**
@@ -473,7 +487,8 @@ export async function readRemoteProfilesFromConfig(): Promise<KnownRemoteProfile
  * (#688). The app keeps server tokens in the OS secret store, which a plain
  * Node process cannot read, so the token here is only ever the legacy
  * plaintext one a pre-profile config may still carry; callers layer
- * `ZENNOTES_REMOTE_TOKEN` / `--token` on top.
+ * `--token`, `ZENNOTES_REMOTE_TOKEN` and the token `zn connect` saved on top
+ * (`resolveServerToken` in cli/vault-target).
  */
 export type ActiveWorkspace =
   | { kind: 'local'; root: string | null }
@@ -1009,8 +1024,8 @@ export async function renameNote(root: string, rel: string, nextTitle: string): 
   if (target !== abs) {
     try {
       await fs.access(target)
-      const [srcStat, dstStat] = await Promise.all([fs.stat(abs), fs.stat(target)])
-      if (srcStat.ino !== dstStat.ino) {
+      const [srcStat, dstStat] = await Promise.all([fileIdentity(abs), fileIdentity(target)])
+      if (!isSameFile(srcStat, dstStat)) {
         throw new Error(`A note named "${trimmed}" already exists in ${folder}`)
       }
     } catch (e) {

@@ -21,7 +21,12 @@ import {
 import { resolveInstructions } from './instructions-store.js'
 import { createBackend, type VaultBackend } from '../cli/backend.js'
 import { runRecordingAgentEdit } from './agent-edit-recorder.js'
-import { resolveDefaultTarget, sameVault, type VaultTarget } from '../cli/vault-target.js'
+import {
+  REMOTE_TOKEN_ENV,
+  resolveDefaultTarget,
+  sameVault,
+  type VaultTarget
+} from '../cli/vault-target.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import type { NoteFolder } from './vault-ops.js'
 import { addComment, listCommentThreads, replyToComment, resolveComment } from './comment-ops.js'
@@ -165,7 +170,7 @@ const TOOLS: ToolDef[] = [
             pathNotes +
             (description.authConfigured
               ? ''
-              : ' No token is configured for this server in this process. If calls fail with 401, set ZENNOTES_REMOTE_TOKEN in the MCP server\'s environment to the token the server was started with.')
+              : ` No token is configured for this server in this process. If calls fail with 401, ${tokenHint(description.baseUrl)}`)
         }
       }
       const vault = description.root
@@ -674,7 +679,7 @@ const TOOLS: ToolDef[] = [
             type: 'string',
             enum: ['open', 'done', 'waiting', 'all'],
             description:
-              'open = unchecked & not waiting (default). done = checked. waiting = has @waiting. all = everything.'
+              'open = not done, cancelled or waiting (default). done = checked. waiting = has @waiting. all = everything.'
           },
           priority: {
             type: 'string',
@@ -722,7 +727,10 @@ const TOOLS: ToolDef[] = [
         if (folder && t.noteFolder !== folder) return false
         // A `[>]` record's live copy sits in the destination note; listing the
         // record as open doubled every carried task for agents (#611 review).
-        if (status === 'open' && (t.checked || t.waiting || t.forwarded)) return false
+        // A `[-]` cancelled task is abandoned, so it is not open either (#450, #476).
+        if (status === 'open' && (t.checked || t.waiting || t.forwarded || t.cancelled)) {
+          return false
+        }
         if (status === 'done' && !t.checked) return false
         if (status === 'waiting' && !t.waiting) return false
         if (priority && t.priority !== priority) return false
@@ -969,18 +977,46 @@ export function listToolNames(): string[] {
 /**
  * A server that turns the request away is the one failure an agent cannot
  * fix by retrying: the desktop app keeps its token in the OS secret store,
- * so this process only has one if the environment supplied it. Say so.
+ * where this process cannot read it, so say how to give it one. `target` is
+ * the vault the call ran against, null when none resolved. The Go `zn mcp`
+ * (ZenNotes/tui, internal/mcp/server.go) words it the same way.
  */
-export function describeToolError(err: unknown): string {
+export function describeToolError(err: unknown, target: VaultTarget | null = null): string {
   const message = err instanceof Error ? err.message : String(err)
   if (err instanceof RemoteRequestError && (err.status === 401 || err.status === 403)) {
+    const server = target?.kind === 'remote' ? target : null
+    // The environment outranks a saved token, so a stale one there keeps
+    // failing however often `zn connect` runs.
+    const fromEnv = process.env[REMOTE_TOKEN_ENV]?.trim()
+    if (server && fromEnv && server.authToken === fromEnv) {
+      return (
+        `${message} The rejected token is ZENNOTES_REMOTE_TOKEN from the MCP server's environment, which wins over one saved with \`zn connect\`: ` +
+        `update it there, or remove it and run \`zn connect ${server.baseUrl} --no-default\` once in a terminal.`
+      )
+    }
     return (
-      `${message} The MCP server has no valid token for this ZenNotes server. Set ZENNOTES_REMOTE_TOKEN ` +
-      'in the MCP server\'s environment (the desktop app\'s copy lives in the OS secret store, which zn cannot read), ' +
-      'or run zn with --token.'
+      `${message} The MCP server has no valid token for this ZenNotes server; the desktop app keeps its copy in the OS secret store, which this process cannot read. ` +
+      `To fix it, ${tokenHint(server?.baseUrl ?? '')}`
     )
   }
   return message
+}
+
+/**
+ * How to hand this process a server token. This server ships inside the
+ * desktop app, so the app's own way comes first: Settings → MCP → Server token
+ * saves the token where `zn connect` would (#830). `--no-default` matters for
+ * the terminal way: a plain `zn connect` also makes the server zn's own
+ * default, and a Go `zn mcp` that does not follow the app would then stop
+ * following it.
+ */
+function tokenHint(serverUrl: string): string {
+  return (
+    'in the ZenNotes app, choose Let assistants use it under Settings → MCP → Server token, ' +
+    `or run \`zn connect ${serverUrl || '<server-url>'} --no-default\` once in a terminal. ` +
+    'Either saves the token where zn and this MCP server look, and the next call uses it. ' +
+    'Setting ZENNOTES_REMOTE_TOKEN in the MCP server\'s environment works too.'
+  )
 }
 
 /** A vault named in a sentence. The app often names a saved server after its
@@ -1038,11 +1074,16 @@ export class VaultSession {
     private readonly open: (target: VaultTarget) => VaultBackend = createBackend
   ) {}
 
-  /** The backend for one call. `confirm` marks vault_info, the only call that
-   *  moves the session to a new vault; `previous` is the vault it moved away
-   *  from, null when the vault did not change. Calls resolve one at a time so
-   *  a batch sees one consistent session. */
-  backendFor(confirm: boolean): Promise<{ backend: VaultBackend; previous: VaultTarget | null }> {
+  /** The backend for one call and the vault it reaches. `confirm` marks
+   *  vault_info, the only call that moves the session to a new vault;
+   *  `previous` is the vault it moved away from, null when the vault did not
+   *  change. Calls resolve one at a time so a batch sees one consistent
+   *  session. */
+  backendFor(confirm: boolean): Promise<{
+    backend: VaultBackend
+    target: VaultTarget
+    previous: VaultTarget | null
+  }> {
     const next = this.queue.then(() => this.step(confirm))
     this.queue = next.catch(() => undefined)
     return next
@@ -1050,7 +1091,7 @@ export class VaultSession {
 
   private async step(
     confirm: boolean
-  ): Promise<{ backend: VaultBackend; previous: VaultTarget | null }> {
+  ): Promise<{ backend: VaultBackend; target: VaultTarget; previous: VaultTarget | null }> {
     const target = await this.resolve()
     let previous: VaultTarget | null = null
     if (this.target && this.backend && !(await sameVault(this.target, target))) {
@@ -1062,7 +1103,7 @@ export class VaultSession {
       this.backend = this.open(target)
       this.target = target
     }
-    return { backend: this.backend, previous }
+    return { backend: this.backend, target: this.target, previous }
   }
 }
 
@@ -1126,8 +1167,11 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
         isError: true
       }
     }
+    let target: VaultTarget | null = null
     try {
-      const { backend, previous } = await vaults.backendFor(name === 'vault_info')
+      const resolved = await vaults.backendFor(name === 'vault_info')
+      const { backend, previous } = resolved
+      target = resolved.target
       const toolArgs = (args ?? {}) as Record<string, unknown>
       // An edit to a note is recorded so the user can review it in the app.
       const result = await runRecordingAgentEdit(name, toolArgs, backend, defaultCommentAuthor(), () =>
@@ -1138,7 +1182,7 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
       return { content: [{ type: 'text', text: payload }] }
     } catch (err) {
       return {
-        content: [{ type: 'text', text: `Error: ${describeToolError(err)}` }],
+        content: [{ type: 'text', text: `Error: ${describeToolError(err, target)}` }],
         isError: true
       }
     }

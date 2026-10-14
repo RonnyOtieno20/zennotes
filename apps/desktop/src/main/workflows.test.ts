@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { NEIGHBOUR_FILE_IDS, useWindowsFileIds } from './windows-file-ids.testing'
 import {
   MAX_IMPORT_BYTES,
   deleteWorkflowFile,
@@ -311,6 +312,22 @@ describe('writeWorkflowFile', () => {
     })
     expect(saved.raw).toBe('new\n')
     expect(await readFile(path.join(workflowsDirOf(root), 'my-flow.md'), 'utf8')).toBe('new\n')
+  })
+
+  it('removes the old file on a rename, even where Windows file ids round to one number', async () => {
+    const root = await makeVault()
+    await writeWorkflowFile(root, { slug: 'old-name', raw: 'old\n' })
+    const ids = useWindowsFileIds({ 'old-name.md': NEIGHBOUR_FILE_IDS[0], 'new-name.md': NEIGHBOUR_FILE_IDS[1] })
+    try {
+      await writeWorkflowFile(root, {
+        slug: 'new-name',
+        raw: 'new\n',
+        previousSourcePath: '.zennotes/workflows/old-name.md'
+      })
+    } finally {
+      ids.mockRestore()
+    }
+    expect(await entriesOf(root)).toEqual(['new-name.md'])
   })
 
   it('tolerates a previousSourcePath that no longer exists', async () => {

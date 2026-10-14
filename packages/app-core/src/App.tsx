@@ -480,6 +480,11 @@ function App(): JSX.Element {
 
   useEffect(() => {
     return window.zen.onOpenSettings(() => {
+      // The macOS menu takes Mod+, before the page does. Asking for Settings
+      // while What's New is up replaces it, as the shortcut does below,
+      // instead of opening Settings underneath with the keyboard in it.
+      const state = useStore.getState()
+      if (state.whatsNewOpen) state.closeWhatsNew()
       setSettingsOpen(true)
     })
   }, [setSettingsOpen])
@@ -720,6 +725,40 @@ function App(): JSX.Element {
       const state = useStore.getState()
       const overrides = state.keymapOverrides
 
+      // What's New opens by itself on the first launch after an update, so
+      // the keys people press out of habit land on it. No app shortcut acts
+      // behind it: Mod+N made a note under it and moved the keyboard there,
+      // Mod+P opened a search nobody could see. Its own buttons, Tab and
+      // Escape are its own. Asking for Settings replaces it, as the macOS
+      // menu does.
+      if (state.whatsNewOpen) {
+        if (matchesShortcut(e, overrides, 'global.openSettings')) {
+          e.preventDefault()
+          state.closeWhatsNew()
+          state.setSettingsOpen(true)
+        }
+        return
+      }
+
+      // A modal, palette, menu, or Settings (with its keymap recorder) is
+      // open. Per the house rule for global key handlers, a shortcut that
+      // switches, reopens or creates the note must not act under it: it
+      // strands the user on a different note than they left, and a new note
+      // pulls the keyboard into a title field nobody can see.
+      const overlayOpen =
+        state.settingsOpen ||
+        state.searchOpen ||
+        state.vaultTextSearchOpen ||
+        state.commandPaletteOpen ||
+        state.bufferPaletteOpen ||
+        state.templatePaletteOpen ||
+        state.embedDrawingPaletteOpen ||
+        state.outlinePaletteOpen ||
+        !!document.querySelector('[data-ctx-menu]') ||
+        !!document.querySelector('[data-prompt-modal]') ||
+        !!document.querySelector('[data-confirm-modal]') ||
+        !!document.querySelector('[data-cloud-conflict-dialog]')
+
       if (isUndoShortcut(e)) {
         const assetUndoEntry = state.assetUndoStack.at(-1)
         if (assetUndoEntry) {
@@ -751,6 +790,7 @@ function App(): JSX.Element {
       }
       if (matchesShortcut(e, overrides, 'global.newQuickNote')) {
         // ⇧⌘N — new quick note
+        if (overlayOpen) return
         e.preventDefault()
         const title = resolveQuickNoteTitle(
           state.notes,
@@ -768,23 +808,8 @@ function App(): JSX.Element {
       }
       // Alt+1..9 (⌃1..9 on macOS): jump straight to tab N (#497). Position
       // counts across panes in the same order gt cycles through. Bails while
-      // a modal, palette, menu, or Settings (with its keymap recorder) is
-      // open, per the house rule for global key handlers: switching the tab
-      // under an overlay strands the user on a different note than they left.
-      const tabSelectBlocked =
-        state.settingsOpen ||
-        state.searchOpen ||
-        state.vaultTextSearchOpen ||
-        state.commandPaletteOpen ||
-        state.bufferPaletteOpen ||
-        state.templatePaletteOpen ||
-        state.embedDrawingPaletteOpen ||
-        state.outlinePaletteOpen ||
-        document.querySelector('[data-ctx-menu]') ||
-        document.querySelector('[data-prompt-modal]') ||
-        document.querySelector('[data-confirm-modal]') ||
-        document.querySelector('[data-cloud-conflict-dialog]')
-      if (!tabSelectBlocked) {
+      // an overlay is open (the rule above).
+      if (!overlayOpen) {
         for (let i = 0; i < TAB_SELECT_KEYMAP_IDS.length; i += 1) {
           const id = TAB_SELECT_KEYMAP_IDS[i]
           if (!matchesShortcut(e, overrides, id)) continue
@@ -800,13 +825,13 @@ function App(): JSX.Element {
       // The template pickers as plain shortcuts, so they no longer need Vim's
       // leader (#847). Same overlay rule as tab selection: a picker opened
       // under Settings or another palette would strand the user behind it.
-      if (!tabSelectBlocked && matchesShortcut(e, overrides, 'global.newNoteFromTemplate')) {
+      if (!overlayOpen && matchesShortcut(e, overrides, 'global.newNoteFromTemplate')) {
         e.preventDefault()
         state.setTemplatePaletteOpen(true)
         return
       }
       if (
-        !tabSelectBlocked &&
+        !overlayOpen &&
         state.activeNote &&
         matchesShortcut(e, overrides, 'global.insertTemplate')
       ) {
@@ -847,16 +872,19 @@ function App(): JSX.Element {
         isEditableShortcutTarget(e.target)
       if (!isMacWordMotion && matchesShortcut(e, overrides, 'global.historyBack')) {
         // Back in note navigation history (works in any mode).
+        if (overlayOpen) return
         e.preventDefault()
         void state.jumpToPreviousNote()
         return
       }
       if (!isMacWordMotion && matchesShortcut(e, overrides, 'global.historyForward')) {
+        if (overlayOpen) return
         e.preventDefault()
         void state.jumpToNextNote()
         return
       }
       if (matchesShortcut(e, overrides, 'global.toggleRecentNote')) {
+        if (overlayOpen) return
         e.preventDefault()
         void state.toggleRecentNote()
         return
@@ -877,6 +905,7 @@ function App(): JSX.Element {
         return
       }
       if (matchesShortcut(e, overrides, 'global.reopenClosedTab')) {
+        if (overlayOpen) return
         e.preventDefault()
         void state.reopenLastClosedTab()
         return
@@ -1034,6 +1063,7 @@ function App(): JSX.Element {
       }
       if (
         state.settingsOpen ||
+        state.whatsNewOpen ||
         state.searchOpen ||
         state.vaultTextSearchOpen ||
         state.commandPaletteOpen ||

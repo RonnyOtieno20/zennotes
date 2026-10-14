@@ -16,6 +16,7 @@ import {
   type CloudSyncHostPersistence,
   type CloudSyncHostVault
 } from './cloud-sync-host-service'
+import { CLOUD_VAULT_SUPERSEDED_MESSAGE, isCloudVaultSuperseded } from './cloud-vault-availability'
 
 function textContent(data: string): CloudSyncContent {
   return {
@@ -721,5 +722,59 @@ describe('CloudSyncHostService deleted vault recovery (#791)', () => {
     await expect(service.sync(hostVault)).rejects.toThrow()
 
     expect(await service.linkedVault(hostVault)).toEqual(link)
+  })
+})
+
+describe('CloudSyncHostService vault replaced by an encrypted one', () => {
+  const remoteVault: CloudSyncVault = {
+    id: 'vault-1', name: 'Notes', cursor: 0,
+    created_at: '2026-10-13T12:00:00.000Z', updated_at: '2026-10-13T12:00:00.000Z'
+  }
+  // What Cloud answers a device still linked to a readable vault that another
+  // device moved into an encrypted one.
+  const superseded = () => Object.assign(
+    new Error('This vault was replaced by an end-to-end encrypted vault. Update ZenNotes on this device to keep syncing it.'),
+    { name: 'CloudServiceRequestError', status: 410, code: 'VAULT_SUPERSEDED', details: { successor_vault_id: 'vault-2' } }
+  )
+
+  it('retires the link and its cursor on the first 410, and says the vault is now encrypted', async () => {
+    const { service, client, persistence, hostVault, retiredStates } = setup([remoteVault])
+    await service.link(hostVault, remoteVault.id)
+    await service.sync(hostVault)
+    const state = structuredClone(await persistence.loadState(hostVault.key, 'https://zennotes.org', remoteVault.id))
+    const apply = vi.spyOn(hostVault.repository, 'apply')
+    client.changes.mockRejectedValue(superseded())
+    client.manifest.mockRejectedValue(superseded())
+
+    await expect(service.sync(hostVault)).rejects.toThrow(CLOUD_VAULT_SUPERSEDED_MESSAGE)
+
+    expect(await service.linkedVault(hostVault)).toBeNull()
+    expect(retiredStates).toEqual([{ vaultKey: hostVault.key, baseUrl: 'https://zennotes.org', vaultId: remoteVault.id, state }])
+    expect(apply).not.toHaveBeenCalled()
+    expect(client.deleteVault).not.toHaveBeenCalled()
+  })
+
+  it('says the same when the check for remote changes meets the 410 first', async () => {
+    const { service, client, hostVault } = setup([remoteVault])
+    await service.link(hostVault, remoteVault.id)
+    await service.sync(hostVault)
+    client.manifest.mockRejectedValue(superseded())
+
+    await expect(service.hasRemoteChanges(hostVault)).rejects.toThrow(CLOUD_VAULT_SUPERSEDED_MESSAGE)
+
+    expect(await service.linkedVault(hostVault)).toBeNull()
+    client.manifest.mockClear()
+    expect(await service.hasRemoteChanges(hostVault)).toBe(false)
+    expect(client.manifest).not.toHaveBeenCalled()
+  })
+
+  it('counts only Cloud\'s own 410 VAULT_SUPERSEDED', () => {
+    expect(isCloudVaultSuperseded(superseded())).toBe(true)
+    expect(isCloudVaultSuperseded(Object.assign(new Error('Gone'), {
+      name: 'CloudServiceRequestError', status: 410, code: null
+    }))).toBe(false)
+    expect(isCloudVaultSuperseded(Object.assign(new Error('Gone'), { status: 410, code: 'VAULT_SUPERSEDED' }))).toBe(false)
+    expect(isCloudVaultSuperseded(new Error(CLOUD_VAULT_SUPERSEDED_MESSAGE))).toBe(false)
+    expect(isCloudVaultSuperseded(null)).toBe(false)
   })
 })

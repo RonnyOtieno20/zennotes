@@ -56,6 +56,7 @@ describe('vault_info (#688)', () => {
     })
     expect(info).not.toHaveProperty('vaultRoot')
     expect(String(info.notes)).toContain('ZENNOTES_REMOTE_TOKEN')
+    expect(String(info.notes)).toContain('zn connect http://192.168.1.10:7878 --no-default')
     expect(String(info.notes)).toContain('INBOX mode')
   })
 
@@ -141,14 +142,80 @@ describe('tools run through the backend', () => {
   })
 })
 
-describe('describeToolError', () => {
-  it('turns a 401 from the server into the token hint', () => {
-    const text = describeToolError(
-      new RemoteRequestError('The ZenNotes server rejected the connection.', 401)
+describe('list_tasks', () => {
+  const task = (content: string, extra: Record<string, unknown> = {}): unknown => ({
+    content,
+    noteFolder: 'inbox',
+    checked: false,
+    waiting: false,
+    forwarded: false,
+    cancelled: false,
+    tags: [],
+    ...extra
+  })
+  const tasksBackend = backend({
+    scanAllTasks: async () =>
+      [
+        task('Buy milk', { due: '2026-10-20' }),
+        task('Cancelled plan', { cancelled: true, due: '2026-10-15' }),
+        task('Done thing', { checked: true })
+      ] as never
+  })
+  const contents = (rows: unknown): string[] =>
+    (rows as Array<{ content: string }>).map((t) => t.content)
+
+  it('leaves `[-]` cancelled tasks out of the default open list (#450, #476)', async () => {
+    expect(contents(await callTool('list_tasks', {}, tasksBackend))).toEqual(['Buy milk'])
+    expect(
+      contents(await callTool('list_tasks', { dueBefore: '2026-10-31' }, tasksBackend))
+    ).toEqual(['Buy milk'])
+  })
+
+  it('still returns cancelled tasks for status "all"', async () => {
+    expect(contents(await callTool('list_tasks', { status: 'all' }, tasksBackend))).toContain(
+      'Cancelled plan'
     )
+  })
+})
+
+describe('describeToolError', () => {
+  const rejected = () => new RemoteRequestError('The ZenNotes server rejected the connection.', 401)
+  const server = (authToken: string | null): VaultTarget => ({
+    kind: 'remote',
+    name: 'home',
+    baseUrl: 'https://notes.example.com',
+    authToken
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('turns a 401 from the server into the token hint', () => {
+    const text = describeToolError(rejected())
     expect(text).toContain('rejected the connection')
     expect(text).toContain('ZENNOTES_REMOTE_TOKEN')
+    expect(text).toContain('zn connect <server-url> --no-default')
   })
+
+  it('points at the app first, then names the server to run `zn connect` for (#830)', () => {
+    vi.stubEnv('ZENNOTES_REMOTE_TOKEN', '')
+    const text = describeToolError(rejected(), server(null))
+    expect(text).toContain('no valid token')
+    expect(text).toContain('Let assistants use it under Settings → MCP → Server token')
+    expect(text).toContain('`zn connect https://notes.example.com --no-default`')
+    expect(text).toContain('the next call uses it')
+  })
+
+  it('blames a stale ZENNOTES_REMOTE_TOKEN, which a saved token cannot outrank', () => {
+    vi.stubEnv('ZENNOTES_REMOTE_TOKEN', 'stale')
+    const text = describeToolError(rejected(), server('stale'))
+    expect(text).toContain('The rejected token is ZENNOTES_REMOTE_TOKEN')
+    expect(text).toContain('remove it and run `zn connect https://notes.example.com --no-default`')
+    // A different rejected token is not the environment's fault.
+    expect(describeToolError(rejected(), server('saved'))).toContain('no valid token')
+  })
+
   it('passes other errors through untouched', () => {
     expect(describeToolError(new Error('boom'))).toBe('boom')
     expect(describeToolError(new RemoteRequestError('nope', 500))).toBe('nope')
@@ -362,6 +429,58 @@ describe('runMcpServer follows the target it is given (#831)', () => {
       await s.close()
     } finally {
       await new Promise<void>((resolve) => fake.close(() => resolve()))
+    }
+  })
+
+  it('reaches the server the app has open with the token `zn connect` saved, from the next call on (#830)', async () => {
+    const seen: Array<string | null> = []
+    const fake: HttpServer = createServer((req, res) => {
+      const url = new URL(req.url ?? '/', 'http://localhost')
+      seen.push(req.headers.authorization ?? null)
+      if (req.headers.authorization !== 'Bearer saved-830') {
+        res.writeHead(401, { 'Content-Type': 'application/json' })
+        res.end(JSON.stringify({ error: 'unauthorized' }))
+        return
+      }
+      const bodies: Record<string, unknown> = {
+        '/api/vault': { root: '/srv/notes', name: 'notes' },
+        '/api/vault/settings': { primaryNotesLocation: 'inbox', systemFolderPaths: null },
+        '/api/folders': []
+      }
+      res.writeHead(url.pathname in bodies ? 200 : 404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(bodies[url.pathname] ?? null))
+    })
+    await new Promise<void>((resolve) => fake.listen(0, '127.0.0.1', resolve))
+    const address = fake.address()
+    if (address == null || typeof address === 'string') throw new Error('no port')
+    const baseUrl = `http://127.0.0.1:${address.port}`
+    const credentials = path.join(configDir, 'credentials.toml')
+
+    try {
+      // The app is connected to the server. Its token sits in the OS secret
+      // store, so the config this process reads carries none.
+      await writeConfig({
+        vaultRoot: alpha,
+        workspaceMode: 'remote',
+        remoteWorkspace: { baseUrl },
+        remoteWorkspaceProfileId: 'srv',
+        remoteWorkspaceProfiles: [{ id: 'srv', name: 'Server', baseUrl, vaultPath: '/srv/notes' }]
+      })
+      // No flags: the entry Settings → MCP installs when zn is not the app's own.
+      const s = await session()
+      const before = await s.vaultInfo()
+      expect(before.error).toContain('no valid token')
+      expect(before.error).toContain(`zn connect ${baseUrl} --no-default`)
+
+      // `zn connect <url> --no-default` in a terminal while the agent runs.
+      await fsp.writeFile(credentials, `[tokens]\n  "${baseUrl}" = "saved-830"\n`, { mode: 0o600 })
+      const { info } = await s.vaultInfo()
+      expect(info).toMatchObject({ kind: 'remote', server: baseUrl, authConfigured: true })
+      expect(seen.at(-1)).toBe('Bearer saved-830')
+      await s.close()
+    } finally {
+      await new Promise<void>((resolve) => fake.close(() => resolve()))
+      await fsp.rm(credentials, { force: true })
     }
   })
 

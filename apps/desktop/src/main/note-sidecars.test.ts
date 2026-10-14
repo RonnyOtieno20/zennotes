@@ -16,6 +16,7 @@ vi.mock('electron', () => ({
 
 import * as desktop from './vault'
 import * as mcp from '../mcp/vault-ops'
+import { NEIGHBOUR_FILE_IDS, useWindowsFileIds } from './windows-file-ids.testing'
 
 const roots: string[] = []
 
@@ -173,5 +174,45 @@ describe.each(clients)('%s: a note keeps its comments', (_name, client) => {
 
     expect(await missing(commentsFile(root, 'inbox/Work/One.md'))).toBe(true)
     expect(await readFile(path.join(root, 'inbox/Keep.md'), 'utf8')).toBe('# Keep\n')
+  })
+})
+
+// A Windows file id is 64 bits, and two notes saved one after the other can
+// share one id as a JS number. The guards that tell a case-only rename from a
+// rename onto another note compared those numbers, so on Windows the rename
+// went through and replaced the other note.
+describe.each(clients)('%s: Windows file ids that round to one number', (_name, client) => {
+  it('a rename onto another note’s name is refused, and both notes stay', async () => {
+    const root = await makeVault()
+    await client.writeNote(root, 'inbox/One.md', 'First.\n')
+    await client.writeNote(root, 'inbox/Two.md', 'Second.\n')
+    const ids = useWindowsFileIds({
+      [path.join('inbox', 'One.md')]: NEIGHBOUR_FILE_IDS[0],
+      [path.join('inbox', 'Two.md')]: NEIGHBOUR_FILE_IDS[1]
+    })
+    try {
+      await expect(client.renameNote(root, 'inbox/One.md', 'Two')).rejects.toThrow(/A note named .Two. already exists/)
+    } finally {
+      ids.mockRestore()
+    }
+    expect(await readFile(path.join(root, 'inbox/One.md'), 'utf8')).toBe('First.\n')
+    expect(await readFile(path.join(root, 'inbox/Two.md'), 'utf8')).toBe('Second.\n')
+  })
+
+  it('a folder rename onto another folder is refused, and both folders stay', async () => {
+    const root = await makeVault()
+    await client.writeNote(root, 'inbox/Work/One.md', 'First.\n')
+    await mkdir(path.join(root, 'inbox', 'Empty'), { recursive: true })
+    const ids = useWindowsFileIds({
+      [path.join('inbox', 'Work')]: NEIGHBOUR_FILE_IDS[0],
+      [path.join('inbox', 'Empty')]: NEIGHBOUR_FILE_IDS[1]
+    })
+    try {
+      await expect(client.renameFolder(root, 'inbox', 'Work', 'Empty')).rejects.toThrow(/already exist/)
+    } finally {
+      ids.mockRestore()
+    }
+    expect(await readFile(path.join(root, 'inbox/Work/One.md'), 'utf8')).toBe('First.\n')
+    expect((await stat(path.join(root, 'inbox', 'Empty'))).isDirectory()).toBe(true)
   })
 })

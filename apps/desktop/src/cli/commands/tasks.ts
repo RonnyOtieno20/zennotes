@@ -20,9 +20,10 @@ export async function cmdTaskList(vault: VaultBackend, args: ParsedArgs): Promis
   if (!showAll) {
     // A `[>]` forwarded record is history of a move; its live copy is in the
     // destination note and lists on its own, so showing both doubled every
-    // carried task (#611 review). `--all` still surfaces the records.
-    if (onlyUnchecked) tasks = tasks.filter((t) => !t.checked && !t.forwarded)
-    else tasks = tasks.filter((t) => !t.checked && !t.waiting && !t.forwarded)
+    // carried task (#611 review). A `[-]` cancelled task is abandoned, so it is
+    // not open either (#450, #476). `--all` still surfaces both.
+    if (onlyUnchecked) tasks = tasks.filter((t) => !t.checked && !t.forwarded && !t.cancelled)
+    else tasks = tasks.filter((t) => !t.checked && !t.waiting && !t.forwarded && !t.cancelled)
   }
   if (tag) tasks = tasks.filter((t) => t.tags.includes(tag))
 

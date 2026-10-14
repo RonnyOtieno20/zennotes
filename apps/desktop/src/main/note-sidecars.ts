@@ -12,6 +12,7 @@ import path from 'node:path'
 import { NOTE_COMMENTS_DIR, NOTE_COMMENTS_SUFFIX } from '@shared/note-comments'
 import { noteMetadataPath, removeNoteCreation } from './note-creation-metadata'
 import { agentEditPath, removeAgentEditRecord } from './agent-edit-files'
+import { fileIdentity, isSameFile } from './same-file'
 
 const INTERNAL_VAULT_DIR = '.zennotes'
 
@@ -162,13 +163,13 @@ export async function relocateFolderTrees(
   for (const [from, to] of moves) {
     let source
     try {
-      source = await fs.stat(from)
+      source = await fileIdentity(from)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
     }
     try {
-      const target = await fs.stat(to)
-      if (!source || source.ino !== target.ino || source.dev !== target.dev)
+      const target = await fileIdentity(to)
+      if (!source || !isSameFile(source, target))
         throw new Error('The destination folder or its comments already exist')
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error

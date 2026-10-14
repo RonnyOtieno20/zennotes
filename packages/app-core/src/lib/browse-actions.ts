@@ -118,6 +118,29 @@ export async function requestCreateBrowseFolder(
   }
 }
 
+/**
+ * Create a note in a primary-notes directory and open it on its title, the
+ * way the phones' create row makes one at the top (zennotesandroid#108). An
+ * empty directory means its root. There is no prompt: the note opens with its
+ * title focused, so naming it is the next thing typed either way. Database
+ * folders hold records rather than notes, so they are refused like a folder
+ * there is.
+ */
+export async function requestCreateBrowseNote(
+  host: BrowseActionHost,
+  directory = ''
+): Promise<BrowseActionResult> {
+  if (formDirContaining(directory)) return 'unavailable'
+  const context = start(host, directory, true)
+  if (!context) return 'unavailable'
+  try {
+    await useStore.getState().createAndOpen('inbox', directory, { focusTitle: true })
+    return context.isCurrent() ? 'completed' : 'stale'
+  } finally {
+    pending = false
+  }
+}
+
 /** Prompt for an ordinary folder's leaf name. Database renaming uses its own feature. */
 export async function requestRenameBrowseFolder(
   host: BrowseActionHost,

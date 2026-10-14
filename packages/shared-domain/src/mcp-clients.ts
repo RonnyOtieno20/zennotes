@@ -11,6 +11,7 @@ export type {
   McpClientId,
   McpClientStatus,
   McpServerRuntime,
+  McpServerTokenState,
   McpInstructionsPayload
 } from '@zennotes/bridge-contract/mcp-clients'
 
@@ -40,19 +41,22 @@ export interface McpClientDescriptor {
 export const MCP_SERVER_KEY = 'zennotes'
 
 export const MCP_CLIENTS: McpClientDescriptor[] = [
+  // Two entries for one Claude app on purpose: the desktop app's Code tab runs
+  // Claude Code and reads ~/.claude.json, while claude_desktop_config.json
+  // only reaches its Chat tab. The labels say which tab each one covers.
   {
     id: 'claude-code',
-    label: 'Claude Code',
+    label: 'Claude Code (CLI + Desktop Code tab)',
     description:
-      'Anthropic\u2019s CLI. Installs as a user-scope MCP server in ~/.claude.json so every Claude Code session can reach your vault.',
+      'Claude Code in the terminal and in the Claude desktop app\u2019s Code tab. Installs as a user-scope MCP server in ~/.claude.json, which both read, so every Claude Code session can reach your vault.',
     format: 'json',
     serverKey: MCP_SERVER_KEY
   },
   {
     id: 'claude-desktop',
-    label: 'Claude Desktop',
+    label: 'Claude Desktop (Chat)',
     description:
-      'The Claude desktop app. Registers the server in claude_desktop_config.json. Requires a full restart of Claude Desktop to take effect.',
+      'The Chat tab of the Claude desktop app. Registers the server in claude_desktop_config.json; quit and reopen Claude Desktop to load it. Its Code tab uses the Claude Code entry instead.',
     format: 'json',
     serverKey: MCP_SERVER_KEY
   },

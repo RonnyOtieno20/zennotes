@@ -43,7 +43,14 @@ import {
   type DesktopPublishAssetFiles,
   type PublishAssetUploader
 } from './cloud-publish-assets'
-import { CLOUD_VAULT_REMOVED_MESSAGE, confirmCloudVaultMissing, isCloudResourceMissing, sameCloudVaultLink } from '@zennotes/shared-domain/cloud-vault-availability'
+import {
+  CLOUD_VAULT_REMOVED_MESSAGE,
+  CLOUD_VAULT_SUPERSEDED_MESSAGE,
+  confirmCloudVaultMissing,
+  isCloudResourceMissing,
+  isCloudVaultSuperseded,
+  sameCloudVaultLink
+} from '@zennotes/shared-domain/cloud-vault-availability'
 import { createDesktopCloudSyncCoordinator, DesktopCloudSyncStateStore } from './cloud-sync-filesystem'
 import { rewriteBackupArchive } from './cloud-backup-archive'
 import {
@@ -511,6 +518,9 @@ export class DesktopCloudSyncService {
         })
         return manifest.cursor !== state.cursor
       } catch (error) {
+        if (isCloudVaultSuperseded(error) && await this.retireMissingLink(localRoot, link)) {
+          throw new Error(CLOUD_VAULT_SUPERSEDED_MESSAGE)
+        }
         if (isCloudResourceMissing(error) && await this.retireMissingLink(localRoot, link)) {
           throw new Error(CLOUD_VAULT_REMOVED_MESSAGE)
         }
@@ -649,10 +659,8 @@ export class DesktopCloudSyncService {
         legacy_conflict_copies: result.legacyConflictCopies
       }
     } catch (error) {
-      if (cloudErrorCode(error) === 'VAULT_SUPERSEDED' && await this.retireMissingLink(localRoot, link)) {
-        throw new Error(
-          'This Cloud vault is now end-to-end encrypted. Unlock encryption in Settings, then open the encrypted vault on this device.'
-        )
+      if (isCloudVaultSuperseded(error) && await this.retireMissingLink(localRoot, link)) {
+        throw new Error(CLOUD_VAULT_SUPERSEDED_MESSAGE)
       }
       if (await confirmCloudVaultMissing(client, link.vault_id, error) &&
           await this.retireMissingLink(localRoot, link)) {

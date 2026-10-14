@@ -278,6 +278,7 @@ export {
   createBrowseDatabase,
   requestRenameBrowseDatabase,
   requestCreateBrowseFolder,
+  requestCreateBrowseNote,
   requestRenameBrowseFolder,
   requestMoveBrowseDirectory,
   requestDeleteBrowseDirectory,

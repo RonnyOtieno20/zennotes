@@ -25,6 +25,7 @@ import {
   readActiveWorkspaceFromConfig,
   readKnownVaultsFromConfig,
   readRemoteProfilesFromConfig,
+  readSavedServerToken,
   resolveVaultRoot,
   type KnownRemoteProfile
 } from '../mcp/vault-ops.js'
@@ -77,6 +78,25 @@ export function resolveAuthToken(
   return profileToken?.trim() || null
 }
 
+/**
+ * The token for a server already chosen by URL: `resolveAuthToken`, then the
+ * token `zn connect` saved for that URL (#830). A profile token here is only
+ * ever a legacy plaintext one, because the app keeps its own copy in the OS
+ * secret store, which this process cannot read; without the saved token, the
+ * MCP entry Settings → MCP installs could not reach a server that needs one
+ * even after `zn connect`. The Go zn checks the same four places in the same
+ * order when it follows the app. Looked up by the URL the caller already
+ * picked, a saved token can only authenticate that server, never choose one.
+ */
+export async function resolveServerToken(
+  baseUrl: string,
+  flagToken: string | undefined,
+  profileToken: string | null,
+  env: NodeJS.ProcessEnv = process.env
+): Promise<string | null> {
+  return resolveAuthToken(flagToken, profileToken, env) ?? (await readSavedServerToken(baseUrl))
+}
+
 /** A bare URL rather than a profile name: has a scheme, or looks like
  *  `host:port`. Profile names are free-form, so this stays conservative. */
 export function looksLikeServerUrl(value: string): boolean {
@@ -110,16 +130,17 @@ export async function resolveServerTarget(
       kind: 'remote',
       name: profile.name,
       baseUrl: profile.baseUrl,
-      authToken: resolveAuthToken(flagToken, profile.authToken)
+      authToken: await resolveServerToken(profile.baseUrl, flagToken, profile.authToken)
     }
   }
 
   if (looksLikeServerUrl(trimmed)) {
+    const baseUrl = normalizeBaseUrl(trimmed)
     return {
       kind: 'remote',
       name: '',
-      baseUrl: normalizeBaseUrl(trimmed),
-      authToken: resolveAuthToken(flagToken, null)
+      baseUrl,
+      authToken: await resolveServerToken(baseUrl, flagToken, null)
     }
   }
 
@@ -161,7 +182,7 @@ export async function resolveVaultTarget(
       kind: 'remote',
       name: profile.name,
       baseUrl: profile.baseUrl,
-      authToken: resolveAuthToken(flagToken, profile.authToken)
+      authToken: await resolveServerToken(profile.baseUrl, flagToken, profile.authToken)
     }
   }
 
@@ -174,8 +195,8 @@ export async function resolveVaultTarget(
  * the desktop app has open, a connected server included (#688). This is what
  * `zn mcp` falls back to without `--vault` / `--server` (#831), so an agent
  * works on the vault the user is looking at; the app's own token stays in the
- * OS secret store, so a server that needs one gets it from
- * `ZENNOTES_REMOTE_TOKEN` (or `--token`).
+ * OS secret store, so a server that needs one gets it from `--token`,
+ * `ZENNOTES_REMOTE_TOKEN`, or the token `zn connect` saved for its URL (#830).
  */
 export async function resolveDefaultTarget(
   env: NodeJS.ProcessEnv = process.env,
@@ -192,7 +213,7 @@ export async function resolveDefaultTarget(
       kind: 'remote',
       name: active.name,
       baseUrl: active.baseUrl,
-      authToken: resolveAuthToken(flagToken, active.authToken, env)
+      authToken: await resolveServerToken(active.baseUrl, flagToken, active.authToken, env)
     }
   }
   return { kind: 'local', root: await resolveVaultRoot() }

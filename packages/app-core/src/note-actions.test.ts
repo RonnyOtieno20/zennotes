@@ -101,6 +101,8 @@ async function setup() {
 }
 
 describe("note relocation saves", () => {
+  // The first test pays for the cold import of the store (over a second on a
+  // Windows runner, past 5 s once on a slow one), so it gets a longer timeout.
   it("saves before moving and keeps edits made during the move at the canonical path", async () => {
     const s = await setup(),
       gate = deferred();
@@ -125,7 +127,7 @@ describe("note relocation saves", () => {
     );
     expect(s.useStore.getState().selectedPath).toBe("inbox/Work/One 2.md");
     expect(s.useStore.getState().noteDirty["inbox/Work/One 2.md"]).toBe(false);
-  });
+  }, 20_000);
 
   it("does not relocate a note if its save failed", async () => {
     const s = await setup();

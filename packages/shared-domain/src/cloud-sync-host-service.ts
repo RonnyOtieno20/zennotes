@@ -20,7 +20,14 @@ import type {
 import type { CloudSyncApiClient } from './cloud-sync-api'
 import { cloudBackupCreateError, cloudBackupItemsPage, restoreCloudBackup } from './cloud-backup'
 import { normalizeCloudSyncPath } from './cloud-sync'
-import { CLOUD_VAULT_REMOVED_MESSAGE, confirmCloudVaultMissing, isCloudResourceMissing, sameCloudVaultLink } from './cloud-vault-availability'
+import {
+  CLOUD_VAULT_REMOVED_MESSAGE,
+  CLOUD_VAULT_SUPERSEDED_MESSAGE,
+  confirmCloudVaultMissing,
+  isCloudResourceMissing,
+  isCloudVaultSuperseded,
+  sameCloudVaultLink
+} from './cloud-vault-availability'
 import {
   CloudSyncCoordinator,
   type CloudSyncRepository,
@@ -246,6 +253,9 @@ export class CloudSyncHostService {
         const manifest = await client.manifest(link.vault_id, { includeContent: false, perPage: 1 })
         return manifest.cursor !== state.cursor
       } catch (error) {
+        if (isCloudVaultSuperseded(error) && await this.retireMissingLink(vault, link)) {
+          throw new Error(CLOUD_VAULT_SUPERSEDED_MESSAGE)
+        }
         if (isCloudResourceMissing(error) && await this.retireMissingLink(vault, link)) {
           throw new Error(CLOUD_VAULT_REMOVED_MESSAGE)
         }
@@ -304,6 +314,11 @@ export class CloudSyncHostService {
         legacy_conflict_copies: result.legacyConflictCopies
       }
     } catch (error) {
+      // Another device moved this vault into an encrypted one. The link has
+      // to go like a deleted vault's, or every later sync meets the same 410.
+      if (isCloudVaultSuperseded(error) && await this.retireMissingLink(vault, link)) {
+        throw new Error(CLOUD_VAULT_SUPERSEDED_MESSAGE)
+      }
       if (await confirmCloudVaultMissing(client, link.vault_id, error) &&
           await this.retireMissingLink(vault, link)) {
         throw new Error(CLOUD_VAULT_REMOVED_MESSAGE)

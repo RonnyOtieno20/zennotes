@@ -128,6 +128,7 @@ import {
   setPortableConfig,
   getConfigFilePath,
   ensureConfigFile,
+  getConfigDir,
 } from "./app-config";
 import {
   getCustomThemesDir,
@@ -257,6 +258,15 @@ import {
   installMcpForClient,
   uninstallMcpForClient,
 } from "./mcp-integrations";
+import {
+  followAppServerToken,
+  getServerTokenState,
+  removeServerToken,
+  shareServerToken,
+  type ServerTokenPaths,
+  type ServerTokenTarget,
+} from "./mcp-server-token";
+import { normalizeBaseUrl } from "./remote/connection";
 import {
   getCliInstallStatus,
   installCli,
@@ -2605,6 +2615,61 @@ async function exportNotePdf(
   }
 }
 
+/** Where a shared server token lives, and the app's receipts for it (#830). */
+function serverTokenPaths(): ServerTokenPaths {
+  return {
+    configDir: getConfigDir(),
+    receiptsPath: path.join(
+      app.getPath("userData"),
+      "mcp",
+      "shared-server-tokens.json",
+    ),
+  };
+}
+
+/** The server Settings → MCP → Server token is about: the persisted
+ *  workspace, because that is what both MCP servers read to follow the app,
+ *  picked the same way (the configured profile, else one with the same URL),
+ *  with the token the app connects to it with. */
+async function serverTokenTarget(): Promise<ServerTokenTarget | null> {
+  const cfg = await loadConfig();
+  if (cfg.workspaceMode !== "remote" || !cfg.remoteWorkspace?.baseUrl) {
+    return null;
+  }
+  const baseUrl = normalizeBaseUrl(cfg.remoteWorkspace.baseUrl);
+  const profile =
+    findRemoteProfileById(
+      cfg.remoteWorkspaceProfiles,
+      cfg.remoteWorkspaceProfileId,
+    ) ??
+    cfg.remoteWorkspaceProfiles.find(
+      (entry) => normalizeBaseUrl(entry.baseUrl) === baseUrl,
+    ) ??
+    null;
+  const token =
+    (profile && (await getRemoteWorkspaceSecret(profile.id))) ??
+    cfg.remoteWorkspace.authToken ??
+    null;
+  return { baseUrl, token: token?.trim() || null };
+}
+
+/** A shared token follows the app's; the file is never worth failing a
+ *  profile change over. */
+async function followSharedServerToken(
+  baseUrl: string,
+  previous: string | null,
+  next: string | null,
+): Promise<void> {
+  try {
+    await followAppServerToken(baseUrl, previous, next, serverTokenPaths());
+  } catch (err) {
+    console.warn(
+      "[mcp] could not update the shared server token:",
+      (err as Error).message,
+    );
+  }
+}
+
 async function listRemoteWorkspaceProfiles(): Promise<
   RemoteWorkspaceProfile[]
 > {
@@ -2625,6 +2690,15 @@ async function saveRemoteWorkspaceProfile(
   input: RemoteWorkspaceProfileInput & { lastConnectedAt?: number | null },
 ): Promise<RemoteWorkspaceProfile> {
   const normalizedId = input.id?.trim() || randomUUID();
+  const nextToken = input.clearAuthToken
+    ? null
+    : typeof input.authToken === "string" && input.authToken.trim()
+      ? input.authToken.trim()
+      : undefined;
+  const previousToken =
+    nextToken === undefined
+      ? null
+      : await getRemoteWorkspaceSecret(normalizedId);
   await updateConfig((cfg) => {
     const normalizedBaseUrl = normalizeRemoteBaseUrl(input.baseUrl);
     const trimmedName = input.name?.trim() || "";
@@ -2684,6 +2758,9 @@ async function saveRemoteWorkspaceProfile(
   } else if (typeof input.authToken === "string" && input.authToken.trim()) {
     await setRemoteWorkspaceSecret(normalizedId, input.authToken.trim());
   }
+  if (nextToken !== undefined) {
+    await followSharedServerToken(input.baseUrl, previousToken, nextToken);
+  }
   const cfg = await loadConfig();
   const normalized = findRemoteProfileById(
     cfg.remoteWorkspaceProfiles,
@@ -2708,6 +2785,7 @@ async function saveRemoteWorkspaceProfile(
 
 async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
   const deletedSecret = await getRemoteWorkspaceSecret(id);
+  let forgottenServer = null as string | null;
   await updateConfig((cfg) => {
     const deletedProfile = findRemoteProfileById(
       cfg.remoteWorkspaceProfiles,
@@ -2716,6 +2794,17 @@ async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
     const nextProfiles = cfg.remoteWorkspaceProfiles.filter(
       (entry) => entry.id !== id,
     );
+    // Another saved vault on the same server still needs its token.
+    if (
+      deletedProfile &&
+      !nextProfiles.some(
+        (entry) =>
+          normalizeBaseUrl(entry.baseUrl) ===
+          normalizeBaseUrl(deletedProfile.baseUrl),
+      )
+    ) {
+      forgottenServer = deletedProfile.baseUrl;
+    }
     const nextCurrentProfileId =
       cfg.remoteWorkspaceProfileId === id ? null : cfg.remoteWorkspaceProfileId;
     const shouldClearLegacyRemoteWorkspace =
@@ -2739,6 +2828,9 @@ async function deleteRemoteWorkspaceProfile(id: string): Promise<void> {
     };
   });
   await deleteRemoteWorkspaceSecret(id);
+  if (forgottenServer) {
+    await followSharedServerToken(forgottenServer, deletedSecret, null);
+  }
   if (deletedSecret && currentRemoteWorkspaceProfileId === id) {
     remoteWorkspaceClient = null;
   }
@@ -4914,6 +5006,23 @@ function registerIpc(): void {
   handle(
     IPC.MCP_UNINSTALL,
     async (_e, id: McpClientId) => await uninstallMcpForClient(id),
+  );
+  // The renderer names no server and gets no token back: main reads both
+  // from its own config and only reports which state the file is in.
+  handle(
+    IPC.MCP_SERVER_TOKEN_STATE,
+    async () =>
+      await getServerTokenState(await serverTokenTarget(), serverTokenPaths()),
+  );
+  handle(
+    IPC.MCP_SHARE_SERVER_TOKEN,
+    async () =>
+      await shareServerToken(await serverTokenTarget(), serverTokenPaths()),
+  );
+  handle(
+    IPC.MCP_REMOVE_SERVER_TOKEN,
+    async () =>
+      await removeServerToken(await serverTokenTarget(), serverTokenPaths()),
   );
   handle(
     IPC.MCP_GET_INSTRUCTIONS,

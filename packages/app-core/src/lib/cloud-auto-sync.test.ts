@@ -5,7 +5,10 @@ import type {
   CloudSyncWindowHandlers,
 } from "@zennotes/bridge-contract/cloud-sync";
 import type { VaultChangeEvent } from "@shared/ipc";
-import { CLOUD_VAULT_REMOVED_MESSAGE } from "@zennotes/shared-domain/cloud-vault-availability";
+import {
+  CLOUD_VAULT_REMOVED_MESSAGE,
+  CLOUD_VAULT_SUPERSEDED_MESSAGE,
+} from "@zennotes/shared-domain/cloud-vault-availability";
 import {
   acknowledgeCloudConflictResolution,
   clearCloudSyncStatus,
@@ -1243,6 +1246,55 @@ describe("a Cloud vault that went away", () => {
     expect(cloudVaultGoneReason("Cloud sync timed out.")).toBeNull();
   });
 
+  it("tells a vault another device encrypted from a deleted one, by what each host surfaces", () => {
+    expect(cloudVaultGoneReason(new Error(CLOUD_VAULT_SUPERSEDED_MESSAGE))).toBe("encrypted");
+    expect(cloudVaultGoneReason(new Error(
+      `Error invoking remote method 'cloud-vault:sync': Error: ${CLOUD_VAULT_SUPERSEDED_MESSAGE}`,
+    ))).toBe("encrypted");
+    expect(cloudVaultGoneReason(Object.assign(
+      new Error("This vault was replaced by an end-to-end encrypted vault. Update ZenNotes on this device to keep syncing it."),
+      { status: 410, code: "VAULT_SUPERSEDED" },
+    ))).toBe("encrypted");
+    // A 410 without Cloud's own code says nothing about the vault.
+    expect(cloudVaultGoneReason(
+      Object.assign(new Error("Gone"), { status: 410, code: null }),
+    )).toBeNull();
+  });
+
+  it("records a vault another device encrypted as encrypted, not deleted", async () => {
+    const replaced = {
+      syncCloudVault: async () => {
+        throw new Error(CLOUD_VAULT_SUPERSEDED_MESSAGE);
+      },
+      getCloudVaultLink: async () => null,
+    };
+    await expect(syncCloudVaultWithStatus(replaced, "Notes")).rejects.toThrow();
+    expect(useCloudSyncStatusStore.getState()).toMatchObject({
+      phase: "unlinked",
+      removedVault: { vaultName: "Notes", reason: "encrypted" },
+    });
+  });
+
+  it("brings back a stored notice that the vault is now encrypted", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) =>
+        key === "zen.cloud.removedVault./vaults/Notes"
+          ? JSON.stringify({ vaultName: "Notes", reason: "encrypted" })
+          : null,
+      setItem: () => {},
+      removeItem: () => {},
+    });
+    const host = setup();
+    const runtime = startCloudAutoSync(host.bridge, host.environment, { onError: vi.fn() }, "/vaults/Notes");
+    try {
+      expect(useCloudSyncStatusStore.getState().removedVault).toEqual({
+        vaultName: "Notes", reason: "encrypted",
+      });
+    } finally {
+      runtime.stop();
+    }
+  });
+
   it("records a refusal to this account as unavailable, and keeps the first name it read", async () => {
     const refused = {
       syncCloudVault: async () => {
@@ -1275,6 +1327,11 @@ describe("a Cloud vault that went away", () => {
     );
     expect(cloudVaultRemovalMessage({ vaultName: null, reason: "deleted" })).toBe(
       "The cloud vault this vault synced with was deleted from ZenNotes Cloud, so this vault stopped syncing. Your notes on this device are untouched.",
+    );
+    expect(cloudVaultRemovalLabel({ vaultName: "Notes", reason: "encrypted" }))
+      .toBe("Cloud vault now encrypted");
+    expect(cloudVaultRemovalMessage({ vaultName: "Notes", reason: "encrypted" })).toBe(
+      "“Notes” was replaced by an end-to-end encrypted Cloud vault, so this vault stopped syncing. Your notes on this device are untouched.",
     );
   });
 

@@ -20,7 +20,10 @@ import {
   cloudSyncPathKey,
   shouldSyncVaultPath,
 } from "@zennotes/shared-domain/cloud-sync";
-import { CLOUD_VAULT_REMOVED_MESSAGE } from "@zennotes/shared-domain/cloud-vault-availability";
+import {
+  CLOUD_VAULT_REMOVED_MESSAGE,
+  CLOUD_VAULT_SUPERSEDED_MESSAGE,
+} from "@zennotes/shared-domain/cloud-vault-availability";
 import { vaultSettingsValueEqual } from "@zennotes/shared-domain/vault-settings-conflict";
 import { useToastStore } from "./toast";
 
@@ -69,9 +72,11 @@ export type CloudSyncPhase =
 /**
  * Why a Cloud vault stopped being this device's to sync. Cloud answers "not
  * found" for a vault that no longer exists; "unavailable" is a refusal that
- * names the account instead.
+ * names the account instead; "encrypted" is a readable vault another device
+ * replaced with an end-to-end encrypted one, which this device can open once
+ * it unlocks encryption.
  */
-export type CloudVaultRemovalReason = "deleted" | "unavailable";
+export type CloudVaultRemovalReason = "deleted" | "unavailable" | "encrypted";
 
 export interface CloudVaultRemoval {
   /** The name the link carried, read before the link went away. Null only
@@ -514,8 +519,9 @@ async function refreshRemovedCloudLink(
   const vaultName = useCloudSyncStatusStore.getState().vaultName;
   markCloudSyncUnlinked(syncFailureMessage(error));
   // The hosts drop a link after a failed request only once Cloud has answered
-  // "not found" for its vault, so a link found gone after a failure means a
-  // deleted vault unless the error names the account instead.
+  // that its vault is gone ("not found") or was replaced by an encrypted one,
+  // so a link found gone after a failure means a deleted vault unless the
+  // error says it was replaced or names the account instead.
   recordRemovedCloudVault({
     vaultName,
     reason: cloudVaultGoneReason(error) ?? "deleted",
@@ -525,9 +531,10 @@ async function refreshRemovedCloudLink(
 
 /**
  * What a refusal says about the vault it concerned: gone ("deleted"), refused
- * to this account ("unavailable"), or nothing at all (null). Desktop errors
- * cross IPC as text alone, so the hosts' own sentences count beside the
- * status and code an in-process host keeps on the error.
+ * to this account ("unavailable"), replaced by an encrypted vault
+ * ("encrypted"), or nothing at all (null). Desktop errors cross IPC as text
+ * alone, so the hosts' own sentences count beside the status and code an
+ * in-process host keeps on the error.
  */
 export function cloudVaultGoneReason(
   error: unknown,
@@ -547,6 +554,12 @@ export function cloudVaultGoneReason(
     return "unavailable";
   }
   if (
+    (response.status === 410 && response.code === "VAULT_SUPERSEDED") ||
+    message.startsWith(ENCRYPTED_VAULT_SENTENCE)
+  ) {
+    return "encrypted";
+  }
+  if (
     (response.status === 404 && response.code === "NOT_FOUND") ||
     message.startsWith(REMOVED_VAULT_SENTENCE)
   ) {
@@ -555,13 +568,17 @@ export function cloudVaultGoneReason(
   return null;
 }
 
+const firstSentence = (message: string): string =>
+  message.slice(0, message.indexOf(".") + 1);
+
 /** "This Cloud vault is no longer available.": the first sentence of the
  *  hosts' message for a link they dropped. The advice after it is free to
  *  change. */
-const REMOVED_VAULT_SENTENCE = CLOUD_VAULT_REMOVED_MESSAGE.slice(
-  0,
-  CLOUD_VAULT_REMOVED_MESSAGE.indexOf(".") + 1,
-);
+const REMOVED_VAULT_SENTENCE = firstSentence(CLOUD_VAULT_REMOVED_MESSAGE);
+
+/** "This Cloud vault is now end-to-end encrypted.": the same for a link they
+ *  dropped because another device replaced the vault with an encrypted one. */
+const ENCRYPTED_VAULT_SENTENCE = firstSentence(CLOUD_VAULT_SUPERSEDED_MESSAGE);
 
 /**
  * This device deleted the Cloud vault it was linked to. The host has already
@@ -589,11 +606,15 @@ export function hasCloudVaultRemovalNotice(
   return state.phase === "unlinked" && state.removedVault !== null;
 }
 
+const REMOVAL_LABELS: Record<CloudVaultRemovalReason, string> = {
+  deleted: "Cloud vault deleted",
+  unavailable: "Cloud vault unavailable",
+  encrypted: "Cloud vault now encrypted",
+};
+
 /** The status row's words for it, and the heading of the Settings notice. */
 export function cloudVaultRemovalLabel(removal: CloudVaultRemoval): string {
-  return removal.reason === "deleted"
-    ? "Cloud vault deleted"
-    : "Cloud vault unavailable";
+  return REMOVAL_LABELS[removal.reason];
 }
 
 /**
@@ -604,11 +625,12 @@ export function cloudVaultRemovalMessage(removal: CloudVaultRemoval): string {
   const vault = removal.vaultName
     ? `“${removal.vaultName}”`
     : "The cloud vault this vault synced with";
-  const happened =
-    removal.reason === "deleted"
-      ? `${vault} was deleted from ZenNotes Cloud`
-      : `${vault} is no longer available to this ZenNotes Cloud account`;
-  return `${happened}, so this vault stopped syncing. Your notes on this device are untouched.`;
+  const happened: Record<CloudVaultRemovalReason, string> = {
+    deleted: `${vault} was deleted from ZenNotes Cloud`,
+    unavailable: `${vault} is no longer available to this ZenNotes Cloud account`,
+    encrypted: `${vault} was replaced by an end-to-end encrypted Cloud vault`,
+  };
+  return `${happened[removal.reason]}, so this vault stopped syncing. Your notes on this device are untouched.`;
 }
 
 function recordRemovedCloudVault(next: CloudVaultRemoval): void {
@@ -633,7 +655,7 @@ function restoreRemovedCloudVault(vaultKey: string | undefined): void {
     if (parsed && typeof parsed === "object") {
       const { vaultName, reason } = parsed as Record<string, unknown>;
       if (
-        (reason === "deleted" || reason === "unavailable") &&
+        (reason === "deleted" || reason === "unavailable" || reason === "encrypted") &&
         (typeof vaultName === "string" || vaultName === null)
       ) {
         removal = { vaultName, reason };

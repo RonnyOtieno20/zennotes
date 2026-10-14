@@ -94,6 +94,16 @@ const VAULT_SECTION_ACTIONS: ReadonlySet<CloudAction> = new Set<CloudAction>([
  *  again, so a burst of runs costs one read. */
 const USAGE_READ_DELAY_MS = 3_000;
 
+/** Whether this host can save a readable archive of an encrypted vault's
+ *  backup (the desktop app can; the phones refuse). */
+function hostSavesEncryptedArchives(bridge: ZenBridge): boolean {
+  try {
+    return bridge.getCapabilities().supportsEncryptedBackupArchive === true;
+  } catch {
+    return false;
+  }
+}
+
 export function CloudSettings({
   localVaultAvailable,
   localVaultName,
@@ -180,6 +190,22 @@ export function CloudSettings({
     },
     [bridge],
   );
+
+  // An encrypted vault's real name is sealed, and the host opens it only
+  // while this device's keys are unlocked; a locked device lists the
+  // placeholder ("Encrypted vault"). The list was read once, so unlocking
+  // here left the placeholder until Settings was opened again. Read it again
+  // whenever the device locks or unlocks (not on the first status, which
+  // arrives with the first load).
+  const lastUnlocked = useRef<boolean | null>(null);
+  useEffect(() => {
+    const unlocked = encryptionStatus ? encryptionStatus.unlocked === true : null;
+    const before = lastUnlocked.current;
+    lastUnlocked.current = unlocked;
+    if (before !== null && unlocked !== null && before !== unlocked) {
+      void refreshCloudVaults();
+    }
+  }, [encryptionStatus, refreshCloudVaults]);
 
   // The link as last drawn, for a store change that arrives between renders:
   // deleting here drops the link from state just before it reports the
@@ -896,6 +922,11 @@ export function CloudSettings({
               />
               <CloudBackupPanel
                 action={action}
+                archiveDesktopOnly={
+                  !!activeLink &&
+                  !!cloudVaults.find((vault) => vault.id === activeLink.vault_id)?.encryption &&
+                  !hostSavesEncryptedArchives(bridge)
+                }
                 backupIncluded={backupIncluded}
                 backupLabel={backupLabel}
                 backupNotes={backupNotes}
@@ -1393,6 +1424,7 @@ function CloudVaultPanel({
         <CloudVaultRemovedNotice
           removal={removedVault}
           vaultsToChoose={cloudVaults.length > 0}
+          encryptionReady={encryptionReady}
           onDismiss={onDismissRemoval}
         />
       )}
@@ -1876,6 +1908,7 @@ function useBackupNotes(bridge: ZenBridge): BackupNotes {
 
 function CloudBackupPanel({
   action,
+  archiveDesktopOnly,
   backupIncluded,
   backupLabel,
   backupNotes,
@@ -1896,6 +1929,8 @@ function CloudBackupPanel({
   onScheduleChange,
 }: {
   action: CloudAction;
+  /** An encrypted vault on a host that cannot open its archive (the phones). */
+  archiveDesktopOnly: boolean;
   backupIncluded: boolean;
   backupLabel: string;
   backupNotes: BackupNotes;
@@ -1976,6 +2011,14 @@ function CloudBackupPanel({
           <p className="mt-1 text-sm leading-6 text-ink-500">
             {backupPolicy || "Create a recovery point from the synced vault."}
           </p>
+          {archiveDesktopOnly && (
+            <p
+              data-cloud-archive-desktop-only=""
+              className="mt-1 text-xs leading-5 text-ink-500"
+            >
+              To save an archive of this encrypted vault, use Save archive in the ZenNotes desktop app.
+            </p>
+          )}
         </div>
         <Button
           variant="ghost"
@@ -2165,15 +2208,17 @@ function CloudBackupPanel({
                             ? "Hide notes"
                             : "Browse notes"}
                       </Button>
-                      <Button
-                        variant="ghost"
-                        disabled={action !== null || backup.status !== "ready"}
-                        onClick={() => onDownload(backup)}
-                      >
-                        {action === "backup-download"
-                          ? "Saving…"
-                          : "Save archive"}
-                      </Button>
+                      {!archiveDesktopOnly && (
+                        <Button
+                          variant="ghost"
+                          disabled={action !== null || backup.status !== "ready"}
+                          onClick={() => onDownload(backup)}
+                        >
+                          {action === "backup-download"
+                            ? "Saving…"
+                            : "Save archive"}
+                        </Button>
+                      )}
                       <Button
                         variant="ghost"
                         disabled={action !== null || backup.status !== "ready"}
@@ -2822,16 +2867,28 @@ function revealCloudVault(vault: HTMLElement): void {
 function CloudVaultRemovedNotice({
   removal,
   vaultsToChoose,
+  encryptionReady,
   onDismiss,
 }: {
   removal: CloudVaultRemoval;
   vaultsToChoose: boolean;
+  encryptionReady: boolean;
   onDismiss: () => void;
 }): JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.scrollIntoView?.({ block: "nearest" });
   }, []);
+  // A vault replaced by an encrypted one lives on under its old name, which a
+  // locked device cannot read yet, so unlocking comes before choosing.
+  const nextStep =
+    removal.reason === "encrypted"
+      ? encryptionReady
+        ? "Choose the encrypted vault to sync it again."
+        : "Unlock this device under End-to-end encryption, then choose the encrypted vault."
+      : vaultsToChoose
+        ? "Choose a cloud vault or start a new one."
+        : "Create a new cloud vault to sync it again.";
   return (
     <div
       ref={ref}
@@ -2846,10 +2903,7 @@ function CloudVaultRemovedNotice({
           {cloudVaultRemovalLabel(removal)}
         </div>
         <p className="mt-1 break-words text-sm leading-6 text-ink-700">
-          {cloudVaultRemovalMessage(removal)}{" "}
-          {vaultsToChoose
-            ? "Choose a cloud vault or start a new one."
-            : "Create a new cloud vault to sync it again."}
+          {cloudVaultRemovalMessage(removal)} {nextStep}
         </p>
       </div>
       <Button variant="ghost" className="self-start" onClick={onDismiss}>

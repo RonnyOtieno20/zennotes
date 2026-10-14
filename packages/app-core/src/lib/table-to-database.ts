@@ -15,7 +15,7 @@
  * update listener and one `u` away. The database itself stays; undo restores
  * the table, it does not delete files.
  */
-import { syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
 import type { EditorState } from '@codemirror/state'
 import type { EditorView } from '@codemirror/view'
 import type { DatabaseSeed } from '@shared/databases'
@@ -66,11 +66,14 @@ const HEADING_LINE_RE = /^\s{0,3}#{1,6}\s+(.*?)\s*#*\s*$/
 /**
  * The nearest heading above `pos`, its markers stripped. Read from the
  * syntax tree where it has parsed that far (a `# comment` inside a fenced code
- * block is not a heading), by line scan otherwise.
+ * block is not a heading), by line scan otherwise. "That far" is what
+ * ensureSyntaxTree answers: noteMarkdown's outer tree always spans the whole
+ * note, even while its body parse is still short of `pos`, so the length of
+ * syntaxTree(state) named an earlier heading in a long note.
  */
 export function headingAbove(state: EditorState, pos: number): string | null {
-  const tree = syntaxTree(state)
-  if (tree.length >= pos) {
+  const tree = ensureSyntaxTree(state, pos, 50)
+  if (tree) {
     const last: { range: { from: number; to: number } | null } = { range: null }
     tree.iterate({
       from: 0,

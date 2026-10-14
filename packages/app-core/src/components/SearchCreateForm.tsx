@@ -150,6 +150,38 @@ export function SearchCreateForm({
       ?.scrollIntoView({ block: 'nearest' })
   }, [activeRow])
 
+  // The footer has to describe the focused field, not the form in general. `↑↓`
+  // only ever moved through the choice rows, and the Name field has neither
+  // rows nor a palette-nav handler, so naming it there advertised a capability
+  // that was not on screen to use. The rows can also be empty even when the
+  // field is focusable: the system folders guarantee them in Folder, but a
+  // typed path matching nothing empties the list, and a vault with no tags
+  // leaves Tags empty until something valid is typed.
+  const focusedRows: readonly unknown[] =
+    focused === 'folder' ? folderRows : focused === 'tags' ? tagRows : []
+  const hasList = focusedRows.length > 0
+  // Enter means three different things depending on the field and on whether a
+  // row actually stands behind the highlight, and one word cannot cover them.
+  // The highlight only counts while a row is behind it: typing in Folder
+  // preselects row 0 so Enter picks without an arrow key first (#467), and that
+  // index outlives the row once the text filters the list down to nothing:
+  // `folderRows[0]` is then `undefined` and Enter falls through to `create()`.
+  // A list can also shrink under the highlight without any typing (the vault's
+  // tags change while the form is open), so the hint reads the row exactly the
+  // way the Enter handlers do, not just whether the index is non-negative.
+  //
+  // In Tags the third case is a typed tag, which commits as a chip rather than
+  // creating anything, so it reads `add tag` too. Typed text that is not a
+  // valid tag leaves Enter with nothing to do at all, and offering it any
+  // label would be a promise it cannot keep, so the hint is dropped and the
+  // reason is left to the status line above.
+  const rowPicked = activeRow >= 0 && focusedRows[activeRow] !== undefined
+  const inTags = focused === 'tags'
+  const enterLabel =
+    rowPicked ? (inTags ? 'add tag' : 'choose folder')
+    : inTags && typedTag ? (normalizeTag(typedTag) ? 'add tag' : null)
+    : 'create note'
+
   const create = (): void => {
     if (!canCreate || !nameCheck.title || !destination.destination) return
     // Text still sitting in the Tags field counts: the user typed it and then
@@ -485,11 +517,18 @@ export function SearchCreateForm({
             hides every other palette footer cannot be allowed to match it
             (#842). A tablet with a keyboard keeps them. */}
         <div data-keyboard-hints="" className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          {hasList && (
+            <span>
+              <kbd className="rounded bg-paper-200 px-1">↑↓</kbd> pick
+            </span>
+          )}
+          {enterLabel && (
+            <span>
+              <kbd className="rounded bg-paper-200 px-1">↵</kbd> {enterLabel}
+            </span>
+          )}
           <span>
-            <kbd className="rounded bg-paper-200 px-1">↑↓</kbd> pick
-          </span>
-          <span>
-            <kbd className="rounded bg-paper-200 px-1">↵</kbd> create
+            <kbd className="rounded bg-paper-200 px-1">tab</kbd> next field
           </span>
           <span>
             <kbd className="rounded bg-paper-200 px-1">esc</kbd> back

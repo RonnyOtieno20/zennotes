@@ -22,6 +22,7 @@ async function setup() {
   const createDatabase = vi.fn(async () => undefined)
   const renameDatabase = vi.fn(async () => {})
   const refreshAssets = vi.fn(async () => {})
+  const createAndOpen = vi.fn(async () => {})
   useStore.setState({
     vault: { root: '/test', name: 'Test' },
     folders: ['Work', 'Work/Nested', 'People.base'].map((subpath) => ({
@@ -34,7 +35,8 @@ async function setup() {
     deleteFolder: remove,
     createDatabase,
     renameDatabase,
-    refreshAssets
+    refreshAssets,
+    createAndOpen
   })
   const host = { isCurrent: () => true }
   const answer = (value: string | null) => {
@@ -58,6 +60,7 @@ async function setup() {
     createDatabase,
     renameDatabase,
     refreshAssets,
+    createAndOpen,
     host,
     answer,
     confirm
@@ -222,6 +225,29 @@ describe('public Browse actions', () => {
     s.answer(null)
     expect(await next).toBe('cancelled')
   })
+  // zennotesandroid#108: the phones could only create a note at the top and
+  // move it, so Browse offers New note in the folder it is showing.
+  it('creates a note in the Browse directory and opens it on its title, without a prompt', async () => {
+    const s = await setup()
+    expect(await s.requestCreateBrowseNote(s.host, 'Work/Nested')).toBe('completed')
+    expect(s.createAndOpen).toHaveBeenCalledWith('inbox', 'Work/Nested', { focusTitle: true })
+    expect(await s.requestCreateBrowseNote(s.host)).toBe('completed')
+    expect(s.createAndOpen).toHaveBeenLastCalledWith('inbox', '', { focusTitle: true })
+    expect(s.getPromptRequest()).toBeNull()
+  })
+
+  it('creates no note in a missing folder, a database, or while a dialog is open', async () => {
+    const s = await setup()
+    for (const directory of ['Missing', 'People.base', 'People.base/pages'])
+      expect(await s.requestCreateBrowseNote(s.host, directory)).toBe('unavailable')
+    expect(await s.requestCreateBrowseNote({ isCurrent: () => false }, 'Work')).toBe('unavailable')
+    const prompt = s.promptApp({ title: 'Unrelated prompt' })
+    expect(await s.requestCreateBrowseNote(s.host, 'Work')).toBe('unavailable')
+    s.answer(null)
+    await prompt
+    expect(s.createAndOpen).not.toHaveBeenCalled()
+  })
+
   it('creates an untitled database in the explicit Browse directory without a prompt', async () => {
     const s = await setup()
     expect(await s.createBrowseDatabase(s.host, 'Work')).toBe('completed')

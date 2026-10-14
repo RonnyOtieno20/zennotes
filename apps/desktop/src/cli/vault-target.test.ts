@@ -7,6 +7,7 @@ import {
   looksLikeServerUrl,
   resolveAuthToken,
   resolveDefaultTarget,
+  resolveServerToken,
   resolveTarget,
   resolveServerTarget,
   resolveVaultTarget,
@@ -20,6 +21,19 @@ let workVault: string
 
 async function writeConfig(config: Record<string, unknown>): Promise<void> {
   await fsp.writeFile(path.join(configDir, 'zennotes.config.json'), JSON.stringify(config))
+}
+
+/** credentials.toml the way `zn connect` writes it: BurntSushi/toml indents
+ *  the table's quoted URL keys. */
+async function writeCredentials(tokens: Record<string, string>): Promise<void> {
+  const lines = Object.entries(tokens).map(([url, token]) => `  "${url}" = "${token}"`)
+  await fsp.writeFile(
+    path.join(configDir, 'credentials.toml'),
+    ['# Server tokens for zn, keyed by URL. Keep this file private.', '[tokens]', ...lines, ''].join(
+      '\n'
+    ),
+    { mode: 0o600 }
+  )
 }
 
 const HOME_PROFILE = {
@@ -55,8 +69,9 @@ beforeEach(async () => {
   })
 })
 
-afterEach(() => {
+afterEach(async () => {
   vi.unstubAllEnvs()
+  await fsp.rm(path.join(configDir, 'credentials.toml'), { force: true })
 })
 
 describe('looksLikeServerUrl', () => {
@@ -290,6 +305,85 @@ describe('the default target follows the workspace the app has open (#688)', () 
     expect(await resolveDefaultTarget(process.env)).toEqual({ kind: 'local', root: workVault })
     await writeConfig({ vaultRoot: workVault, workspaceMode: 'remote', remoteWorkspace: { baseUrl: '' } })
     expect(await resolveDefaultTarget(process.env)).toEqual({ kind: 'local', root: workVault })
+  })
+})
+
+describe('the token `zn connect` saved reaches the server the app has open (#830)', () => {
+  const remoteApp = () =>
+    writeConfig({
+      vaultRoot: workVault,
+      workspaceMode: 'remote',
+      remoteWorkspace: { baseUrl: 'http://192.168.1.10:7878' },
+      remoteWorkspaceProfileId: 'p1',
+      remoteWorkspaceProfiles: [{ ...HOME_PROFILE, authToken: undefined }]
+    })
+
+  it('follows the app with the saved token when nothing else supplies one', async () => {
+    await remoteApp()
+    await writeCredentials({ 'http://192.168.1.10:7878': 'saved-token' })
+    expect(await resolveDefaultTarget(process.env)).toEqual({
+      kind: 'remote',
+      name: 'home',
+      baseUrl: 'http://192.168.1.10:7878',
+      authToken: 'saved-token'
+    })
+  })
+
+  it('ranks it last: --token, the environment and a legacy profile token all win', async () => {
+    await writeCredentials({ 'http://192.168.1.10:7878': 'saved-token' })
+    expect(await resolveServerToken('http://192.168.1.10:7878', 'flag', null, {})).toBe('flag')
+    expect(
+      await resolveServerToken('http://192.168.1.10:7878', undefined, null, {
+        ZENNOTES_REMOTE_TOKEN: 'env-token'
+      })
+    ).toBe('env-token')
+    expect(await resolveServerToken('http://192.168.1.10:7878', undefined, 'legacy', {})).toBe(
+      'legacy'
+    )
+    expect(await resolveServerToken('http://192.168.1.10:7878', undefined, null, {})).toBe(
+      'saved-token'
+    )
+  })
+
+  it('finds the key zn wrote for the same server however the app spells the URL', async () => {
+    // zn keys by the URL trimmed, without trailing slashes, and lowercased.
+    await writeCredentials({ 'https://notes.example.com/zen': 'saved-token' })
+    expect(await resolveServerToken('https://Notes.Example.com/Zen/', undefined, null, {})).toBe(
+      'saved-token'
+    )
+  })
+
+  it('never lends a saved token to a different server', async () => {
+    await writeCredentials({
+      'http://192.168.1.10:7878': 'home-token',
+      'https://notes.example.com': 'other-token'
+    })
+    expect(await resolveServerToken('http://192.168.1.10:7879', undefined, null, {})).toBeNull()
+    expect(await resolveServerToken('https://notes.example.com:8443', undefined, null, {})).toBeNull()
+    expect(await resolveServerToken('http://notes.example.com', undefined, null, {})).toBeNull()
+  })
+
+  it('treats a missing or broken credentials file as no token, without throwing', async () => {
+    expect(await resolveServerToken('http://192.168.1.10:7878', undefined, null, {})).toBeNull()
+    await fsp.writeFile(path.join(configDir, 'credentials.toml'), 'tokens = "not a table"\n')
+    expect(await resolveServerToken('http://192.168.1.10:7878', undefined, null, {})).toBeNull()
+    await fsp.writeFile(path.join(configDir, 'credentials.toml'), '[tokens\n"http://x" = \n')
+    expect(await resolveServerToken('http://192.168.1.10:7878', undefined, null, {})).toBeNull()
+    await remoteApp()
+    expect(await resolveDefaultTarget(process.env)).toMatchObject({ authToken: null })
+  })
+
+  it('also authenticates --server and --vault when they name that server', async () => {
+    await writeConfig({
+      vaultRoot: workVault,
+      remoteWorkspaceProfiles: [{ ...HOME_PROFILE, authToken: undefined }]
+    })
+    await writeCredentials({ 'http://192.168.1.10:7878': 'saved-token' })
+    expect(await resolveServerTarget('home', undefined)).toMatchObject({ authToken: 'saved-token' })
+    expect(await resolveServerTarget('192.168.1.10:7878', undefined)).toMatchObject({
+      authToken: 'saved-token'
+    })
+    expect(await resolveVaultTarget('home', undefined)).toMatchObject({ authToken: 'saved-token' })
   })
 })
 
