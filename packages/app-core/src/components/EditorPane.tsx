@@ -142,25 +142,10 @@ import {
 import { linkRangeAtCursor, markdownLinkAt } from '../lib/internal-links'
 import { copyableLink, copyableLinkAt, linkMenuItems, type CopyableLink } from '../lib/link-copy'
 import {
-  createDefaultGrammarEditorBinding,
-  updateDefaultGrammarPersonalization,
-  supportsDefaultGrammarEditor,
-  type GrammarEditorBinding
-} from '../grammar/editor-runtime'
-import { classifyGrammarEndpoint, grammarBindingKey } from '../grammar/preferences'
-import type { GrammarDocumentSessionState } from '../grammar/document-sessions'
-import type { GrammarDiagnostic } from '../grammar/types'
-import {
-  applyGrammarReplacementAndNext,
-  applyGrammarReplacementToAll,
-  closeGrammarSuggestionCard,
-  getGrammarEditorState,
-  ignoreGrammarDiagnosticOnce,
-  openAdjacentGrammarSuggestionCard,
-  selectAdjacentGrammarDiagnostic,
-  setGrammarSuggestionCards,
-  selectGrammarDiagnostic
-} from '../grammar/editor-extension'
+  useGrammarEditor,
+  useGrammarEditorAttachment,
+  useGrammarReviewPanel
+} from '../lib/use-grammar-editor'
 import { setBlockType, toggleWrap, wrapLink } from '../lib/cm-format'
 import { shouldShowSelectionToolbar } from '../lib/cm-selection-toolbar'
 import { editorCursorPosition } from '../lib/editor-cursor-position'
@@ -1003,30 +988,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const workspaceMode = useStore((s) => s.workspaceMode)
   const wordWrap = useStore((s) => s.wordWrap)
   const cursorBlink = useStore((s) => s.cursorBlink)
-  const grammarEnabled = useStore((s) => s.grammarEnabled)
-  const grammarPreferences = useStore((s) => s.grammarPreferences)
-  const setGrammarEnabled = useStore((s) => s.setGrammarEnabled)
-  const setGrammarPreferences = useStore((s) => s.setGrammarPreferences)
-  const grammarSupported = supportsDefaultGrammarEditor()
-  // Read the lists at call time: depending on them would rebuild the grammar
-  // binding, and check the note again, every time one of them grows.
-  const ignoreGrammarRule = useCallback(
-    (ruleId: string): void => {
-      setGrammarPreferences({
-        ignoredRules: [...useStore.getState().grammarPreferences.ignoredRules, ruleId]
-      })
-    },
-    [setGrammarPreferences]
-  )
-  const addGrammarDictionaryEntry = useCallback(
-    (entry: string): void => {
-      setGrammarPreferences({
-        customDictionary: [...useStore.getState().grammarPreferences.customDictionary, entry]
-      })
-    },
-    [setGrammarPreferences]
-  )
-  const grammarBinding = grammarBindingKey(grammarPreferences)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
   const vaultSettings = useStore((s) => s.vaultSettings)
@@ -1103,9 +1064,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     },
     [revealSidePanel, setCalendarPanelRaw]
   )
-  const [grammarReviewOpen, setGrammarReviewOpen] = useState(false)
-  const [grammarSessionState, setGrammarSessionState] =
-    useState<GrammarDocumentSessionState | null>(null)
   const [activeOutlineLine, setActiveOutlineLine] = useState<number | null>(null)
   const calendarOpen = calendarPanel.open
   // The calendar panel is a date navigator. It auto-opens while the pane shows
@@ -1186,13 +1144,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const scrolloffCompartmentRef = useRef<Compartment | null>(null)
   const drawSelectionCompartmentRef = useRef<Compartment | null>(null)
   const tabSizeCompartmentRef = useRef<Compartment | null>(null)
-  const grammarCompartmentRef = useRef<Compartment | null>(null)
-  const grammarBindingRef = useRef<GrammarEditorBinding | null>(null)
+  const grammarAttachment = useGrammarEditorAttachment()
   // Bumped whenever the CodeMirror view is created or destroyed. viewRef alone
   // does not re-run effects, and a deferred hydration mounts the view in a
   // later commit than the one that first ran the grammar binding effect.
   const [editorViewGeneration, setEditorViewGeneration] = useState(0)
-  const grammarSessionUnsubscribeRef = useRef<(() => void) | null>(null)
   // history() lives in a compartment so we can reset undo history on a note
   // switch — otherwise Cmd+Z crosses notes and overwrites the current one (#247).
   // The outgoing note's history is set aside first and handed back when that
@@ -1314,6 +1270,16 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const panelShortcutsApply =
     isActive && activeTab != null && !isWorkspaceVirtualTabPath(activeTab)
 
+  const grammarReview = useGrammarReviewPanel({
+    viewRef,
+    isActive,
+    panelShortcutsApply,
+    tuckedSidePanelsRef,
+    revealSidePanel,
+    focusedPanel,
+    setFocusedPanel
+  })
+
   // ⌘2 toggles the connections panel — only the active pane responds so
   // the shortcut targets the pane the user is currently working in.
   useEffect(() => {
@@ -1339,26 +1305,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (tuckedSidePanelsRef.current.includes('outline')) return revealSidePanel('outline')
     setOutlineOpen((open) => !open)
   }, [revealSidePanel, setOutlineOpen])
-
-  const toggleGrammarReviewPanel = useCallback(() => {
-    if (tuckedSidePanelsRef.current.includes('grammar')) {
-      revealSidePanel('grammar')
-      setFocusedPanel('grammar')
-      return
-    }
-    setGrammarReviewOpen((open) => {
-      const next = !open
-      const view = viewRef.current
-      if (view) setGrammarSuggestionCards(view, !next)
-      if (next) {
-        setFocusedPanel('grammar')
-      } else if (focusedPanel === 'grammar') {
-        setFocusedPanel('editor')
-        requestAnimationFrame(() => viewRef.current?.focus())
-      }
-      return next
-    })
-  }, [focusedPanel, revealSidePanel, setFocusedPanel])
 
   const toggleCommentsPanel = useCallback(() => {
     if (tuckedSidePanelsRef.current.includes('comments')) return revealSidePanel('comments')
@@ -1468,51 +1414,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   useEffect(() => {
     if (!panelShortcutsApply) return
     const handler = (): void => {
-      toggleGrammarReviewPanel()
-    }
-    window.addEventListener('zen:toggle-grammar-review', handler)
-    return () => window.removeEventListener('zen:toggle-grammar-review', handler)
-  }, [panelShortcutsApply, toggleGrammarReviewPanel])
-
-  useEffect(() => {
-    if (!isActive) return
-    const next = (): void => {
-      const view = viewRef.current
-      if (!view) return
-      if (grammarReviewOpen) {
-        if (!selectAdjacentGrammarDiagnostic(view, 1)) return
-        if (tuckedSidePanelsRef.current.includes('grammar')) revealSidePanel('grammar')
-        setFocusedPanel('grammar')
-        return
-      }
-      if (!openAdjacentGrammarSuggestionCard(view, 1)) return
-      setFocusedPanel('editor')
-      view.focus()
-    }
-    const previous = (): void => {
-      const view = viewRef.current
-      if (!view) return
-      if (grammarReviewOpen) {
-        if (!selectAdjacentGrammarDiagnostic(view, -1)) return
-        if (tuckedSidePanelsRef.current.includes('grammar')) revealSidePanel('grammar')
-        setFocusedPanel('grammar')
-        return
-      }
-      if (!openAdjacentGrammarSuggestionCard(view, -1)) return
-      setFocusedPanel('editor')
-      view.focus()
-    }
-    window.addEventListener('zen:next-grammar-issue', next)
-    window.addEventListener('zen:previous-grammar-issue', previous)
-    return () => {
-      window.removeEventListener('zen:next-grammar-issue', next)
-      window.removeEventListener('zen:previous-grammar-issue', previous)
-    }
-  }, [grammarReviewOpen, isActive, revealSidePanel, setFocusedPanel])
-
-  useEffect(() => {
-    if (!panelShortcutsApply) return
-    const handler = (): void => {
       toggleCommentsPanel()
     }
     window.addEventListener('zen:toggle-comments', handler)
@@ -1539,7 +1440,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setOutlineOpen(false)
       setCommentsOpen(false)
       setCalendarPanel(CALENDAR_PANEL_CLOSED)
-      setGrammarReviewOpen(false)
+      grammarReview.setOpen(false)
       setConnectionPreview(null)
       const panel = useStore.getState().focusedPanel
       if (
@@ -2068,10 +1969,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         }
         richMarkdownDeferredRef.current = false
         setSelectionCommentAction(null)
-        grammarSessionUnsubscribeRef.current?.()
-        grammarSessionUnsubscribeRef.current = null
-        grammarBindingRef.current?.release()
-        grammarBindingRef.current = null
+        grammarAttachment.detach()
         const existingView = viewRef.current
         rememberCurrentTabScroll()
         // The editor is torn down whenever the pane shows something that is
@@ -2092,7 +1990,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         }
         existingView?.destroy()
         viewRef.current = null
-        grammarCompartmentRef.current = null
         if (existingView) setEditorViewGeneration((generation) => generation + 1)
         return
       }
@@ -2109,7 +2006,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const drawSelectionCompartment = new Compartment()
       const tabSizeCompartment = new Compartment()
       const historyCompartment = new Compartment()
-      const grammarCompartment = new Compartment()
       vimCompartmentRef.current = vimCompartment
       harperCompartmentRef.current = harperCompartment
       editorKeymapCompartmentRef.current = editorKeymapCompartment
@@ -2122,7 +2018,6 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       drawSelectionCompartmentRef.current = drawSelectionCompartment
       tabSizeCompartmentRef.current = tabSizeCompartment
       historyCompartmentRef.current = historyCompartment
-      grammarCompartmentRef.current = grammarCompartment
       const s0 = useStore.getState()
       const initialPath = findLeaf(s0.paneLayout, paneId)?.activeTab ?? null
       const initialContent = initialPath ? s0.noteContents[initialPath] ?? null : null
@@ -2194,7 +2089,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
           harperCompartment.of(
             s0.harperEnabled && harperSupported() ? harperExtensions(harperEditorConfig()) : []
           ),
-          grammarCompartment.of([]),
+          grammarAttachment.compartment.of([]),
           tooltips({ parent: document.body }),
           autocompletion({
             // Don't install @codemirror/autocomplete's stock keymap — it binds
@@ -2707,183 +2602,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     }
   }, [content?.body, content?.path, livePreview, pendingJumpLocation?.path])
 
-  // The visible categories, ignored rules and dictionary filter the results
-  // every open note already has, so changing one never checks a note again.
-  useLayoutEffect(() => {
-    updateDefaultGrammarPersonalization(grammarPreferences)
-  }, [
-    grammarPreferences.customDictionary,
-    grammarPreferences.enabledCategories,
-    grammarPreferences.ignoredRules
-  ])
-
-  // Grammar sessions are keyed by vault + note and shared across split panes;
-  // the compartment keeps decorations, cards, and transactions pane-local.
-  // Keyed on `grammarBinding`, not the whole preferences, for the same reason.
-  useLayoutEffect(() => {
-    const view = viewRef.current
-    const compartment = grammarCompartmentRef.current
-    grammarSessionUnsubscribeRef.current?.()
-    grammarSessionUnsubscribeRef.current = null
-    grammarBindingRef.current?.release()
-    grammarBindingRef.current = null
-    setGrammarSessionState(null)
-    if (!view || !compartment) return
-
-    if (
-      !grammarEnabled ||
-      !grammarSupported ||
-      !content?.path ||
-      !vault?.root
-    ) {
-      view.dispatch({ effects: compartment.reconfigure([]) })
-      return
-    }
-
-    const binding = createDefaultGrammarEditorBinding(
-      {
-        vaultId: vault.root,
-        notePath: content.path,
-      },
-      useStore.getState().grammarPreferences,
-      {
-        ignoreRule: ignoreGrammarRule,
-        addToDictionary: addGrammarDictionaryEntry,
-      },
-    )
-    grammarBindingRef.current = binding
-    const unsubscribe = binding.session.subscribe(setGrammarSessionState)
-    grammarSessionUnsubscribeRef.current = unsubscribe
-    view.dispatch({ effects: compartment.reconfigure(binding.extension) })
-
-    return () => {
-      if (grammarBindingRef.current !== binding) return
-      if (grammarSessionUnsubscribeRef.current === unsubscribe) {
-        grammarSessionUnsubscribeRef.current = null
-        unsubscribe()
-      }
-      grammarBindingRef.current = null
-      binding.release()
-    }
-  }, [
-    addGrammarDictionaryEntry,
-    content?.path,
-    editorViewGeneration,
-    grammarBinding,
-    grammarEnabled,
-    grammarSupported,
-    ignoreGrammarRule,
-    vault?.root,
-  ])
-
-  // The review panel and the floating suggestion card are alternate workflows.
-  // Keep cards disabled while the panel owns navigation, including after a note
-  // change recreates the grammar extension compartment or a deferred view
-  // mounts. Declared after the binding effect so it runs once that is installed.
-  useLayoutEffect(() => {
-    const view = viewRef.current
-    if (view) setGrammarSuggestionCards(view, !grammarReviewOpen)
-  }, [content?.path, editorViewGeneration, grammarEnabled, grammarReviewOpen, grammarSupported])
-
-  const grammarLogSnapshotRef = useRef('')
-  useEffect(() => {
-    if (!grammarPreferences.diagnosticLogging || !grammarSessionState) return
-    const snapshotKey = JSON.stringify([
-      grammarSessionState.status,
-      grammarSessionState.generation,
-      grammarSessionState.diagnostics.length,
-      grammarSessionState.error ?? null,
-    ])
-    if (grammarLogSnapshotRef.current === snapshotKey) return
-    grammarLogSnapshotRef.current = snapshotKey
-    console.info('[zen:grammar]', {
-      status: grammarSessionState.status,
-      generation: grammarSessionState.generation,
-      issueCount: grammarSessionState.diagnostics.length,
-      categories: grammarSessionState.diagnostics.reduce<
-        Record<string, number>
-      >((counts, diagnostic) => {
-        counts[diagnostic.category] = (counts[diagnostic.category] ?? 0) + 1
-        return counts
-      }, {}),
-      hasError: Boolean(grammarSessionState.error)
-    })
-  }, [grammarPreferences.diagnosticLogging, grammarSessionState])
-
-  const revealGrammarDiagnostic = useCallback((diagnosticId: string): void => {
-    const view = viewRef.current
-    if (!view || !selectGrammarDiagnostic(view, diagnosticId)) return
-    const diagnostic = getGrammarEditorState(view.state)?.diagnostics.find(
-      (item) => item.id === diagnosticId
-    )
-    if (!diagnostic) return
-    view.dispatch({
-      selection: { anchor: diagnostic.range.from },
-      effects: EditorView.scrollIntoView(diagnostic.range.from, {
-        y: 'center'
-      })
-    })
-  }, [])
-
-  const applyGrammarReviewReplacement = useCallback(
-    (diagnosticId: string, replacementIndex: number): void => {
-      const view = viewRef.current
-      if (!view) return
-      const result = applyGrammarReplacementAndNext(
-        view,
-        diagnosticId,
-        replacementIndex
-      )
-      if (!result.applied) return
-      closeGrammarSuggestionCard(view)
-      if (result.nextDiagnosticId)
-        revealGrammarDiagnostic(result.nextDiagnosticId)
-      setFocusedPanel('grammar')
-    },
-    [revealGrammarDiagnostic, setFocusedPanel]
-  )
-
-  const applyGrammarReviewReplacementToAll = useCallback(
-    (diagnosticId: string, replacementIndex: number): void => {
-      const view = viewRef.current
-      if (!view || applyGrammarReplacementToAll(view, diagnosticId, replacementIndex) === 0) return
-      closeGrammarSuggestionCard(view)
-      setFocusedPanel('grammar')
-    },
-    [setFocusedPanel]
-  )
-
-  const ignoreGrammarReviewDiagnostic = useCallback(
-    (diagnosticId: string): void => {
-      const view = viewRef.current
-      if (!view || !ignoreGrammarDiagnosticOnce(view, diagnosticId)) return
-      closeGrammarSuggestionCard(view)
-      const nextId = getGrammarEditorState(view.state)?.selectedDiagnosticId
-      if (nextId) revealGrammarDiagnostic(nextId)
-      setFocusedPanel('grammar')
-    },
-    [revealGrammarDiagnostic, setFocusedPanel]
-  )
-
-  const personalizeGrammarDiagnostic = useCallback(
-    (diagnostic: GrammarDiagnostic, action: 'rule' | 'dictionary'): void => {
-      ignoreGrammarReviewDiagnostic(diagnostic.id)
-      if (action === 'rule') ignoreGrammarRule(diagnostic.ruleId)
-      else addGrammarDictionaryEntry(diagnostic.original)
-    },
-    [
-      addGrammarDictionaryEntry,
-      ignoreGrammarReviewDiagnostic,
-      ignoreGrammarRule,
-    ]
-  )
-
-  const recheckGrammarReview = useCallback((): void => {
-    const binding = grammarBindingRef.current
-    const view = viewRef.current
-    if (!binding || !view) return
-    void binding.checkNow(view.state).catch(() => undefined)
-  }, [])
+  const grammar = useGrammarEditor({
+    attachment: grammarAttachment,
+    viewRef,
+    viewGeneration: editorViewGeneration,
+    notePath: content?.path ?? null,
+    vaultRoot: vault?.root ?? null,
+    reviewOpen: grammarReview.open,
+    setFocusedPanel
+  })
 
   useEffect(() => {
     if (!content) return
@@ -4067,7 +3794,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!content || zenMode) return open
     if (connectionsOpen && isActive) open.push('connections')
     if (commentsOpen) open.push('comments')
-    if (grammarReviewOpen) open.push('grammar')
+    if (grammarReview.open) open.push('grammar')
     if (outlineOpen) open.push('outline')
     if (calendarOpen && calendarAvailable) open.push('calendar')
     return open
@@ -4077,7 +3804,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     commentsOpen,
     connectionsOpen,
     content,
-    grammarReviewOpen,
+    grammarReview.open,
     isActive,
     outlineOpen,
     zenMode
@@ -4130,15 +3857,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <div className="mx-2 h-4 w-px bg-paper-300" />
             <IconBtn
               title={
-                grammarSupported
-                  ? grammarEnabled
+                grammar.supported
+                  ? grammar.enabled
                     ? 'Disable grammar checking'
                     : 'Enable grammar checking (local LanguageTool)'
                   : 'Grammar checking is unavailable in this runtime'
               }
-              active={grammarEnabled}
-              disabled={!grammarSupported}
-              onClick={() => setGrammarEnabled(!grammarEnabled)}
+              active={grammar.enabled}
+              disabled={!grammar.supported}
+              onClick={() => grammar.setEnabled(!grammar.enabled)}
             >
               <CheckSquareIcon />
             </IconBtn>
@@ -4155,15 +3882,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             </IconBtn>
             <IconBtn
               title={
-                grammarSupported
-                  ? grammarReviewOpen && !tucked.includes('grammar')
+                grammar.supported
+                  ? grammarReview.open && !tucked.includes('grammar')
                     ? 'Hide grammar review'
-                    : `Show grammar review${grammarSessionState?.diagnostics.length ? ` (${grammarSessionState.diagnostics.length})` : ''} (${getKeymapDisplay(tabNavOverrides, 'global.toggleGrammarReview')})`
+                    : `Show grammar review${grammar.sessionState?.diagnostics.length ? ` (${grammar.sessionState.diagnostics.length})` : ''} (${getKeymapDisplay(tabNavOverrides, 'global.toggleGrammarReview')})`
                   : 'Grammar review is unavailable in this runtime'
               }
-              active={grammarReviewOpen}
-              disabled={!grammarSupported}
-              onClick={toggleGrammarReviewPanel}
+              active={grammarReview.open}
+              disabled={!grammar.supported}
+              onClick={grammarReview.toggle}
             >
               <ListIcon />
             </IconBtn>
@@ -4231,15 +3958,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     content,
     mode,
     applyPaneMode,
-    grammarSupported,
-    grammarEnabled,
-    setGrammarEnabled,
+    grammar.supported,
+    grammar.enabled,
+    grammar.setEnabled,
     connectionsOpen,
     toggleConnectionsPanel,
-    grammarReviewOpen,
-    grammarSessionState?.diagnostics.length,
+    grammarReview.open,
+    grammar.sessionState?.diagnostics.length,
     tabNavOverrides,
-    toggleGrammarReviewPanel,
+    grammarReview.toggle,
     commentsOpen,
     openCommentCount,
     toggleCommentsPanel,
@@ -4881,26 +4608,18 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         {content && sidePanelShown('grammar') && (
           <GrammarReviewPanel
             fitWidth={sidePanelFit.widths.grammar}
-            enabled={grammarEnabled}
-            supported={grammarSupported}
-            state={grammarSessionState}
-            providerLabel={
-              classifyGrammarEndpoint(grammarPreferences.endpoint).scope === 'remote'
-                ? 'Remote — note text is sent to this service'
-                : classifyGrammarEndpoint(grammarPreferences.endpoint).label
-            }
-            onEnable={() => setGrammarEnabled(true)}
-            onSelect={revealGrammarDiagnostic}
-            onApply={applyGrammarReviewReplacement}
-            onApplyAll={applyGrammarReviewReplacementToAll}
-            onIgnore={ignoreGrammarReviewDiagnostic}
-            onIgnoreRule={(diagnostic) =>
-              personalizeGrammarDiagnostic(diagnostic, 'rule')
-            }
-            onAddToDictionary={(diagnostic) =>
-              personalizeGrammarDiagnostic(diagnostic, 'dictionary')
-            }
-            onRecheck={recheckGrammarReview}
+            enabled={grammar.enabled}
+            supported={grammar.supported}
+            state={grammar.sessionState}
+            providerLabel={grammar.providerLabel}
+            onEnable={() => grammar.setEnabled(true)}
+            onSelect={grammar.revealDiagnostic}
+            onApply={grammar.applyReplacement}
+            onApplyAll={grammar.applyReplacementToAll}
+            onIgnore={grammar.ignoreDiagnostic}
+            onIgnoreRule={grammar.ignoreRule}
+            onAddToDictionary={grammar.addToDictionary}
+            onRecheck={grammar.recheck}
           />
         )}
         {content && sidePanelShown('outline') && (
