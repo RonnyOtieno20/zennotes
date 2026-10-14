@@ -1,3 +1,4 @@
+import { hashText } from './hash'
 import { isValidProseSegment } from './provider'
 import type { GrammarProvider } from './provider'
 import type { GrammarDiagnostic, ProseSegment } from './types'
@@ -59,15 +60,6 @@ interface PendingTimer {
 const DEFAULT_DEBOUNCE_MS = 750
 const DEFAULT_MAX_SEGMENTS_PER_BATCH = 20
 const DEFAULT_MAX_CHARACTERS_PER_BATCH = 12_000
-
-function hashText(value: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0')
-}
 
 function contentFingerprint(segment: ProseSegment): string {
   return segment.fingerprint ?? hashText(segment.text)

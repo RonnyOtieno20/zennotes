@@ -219,6 +219,48 @@ describe('GrammarDocumentSessionRegistry', () => {
     }
   })
 
+  it('keeps an ignored issue through an unrelated edit elsewhere in the note', async () => {
+    vi.useFakeTimers()
+    try {
+      const first = segment('first', 'Bad sentence.', 0)
+      const second = segment('second', 'Other.', 14)
+      const grammarProvider = provider(async ({ segments, generation }) =>
+        segments.map((item) => diagnostic(item, generation))
+      )
+      const registry = new GrammarDocumentSessionRegistry(grammarProvider, {
+        debounceMs: 0
+      })
+      const { session } = registry.acquire(NOTE)
+      await advanceCheck(
+        session.schedule({
+          text: 'Bad sentence. Other.',
+          segments: [first, second],
+          language: 'en-US'
+        })
+      )
+      expect(session.getState().diagnostics.map((item) => item.id)).toEqual([
+        'diagnostic:first',
+        'diagnostic:second'
+      ])
+      expect(session.ignoreOnce('diagnostic:first')).toBe(true)
+
+      const edited = segment('second', 'Other!', 14)
+      await advanceCheck(
+        session.schedule({
+          text: 'Bad sentence. Other!',
+          segments: [first, edited],
+          language: 'en-US'
+        })
+      )
+      expect(session.getState()).toMatchObject({
+        ignoredDiagnosticIds: ['diagnostic:first'],
+        diagnostics: [{ id: 'diagnostic:second' }]
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('passes disabled checks through without making a provider request', async () => {
     const grammarProvider = provider(async () => [])
     const registry = new GrammarDocumentSessionRegistry(grammarProvider)

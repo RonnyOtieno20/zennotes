@@ -6,7 +6,12 @@ import { EditorView } from '@codemirror/view'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GrammarDocumentSessionRegistry } from './document-sessions'
 import { applyGrammarReplacement, getGrammarEditorState } from './editor-extension'
-import { createGrammarEditorBinding, type GrammarEditorBindingOptions } from './editor-runtime'
+import {
+  createDefaultGrammarEditorBinding,
+  createGrammarEditorBinding,
+  type GrammarEditorBindingOptions
+} from './editor-runtime'
+import { DEFAULT_GRAMMAR_PREFERENCES } from './preferences'
 import type { GrammarProvider } from './provider'
 import type { GrammarDiagnostic } from './types'
 
@@ -223,6 +228,32 @@ describe('grammar editor runtime', () => {
     expect(getGrammarEditorState(right.view.state)?.diagnostics).toEqual([])
   })
 
+  it('keeps an ignored issue between two edits made in one transaction', async () => {
+    vi.useFakeTimers()
+    const grammarProvider = providerWithBadDiagnostic()
+    const registry = new GrammarDocumentSessionRegistry(grammarProvider, {
+      debounceMs: 10
+    })
+    const { view, binding } = mount(registry, 'note.md', 'Teh bad teh.')
+    await flushCheck(10)
+    const issue = getGrammarEditorState(view.state)?.diagnostics[0]
+    expect(issue).toBeDefined()
+    expect(binding.session.ignoreOnce(issue!.id)).toBe(true)
+
+    // Apply to all fixes every occurrence in a single transaction.
+    view.dispatch({
+      changes: [
+        { from: 0, to: 3, insert: 'The' },
+        { from: 8, to: 11, insert: 'the' }
+      ]
+    })
+    await flushCheck(10)
+
+    expect(view.state.doc.toString()).toBe('The bad the.')
+    expect(grammarProvider.check).toHaveBeenCalledTimes(2)
+    expect(getGrammarEditorState(view.state)?.diagnostics).toEqual([])
+  })
+
   it('rejects a correction after any unscheduled full-document drift', async () => {
     vi.useFakeTimers()
     const grammarProvider = providerWithBadDiagnostic()
@@ -316,5 +347,28 @@ describe('grammar editor runtime', () => {
 
     resolvers[1]?.([])
     await Promise.resolve()
+  })
+
+  it('keeps a held default binding usable after a personalization change rebuilds the registry', async () => {
+    Object.assign(window, {
+      zen: { getCapabilities: () => ({ supportsGrammarProviderTransport: true }) }
+    })
+    try {
+      const key = { vaultId: '/vault', notePath: 'note.md' }
+      const held = createDefaultGrammarEditorBinding(key, DEFAULT_GRAMMAR_PREFERENCES)
+      const rebuilt = createDefaultGrammarEditorBinding(key, {
+        ...DEFAULT_GRAMMAR_PREFERENCES,
+        customDictionary: ['Zen']
+      })
+
+      await expect(
+        held.session.schedule({ text: 'text', segments: [], language: 'en-US', enabled: false })
+      ).resolves.toMatchObject({ accepted: false, reason: 'disabled' })
+
+      held.release()
+      rebuilt.release()
+    } finally {
+      delete (window as { zen?: unknown }).zen
+    }
   })
 })

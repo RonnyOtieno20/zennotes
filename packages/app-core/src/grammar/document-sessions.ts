@@ -5,6 +5,7 @@ import {
   type GrammarCoordinatorOptions,
   type GrammarCoordinatorState
 } from './coordinator'
+import { hashText } from './hash'
 import type { GrammarProvider } from './provider'
 import type { GrammarDiagnostic, ProseSegment, SourceRange } from './types'
 
@@ -93,15 +94,6 @@ export interface GrammarDocumentSessionLease {
   readonly session: GrammarDocumentSession
   /** Idempotently release this view's reference. */
   release(): void
-}
-
-function hashText(value: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
 /** Stable and collision-free serialization of a vault/note identity tuple. */
@@ -222,10 +214,64 @@ export function validateGrammarApply(
   }
 }
 
+/** A dismissed issue, identified by its rule, matched text, and position in the note. */
+interface IgnoredIssue {
+  diagnosticId: string
+  ruleId: string
+  original: string
+  range: SourceRange
+}
+
+function isSameIssue(issue: IgnoredIssue, diagnostic: GrammarDiagnostic): boolean {
+  return (
+    issue.ruleId === diagnostic.ruleId &&
+    issue.original === diagnostic.original &&
+    issue.range.from === diagnostic.range.from &&
+    issue.range.to === diagnostic.range.to
+  )
+}
+
+/**
+ * Moves dismissed issues across one text edit when the exact edits are not known. The edit is
+ * treated as a single replaced region between the common prefix and suffix: issues left of it
+ * keep their position, issues right of it shift by the length change, and issues touching it are
+ * dropped. An issue whose matched text no longer reads the same afterwards is dropped too. The
+ * editor maps through its real changes first (`mapIgnoredThroughEdit`), so this only covers what
+ * reached the session some other way.
+ */
+function mapIgnoredIssues(
+  issues: readonly IgnoredIssue[],
+  previousText: string,
+  nextText: string
+): readonly IgnoredIssue[] {
+  const shortest = Math.min(previousText.length, nextText.length)
+  let prefix = 0
+  while (prefix < shortest && previousText[prefix] === nextText[prefix]) prefix += 1
+  let suffix = 0
+  while (
+    suffix < shortest - prefix &&
+    previousText[previousText.length - 1 - suffix] === nextText[nextText.length - 1 - suffix]
+  ) {
+    suffix += 1
+  }
+  const shift = nextText.length - previousText.length
+  const changedEnd = previousText.length - suffix
+  return issues.flatMap((issue) => {
+    const { from, to } = issue.range
+    if (to > prefix && from < changedEnd) return []
+    const offset = to > prefix ? shift : 0
+    const range = { from: from + offset, to: to + offset }
+    if (nextText.slice(range.from, range.to) !== issue.original) return []
+    return [{ ...issue, range }]
+  })
+}
+
 /** One shared grammar request and review state for a single vault note. */
 export class GrammarDocumentSession {
   private readonly listeners = new Set<(state: GrammarDocumentSessionState) => void>()
-  private readonly ignored = new Set<string>()
+  private ignored: readonly IgnoredIssue[] = []
+  /** The text the ignored ranges point into. Ahead of `documentText` between an edit and its check. */
+  private ignoredText = ''
   private documentText = ''
   private coordinatorState: GrammarCoordinatorState
   private allDiagnostics: readonly GrammarDiagnostic[] = []
@@ -278,14 +324,50 @@ export class GrammarDocumentSession {
   }
 
   ignoreOnce(diagnosticId: string): boolean {
-    if (!this.visibleDiagnostics().some((diagnostic) => diagnostic.id === diagnosticId)) {
-      return false
-    }
+    const issue = this.visibleDiagnostics().find((diagnostic) => diagnostic.id === diagnosticId)
+    if (!issue) return false
     const nextId = nextDiagnosticId(this.visibleDiagnostics(), diagnosticId)
-    this.ignored.add(diagnosticId)
+    const ignored: IgnoredIssue = {
+      diagnosticId,
+      ruleId: issue.ruleId,
+      original: issue.original,
+      range: { ...issue.range }
+    }
+    // The diagnostic's range is in the checked text; the other ignored issues may already have
+    // moved on to a newer edit.
+    this.ignored = [
+      ...this.ignored,
+      ...(this.ignoredText === this.documentText
+        ? [ignored]
+        : mapIgnoredIssues([ignored], this.documentText, this.ignoredText))
+    ]
     if (this.selectedDiagnosticId === diagnosticId) this.selectedDiagnosticId = nextId
     this.publish()
     return true
+  }
+
+  hasIgnoredIssues(): boolean {
+    return this.ignored.length > 0
+  }
+
+  /**
+   * Moves dismissed issues through one editor change whose edits are known exactly, so an issue
+   * between two separate edits (Apply to all fixes every occurrence at once) keeps its place.
+   * `mapRange` returns null for a range the change touched. Does nothing when `previousText` is
+   * not the text the issues point into (another pane on the same note already mapped it).
+   */
+  mapIgnoredThroughEdit(
+    previousText: string,
+    nextText: string,
+    mapRange: (range: SourceRange) => SourceRange | null
+  ): void {
+    if (this.disposed || this.ignored.length === 0 || previousText !== this.ignoredText) return
+    this.ignored = this.ignored.flatMap((issue) => {
+      const range = mapRange(issue.range)
+      if (!range || nextText.slice(range.from, range.to) !== issue.original) return []
+      return [{ ...issue, range }]
+    })
+    this.ignoredText = nextText
   }
 
   selectDiagnostic(diagnosticId: string | null): boolean {
@@ -329,7 +411,7 @@ export class GrammarDocumentSession {
     this.inFlight = null
     this.coordinator.dispose()
     this.listeners.clear()
-    this.ignored.clear()
+    this.ignored = []
   }
 
   private check(
@@ -344,11 +426,14 @@ export class GrammarDocumentSession {
       })
     }
 
+    if (input.text !== this.ignoredText) {
+      this.ignored = mapIgnoredIssues(this.ignored, this.ignoredText, input.text)
+      this.ignoredText = input.text
+    }
     if (input.text !== this.documentText || this.generation === 0) {
       this.documentText = input.text
       this.documentFingerprint = fingerprintGrammarDocument(input.text)
       this.generation += 1
-      this.ignored.clear()
       this.selectedDiagnosticId = null
     }
     this.segments = input.segments
@@ -399,7 +484,9 @@ export class GrammarDocumentSession {
   }
 
   private visibleDiagnostics(): readonly GrammarDiagnostic[] {
-    return this.allDiagnostics.filter((diagnostic) => !this.ignored.has(diagnostic.id))
+    return this.allDiagnostics.filter(
+      (diagnostic) => !this.ignored.some((issue) => isSameIssue(issue, diagnostic))
+    )
   }
 
   private buildState(): GrammarDocumentSessionState {
@@ -412,7 +499,7 @@ export class GrammarDocumentSession {
       status: this.coordinatorState.status,
       diagnostics: visible,
       selectedDiagnosticId: this.selectedDiagnosticId,
-      ignoredDiagnosticIds: [...this.ignored],
+      ignoredDiagnosticIds: this.ignored.map((issue) => issue.diagnosticId),
       segments: segmentStates(this.segments),
       ...(this.coordinatorState.error ? { error: this.coordinatorState.error } : {})
     }

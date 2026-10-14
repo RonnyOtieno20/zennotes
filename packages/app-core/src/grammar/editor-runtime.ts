@@ -142,6 +142,17 @@ function grammarCheckExtension(
 
       update(update: ViewUpdate): void {
         if (!update.docChanged) return
+        if (session.hasIgnoredIssues()) {
+          const { changes } = update
+          session.mapIgnoredThroughEdit(
+            update.startState.doc.toString(),
+            update.state.doc.toString(),
+            (range) =>
+              changes.touchesRange(range.from, range.to)
+                ? null
+                : { from: changes.mapPos(range.from, 1), to: changes.mapPos(range.to, -1) }
+          )
+        }
         this.cancelParseRetry()
         this.parseRetryCount = 0
         this.queue()
@@ -285,6 +296,7 @@ export function supportsDefaultGrammarEditor(): boolean {
 
 function getDefaultRegistry(preferences: GrammarPreferences): GrammarDocumentSessionRegistry {
   const registryKey = JSON.stringify([
+    preferences.provider,
     preferences.endpoint,
     preferences.debounceMs,
     preferences.enabledCategories,
@@ -292,7 +304,9 @@ function getDefaultRegistry(preferences: GrammarPreferences): GrammarDocumentSes
     preferences.customDictionary
   ])
   if (!defaultRegistry || defaultRegistryKey !== registryKey) {
-    defaultRegistry?.dispose()
+    // Do not dispose the superseded registry here: bindings still holding its
+    // sessions release them in their own cleanup, and disposing would silently
+    // stop checks for any binding that has not yet been torn down.
     defaultRegistry = new GrammarDocumentSessionRegistry(
       new LanguageToolProvider(
         new BridgeLanguageToolTransport({
