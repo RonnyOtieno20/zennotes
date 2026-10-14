@@ -129,13 +129,14 @@ git pull --ff-only origin "$downstream_branch"
 if [[ -z "$upstream_tag" ]]; then
   upstream_tag="$(
     git ls-remote --tags --refs "$upstream_remote" 'v*' \
-      | awk -F/ '$3 ~ /^v[0-9]/ { print $3 }' \
+      | awk -F/ '{ print $3 }' \
+      | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } \
       | sort -V \
       | tail -n 1
   )"
 fi
 [[ -n "$upstream_tag" ]] || {
-  printf 'grammar update: could not discover an upstream release tag\n' >&2
+  printf 'grammar update: no upstream release tag matching vX.Y.Z found\n' >&2
   exit 1
 }
 
