@@ -1524,9 +1524,15 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       setOutlineOpen(false)
       setCommentsOpen(false)
       setCalendarPanel(CALENDAR_PANEL_CLOSED)
+      setGrammarReviewOpen(false)
       setConnectionPreview(null)
       const panel = useStore.getState().focusedPanel
-      if (panel === 'connections' || panel === 'comments' || panel === 'hoverpreview') {
+      if (
+        panel === 'connections' ||
+        panel === 'comments' ||
+        panel === 'grammar' ||
+        panel === 'hoverpreview'
+      ) {
         setFocusedPanel('editor')
       }
     }
@@ -4047,10 +4053,14 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   useEffect(() => {
     setSidePanelRecency((recency) => syncSidePanelRecency(recency, openSidePanels))
   }, [openSidePanels])
+  // The grammar review panel is not in the fit (it is never tucked), but it
+  // takes its width from the same row, so the other panels fit what is left.
+  // A row of 0 means "not measured yet", so it is not reduced.
+  const grammarPanelWidth = content && grammarReviewOpen && !zenMode ? sidePanelWidths.grammar : 0
   const sidePanelFit = useMemo(
     () =>
       fitSidePanels(
-        paneRowWidth,
+        paneRowWidth > 0 ? Math.max(paneRowWidth - grammarPanelWidth, 1) : paneRowWidth,
         mode === 'split' ? MIN_SPLIT_NOTE_WIDTH : MIN_NOTE_WIDTH,
         // Synced here as well as in the effect above, so the render in which
         // a panel opens already treats it as the most recent one.
@@ -4060,7 +4070,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         })),
         MIN_RIGHT_PANEL_WIDTH
       ),
-    [mode, openSidePanels, paneRowWidth, sidePanelRecency, sidePanelWidths]
+    [grammarPanelWidth, mode, openSidePanels, paneRowWidth, sidePanelRecency, sidePanelWidths]
   )
   tuckedSidePanelsRef.current = sidePanelFit.tucked
   const sidePanelShown = (id: SidePanelId): boolean =>
