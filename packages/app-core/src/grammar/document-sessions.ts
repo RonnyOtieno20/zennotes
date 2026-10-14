@@ -7,7 +7,7 @@ import {
 } from './coordinator'
 import { hashText } from './hash'
 import type { GrammarProvider } from './provider'
-import type { GrammarDiagnostic, ProseSegment, SourceRange } from './types'
+import type { GrammarCategory, GrammarDiagnostic, ProseSegment, SourceRange } from './types'
 
 export interface GrammarDocumentKey {
   /** Stable identity for the open vault, normally its root or persisted vault id. */
@@ -222,6 +222,47 @@ interface IgnoredIssue {
   range: SourceRange
 }
 
+/**
+ * The user's own filters. They are applied to results already fetched, so changing them (Add
+ * word, Ignore rule, a category switch) shows or hides issues at once instead of checking every
+ * open note again.
+ */
+export interface GrammarPersonalization {
+  /** Categories to show; every category when omitted. */
+  visibleCategories?: readonly GrammarCategory[]
+  ignoredRules?: readonly string[]
+  customDictionary?: readonly string[]
+}
+
+interface PersonalizationFilter {
+  key: string
+  categories: ReadonlySet<GrammarCategory> | null
+  rules: ReadonlySet<string>
+  dictionary: ReadonlySet<string>
+}
+
+function personalizationFilter(personalization: GrammarPersonalization): PersonalizationFilter {
+  const categories = personalization.visibleCategories ?? null
+  const rules = personalization.ignoredRules ?? []
+  const dictionary = (personalization.customDictionary ?? []).map((entry) =>
+    entry.trim().toLocaleLowerCase()
+  )
+  return {
+    key: JSON.stringify([categories, rules, dictionary]),
+    categories: categories ? new Set(categories) : null,
+    rules: new Set(rules),
+    dictionary: new Set(dictionary)
+  }
+}
+
+const NO_PERSONALIZATION = personalizationFilter({})
+
+function keepsDiagnostic(filter: PersonalizationFilter, diagnostic: GrammarDiagnostic): boolean {
+  if (filter.categories && !filter.categories.has(diagnostic.category)) return false
+  if (filter.rules.has(diagnostic.ruleId)) return false
+  return !filter.dictionary.has(diagnostic.original.trim().toLocaleLowerCase())
+}
+
 function isSameIssue(issue: IgnoredIssue, diagnostic: GrammarDiagnostic): boolean {
   return (
     issue.ruleId === diagnostic.ruleId &&
@@ -285,7 +326,8 @@ export class GrammarDocumentSession {
 
   constructor(
     readonly documentKey: GrammarDocumentKey,
-    private readonly coordinator: GrammarCheckCoordinator
+    private readonly coordinator: GrammarCheckCoordinator,
+    private personalization: PersonalizationFilter = NO_PERSONALIZATION
   ) {
     this.documentKey = copyKey(documentKey)
     this.coordinatorState = coordinator.getState()
@@ -294,14 +336,26 @@ export class GrammarDocumentSession {
       if (this.disposed) return
       this.coordinatorState = coordinatorState
       this.allDiagnostics = coordinatorState.diagnostics
-      if (
-        this.selectedDiagnosticId !== null &&
-        !this.visibleDiagnostics().some((diagnostic) => diagnostic.id === this.selectedDiagnosticId)
-      ) {
-        this.selectedDiagnosticId = null
-      }
+      this.dropHiddenSelection()
       this.publish()
     })
+  }
+
+  /** @internal Set through the registry, which shares one filter across its sessions. */
+  setPersonalization(personalization: PersonalizationFilter): void {
+    if (this.disposed || personalization.key === this.personalization.key) return
+    this.personalization = personalization
+    this.dropHiddenSelection()
+    this.publish()
+  }
+
+  private dropHiddenSelection(): void {
+    if (
+      this.selectedDiagnosticId !== null &&
+      !this.visibleDiagnostics().some((diagnostic) => diagnostic.id === this.selectedDiagnosticId)
+    ) {
+      this.selectedDiagnosticId = null
+    }
   }
 
   getState(): GrammarDocumentSessionState {
@@ -485,7 +539,9 @@ export class GrammarDocumentSession {
 
   private visibleDiagnostics(): readonly GrammarDiagnostic[] {
     return this.allDiagnostics.filter(
-      (diagnostic) => !this.ignored.some((issue) => isSameIssue(issue, diagnostic))
+      (diagnostic) =>
+        keepsDiagnostic(this.personalization, diagnostic) &&
+        !this.ignored.some((issue) => isSameIssue(issue, diagnostic))
     )
   }
 
@@ -514,11 +570,20 @@ export class GrammarDocumentSession {
 /** Reference-counted owner for document sessions shared by split editor panes. */
 export class GrammarDocumentSessionRegistry {
   private readonly entries = new Map<string, RegistryEntry>()
+  private personalization = NO_PERSONALIZATION
 
   constructor(
     private readonly provider: GrammarProvider,
     private readonly coordinatorOptions: GrammarCoordinatorOptions = {}
   ) {}
+
+  /** Re-filters every open note's existing results; nothing is checked again. */
+  setPersonalization(personalization: GrammarPersonalization): void {
+    const filter = personalizationFilter(personalization)
+    if (filter.key === this.personalization.key) return
+    this.personalization = filter
+    for (const entry of this.entries.values()) entry.session.setPersonalization(filter)
+  }
 
   acquire(documentKey: GrammarDocumentKey): GrammarDocumentSessionLease {
     const documentId = createGrammarDocumentId(documentKey)
@@ -527,7 +592,8 @@ export class GrammarDocumentSessionRegistry {
       entry = {
         session: new GrammarDocumentSession(
           documentKey,
-          new GrammarCheckCoordinator(this.provider, this.coordinatorOptions)
+          new GrammarCheckCoordinator(this.provider, this.coordinatorOptions),
+          this.personalization
         ),
         references: new Set()
       }

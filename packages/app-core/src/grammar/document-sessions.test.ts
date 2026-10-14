@@ -219,6 +219,50 @@ describe('GrammarDocumentSessionRegistry', () => {
     }
   })
 
+  it('applies an ignored rule or dictionary word to every open note without checking again', async () => {
+    vi.useFakeTimers()
+    try {
+      const prose = segment('paragraph', 'Bad sentence.')
+      const grammarProvider = provider(async ({ segments, generation }) =>
+        segments.map((item) => diagnostic(item, generation))
+      )
+      const registry = new GrammarDocumentSessionRegistry(grammarProvider, {
+        debounceMs: 0
+      })
+      const first = registry.acquire(NOTE).session
+      const second = registry.acquire({ ...NOTE, notePath: 'other.md' }).session
+      for (const session of [first, second]) {
+        await advanceCheck(
+          session.schedule({ text: prose.text, segments: [prose], language: 'en-US' })
+        )
+      }
+      expect(grammarProvider.check).toHaveBeenCalledTimes(2)
+      expect(first.selectDiagnostic('diagnostic:paragraph')).toBe(true)
+
+      registry.setPersonalization({ ignoredRules: ['TEST_RULE'] })
+      expect(first.getState()).toMatchObject({ diagnostics: [], selectedDiagnosticId: null })
+      expect(second.getState().diagnostics).toEqual([])
+
+      registry.setPersonalization({ customDictionary: ['  bad SENTENCE. '] })
+      expect(first.getState().diagnostics).toEqual([])
+
+      registry.setPersonalization({ visibleCategories: ['grammar'] })
+      expect(first.getState().diagnostics).toHaveLength(1)
+      expect(second.getState().diagnostics).toHaveLength(1)
+
+      // A note opened later starts with the same filter.
+      registry.setPersonalization({ ignoredRules: ['TEST_RULE'] })
+      const third = registry.acquire({ ...NOTE, notePath: 'third.md' }).session
+      await advanceCheck(
+        third.schedule({ text: prose.text, segments: [prose], language: 'en-US' })
+      )
+      expect(third.getState().diagnostics).toEqual([])
+      expect(grammarProvider.check).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('keeps an ignored issue through an unrelated edit elsewhere in the note', async () => {
     vi.useFakeTimers()
     try {

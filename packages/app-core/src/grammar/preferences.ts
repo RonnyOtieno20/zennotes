@@ -175,12 +175,15 @@ export function normalizeGrammarPreferences(
 }
 
 export function grammarProviderConfigKey(preferences: GrammarPreferences): string {
-  return JSON.stringify([
-    preferences.provider,
-    preferences.endpoint,
-    preferences.language,
-    preferences.enabledCategories,
-    preferences.ignoredRules,
-    preferences.customDictionary
-  ])
+  return JSON.stringify([preferences.provider, preferences.endpoint, preferences.language])
+}
+
+/**
+ * Everything an editor's grammar binding is built from. The visible categories, ignored rules and
+ * dictionary are left out: they filter results in place (see `updateDefaultGrammarPersonalization`)
+ * and must not rebuild the binding, which would check the note again.
+ */
+export function grammarBindingKey(preferences: GrammarPreferences): string {
+  const { enabledCategories, ignoredRules, customDictionary, ...binding } = preferences
+  return JSON.stringify(binding)
 }

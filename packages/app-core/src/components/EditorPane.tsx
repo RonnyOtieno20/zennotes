@@ -143,10 +143,11 @@ import { linkRangeAtCursor, markdownLinkAt } from '../lib/internal-links'
 import { copyableLink, copyableLinkAt, linkMenuItems, type CopyableLink } from '../lib/link-copy'
 import {
   createDefaultGrammarEditorBinding,
+  updateDefaultGrammarPersonalization,
   supportsDefaultGrammarEditor,
   type GrammarEditorBinding
 } from '../grammar/editor-runtime'
-import { classifyGrammarEndpoint } from '../grammar/preferences'
+import { classifyGrammarEndpoint, grammarBindingKey } from '../grammar/preferences'
 import type { GrammarDocumentSessionState } from '../grammar/document-sessions'
 import type { GrammarDiagnostic } from '../grammar/types'
 import {
@@ -1007,22 +1008,25 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   const setGrammarEnabled = useStore((s) => s.setGrammarEnabled)
   const setGrammarPreferences = useStore((s) => s.setGrammarPreferences)
   const grammarSupported = supportsDefaultGrammarEditor()
+  // Read the lists at call time: depending on them would rebuild the grammar
+  // binding, and check the note again, every time one of them grows.
   const ignoreGrammarRule = useCallback(
     (ruleId: string): void => {
       setGrammarPreferences({
-        ignoredRules: [...grammarPreferences.ignoredRules, ruleId]
+        ignoredRules: [...useStore.getState().grammarPreferences.ignoredRules, ruleId]
       })
     },
-    [grammarPreferences.ignoredRules, setGrammarPreferences]
+    [setGrammarPreferences]
   )
   const addGrammarDictionaryEntry = useCallback(
     (entry: string): void => {
       setGrammarPreferences({
-        customDictionary: [...grammarPreferences.customDictionary, entry]
+        customDictionary: [...useStore.getState().grammarPreferences.customDictionary, entry]
       })
     },
-    [grammarPreferences.customDictionary, setGrammarPreferences]
+    [setGrammarPreferences]
   )
+  const grammarBinding = grammarBindingKey(grammarPreferences)
   const systemFolderLabels = useStore((s) => s.systemFolderLabels)
   const folderLabels = resolveSystemFolderLabels(systemFolderLabels)
   const vaultSettings = useStore((s) => s.vaultSettings)
@@ -2703,8 +2707,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     }
   }, [content?.body, content?.path, livePreview, pendingJumpLocation?.path])
 
+  // The visible categories, ignored rules and dictionary filter the results
+  // every open note already has, so changing one never checks a note again.
+  useLayoutEffect(() => {
+    updateDefaultGrammarPersonalization(grammarPreferences)
+  }, [
+    grammarPreferences.customDictionary,
+    grammarPreferences.enabledCategories,
+    grammarPreferences.ignoredRules
+  ])
+
   // Grammar sessions are keyed by vault + note and shared across split panes;
   // the compartment keeps decorations, cards, and transactions pane-local.
+  // Keyed on `grammarBinding`, not the whole preferences, for the same reason.
   useLayoutEffect(() => {
     const view = viewRef.current
     const compartment = grammarCompartmentRef.current
@@ -2730,7 +2745,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         vaultId: vault.root,
         notePath: content.path,
       },
-      grammarPreferences,
+      useStore.getState().grammarPreferences,
       {
         ignoreRule: ignoreGrammarRule,
         addToDictionary: addGrammarDictionaryEntry,
@@ -2754,8 +2769,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     addGrammarDictionaryEntry,
     content?.path,
     editorViewGeneration,
+    grammarBinding,
     grammarEnabled,
-    grammarPreferences,
     grammarSupported,
     ignoreGrammarRule,
     vault?.root,

@@ -3,6 +3,7 @@ import {
   canIgnoreGrammarRule,
   DEFAULT_GRAMMAR_PREFERENCES,
   classifyGrammarEndpoint,
+  grammarBindingKey,
   grammarProviderConfigKey,
   normalizeGrammarPreferences
 } from './preferences'
@@ -63,5 +64,18 @@ describe('grammar preferences', () => {
     expect(grammarProviderConfigKey({ ...base, language: 'en-GB' })).not.toBe(
       grammarProviderConfigKey(base)
     )
+  })
+
+  it('keeps the personal filters out of the keys that trigger a new check', () => {
+    const base = DEFAULT_GRAMMAR_PREFERENCES
+    const personalized = {
+      ...base,
+      enabledCategories: ['spelling' as const],
+      ignoredRules: ['RULE_1'],
+      customDictionary: ['ZenNotes']
+    }
+    expect(grammarProviderConfigKey(personalized)).toBe(grammarProviderConfigKey(base))
+    expect(grammarBindingKey(personalized)).toBe(grammarBindingKey(base))
+    expect(grammarBindingKey({ ...base, checkTables: false })).not.toBe(grammarBindingKey(base))
   })
 })
