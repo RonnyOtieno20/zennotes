@@ -127,8 +127,10 @@ export function GrammarReviewPanel({
       setCursorIndex(next)
       return
     }
-    // Only a cursor move (j/k, a click, a clamp) selects its row in the editor.
-    if (previous?.cursorIndex === cursorIndex) return
+    // Only a cursor move (j/k, a click, a clamp) selects its row in the editor. A list that no
+    // longer shows the selection (a filter) counts too, even when the index stays the same, or
+    // the row under the cursor and the issue selected in the note would differ.
+    if (previous?.cursorIndex === cursorIndex && !listChanged) return
     const diagnostic = filtered[cursorIndex]
     if (diagnostic && diagnostic.id !== selectedDiagnosticId) onSelect(diagnostic.id)
   }, [cursorIndex, filtered, isFocused, onSelect, selectedDiagnosticId, setCursorIndex])

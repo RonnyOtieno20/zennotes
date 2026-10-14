@@ -151,4 +151,16 @@ describe('GrammarReviewPanel selection sync', () => {
     expect(onSelect.mock.calls).toEqual([['style']])
     expect(storeMock.state.grammarCursorIndex).toBe(2)
   })
+
+  it('selects the row under the cursor when a filter hides the selected issue', () => {
+    const { onSelect } = renderPanel('spell')
+
+    const grammarFilter = [...document.querySelectorAll('button')].find((button) =>
+      button.textContent?.startsWith('Grammar')
+    )!
+    act(() => grammarFilter.click())
+
+    expect(onSelect.mock.calls).toEqual([['grammar']])
+    expect(storeMock.state.grammarCursorIndex).toBe(0)
+  })
 })
