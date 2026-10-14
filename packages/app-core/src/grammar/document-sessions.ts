@@ -232,10 +232,12 @@ function isSameIssue(issue: IgnoredIssue, diagnostic: GrammarDiagnostic): boolea
 }
 
 /**
- * Moves dismissed issues across one text edit. The edit is treated as a single replaced region
- * between the common prefix and suffix: issues left of it keep their position, issues right of it
- * shift by the length change, and issues touching it are dropped. An issue whose matched text no
- * longer reads the same afterwards is dropped too.
+ * Moves dismissed issues across one text edit when the exact edits are not known. The edit is
+ * treated as a single replaced region between the common prefix and suffix: issues left of it
+ * keep their position, issues right of it shift by the length change, and issues touching it are
+ * dropped. An issue whose matched text no longer reads the same afterwards is dropped too. The
+ * editor maps through its real changes first (`mapIgnoredThroughEdit`), so this only covers what
+ * reached the session some other way.
  */
 function mapIgnoredIssues(
   issues: readonly IgnoredIssue[],
@@ -268,6 +270,8 @@ function mapIgnoredIssues(
 export class GrammarDocumentSession {
   private readonly listeners = new Set<(state: GrammarDocumentSessionState) => void>()
   private ignored: readonly IgnoredIssue[] = []
+  /** The text the ignored ranges point into. Ahead of `documentText` between an edit and its check. */
+  private ignoredText = ''
   private documentText = ''
   private coordinatorState: GrammarCoordinatorState
   private allDiagnostics: readonly GrammarDiagnostic[] = []
@@ -323,18 +327,47 @@ export class GrammarDocumentSession {
     const issue = this.visibleDiagnostics().find((diagnostic) => diagnostic.id === diagnosticId)
     if (!issue) return false
     const nextId = nextDiagnosticId(this.visibleDiagnostics(), diagnosticId)
+    const ignored: IgnoredIssue = {
+      diagnosticId,
+      ruleId: issue.ruleId,
+      original: issue.original,
+      range: { ...issue.range }
+    }
+    // The diagnostic's range is in the checked text; the other ignored issues may already have
+    // moved on to a newer edit.
     this.ignored = [
       ...this.ignored,
-      {
-        diagnosticId,
-        ruleId: issue.ruleId,
-        original: issue.original,
-        range: { ...issue.range }
-      }
+      ...(this.ignoredText === this.documentText
+        ? [ignored]
+        : mapIgnoredIssues([ignored], this.documentText, this.ignoredText))
     ]
     if (this.selectedDiagnosticId === diagnosticId) this.selectedDiagnosticId = nextId
     this.publish()
     return true
+  }
+
+  hasIgnoredIssues(): boolean {
+    return this.ignored.length > 0
+  }
+
+  /**
+   * Moves dismissed issues through one editor change whose edits are known exactly, so an issue
+   * between two separate edits (Apply to all fixes every occurrence at once) keeps its place.
+   * `mapRange` returns null for a range the change touched. Does nothing when `previousText` is
+   * not the text the issues point into (another pane on the same note already mapped it).
+   */
+  mapIgnoredThroughEdit(
+    previousText: string,
+    nextText: string,
+    mapRange: (range: SourceRange) => SourceRange | null
+  ): void {
+    if (this.disposed || this.ignored.length === 0 || previousText !== this.ignoredText) return
+    this.ignored = this.ignored.flatMap((issue) => {
+      const range = mapRange(issue.range)
+      if (!range || nextText.slice(range.from, range.to) !== issue.original) return []
+      return [{ ...issue, range }]
+    })
+    this.ignoredText = nextText
   }
 
   selectDiagnostic(diagnosticId: string | null): boolean {
@@ -393,8 +426,11 @@ export class GrammarDocumentSession {
       })
     }
 
+    if (input.text !== this.ignoredText) {
+      this.ignored = mapIgnoredIssues(this.ignored, this.ignoredText, input.text)
+      this.ignoredText = input.text
+    }
     if (input.text !== this.documentText || this.generation === 0) {
-      this.ignored = mapIgnoredIssues(this.ignored, this.documentText, input.text)
       this.documentText = input.text
       this.documentFingerprint = fingerprintGrammarDocument(input.text)
       this.generation += 1

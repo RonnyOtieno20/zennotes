@@ -142,6 +142,17 @@ function grammarCheckExtension(
 
       update(update: ViewUpdate): void {
         if (!update.docChanged) return
+        if (session.hasIgnoredIssues()) {
+          const { changes } = update
+          session.mapIgnoredThroughEdit(
+            update.startState.doc.toString(),
+            update.state.doc.toString(),
+            (range) =>
+              changes.touchesRange(range.from, range.to)
+                ? null
+                : { from: changes.mapPos(range.from, 1), to: changes.mapPos(range.to, -1) }
+          )
+        }
         this.cancelParseRetry()
         this.parseRetryCount = 0
         this.queue()

@@ -228,6 +228,32 @@ describe('grammar editor runtime', () => {
     expect(getGrammarEditorState(right.view.state)?.diagnostics).toEqual([])
   })
 
+  it('keeps an ignored issue between two edits made in one transaction', async () => {
+    vi.useFakeTimers()
+    const grammarProvider = providerWithBadDiagnostic()
+    const registry = new GrammarDocumentSessionRegistry(grammarProvider, {
+      debounceMs: 10
+    })
+    const { view, binding } = mount(registry, 'note.md', 'Teh bad teh.')
+    await flushCheck(10)
+    const issue = getGrammarEditorState(view.state)?.diagnostics[0]
+    expect(issue).toBeDefined()
+    expect(binding.session.ignoreOnce(issue!.id)).toBe(true)
+
+    // Apply to all fixes every occurrence in a single transaction.
+    view.dispatch({
+      changes: [
+        { from: 0, to: 3, insert: 'The' },
+        { from: 8, to: 11, insert: 'the' }
+      ]
+    })
+    await flushCheck(10)
+
+    expect(view.state.doc.toString()).toBe('The bad the.')
+    expect(grammarProvider.check).toHaveBeenCalledTimes(2)
+    expect(getGrammarEditorState(view.state)?.diagnostics).toEqual([])
+  })
+
   it('rejects a correction after any unscheduled full-document drift', async () => {
     vi.useFakeTimers()
     const grammarProvider = providerWithBadDiagnostic()
