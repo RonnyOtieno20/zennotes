@@ -4105,7 +4105,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               <CheckSquareIcon />
             </IconBtn>
             <IconBtn
-              title={connectionsOpen ? 'Hide connections' : 'Show connections'}
+              title={
+                connectionsOpen && !tucked.includes('connections')
+                  ? 'Hide connections'
+                  : 'Show connections'
+              }
               active={connectionsOpen}
               onClick={toggleConnectionsPanel}
             >
@@ -4127,7 +4131,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             </IconBtn>
             <IconBtn
               title={
-                commentsOpen
+                commentsOpen && !tucked.includes('comments')
                   ? 'Hide comments'
                   : `Show comments${openCommentCount > 0 ? ` (${openCommentCount})` : ''}`
               }
@@ -4860,7 +4864,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             onRecheck={recheckGrammarReview}
           />
         )}
-        {content && outlineOpen && !zenMode && (
+        {content && sidePanelShown('outline') && (
           <OutlinePanel
             note={content}
             fitWidth={sidePanelFit.widths.outline}
