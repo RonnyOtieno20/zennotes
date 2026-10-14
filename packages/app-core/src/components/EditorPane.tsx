@@ -4129,9 +4129,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               title={
                 grammarSupported
                   ? grammarReviewOpen
-                    ? "Hide grammar review"
-                    : `Show grammar review${grammarSessionState?.diagnostics.length ? ` (${grammarSessionState.diagnostics.length})` : ""} (${getKeymapDisplay(tabNavOverrides, 'global.toggleGrammarReview')})`
-                  : "Grammar review is unavailable in this runtime"
+                    ? 'Hide grammar review'
+                    : `Show grammar review${grammarSessionState?.diagnostics.length ? ` (${grammarSessionState.diagnostics.length})` : ''} (${getKeymapDisplay(tabNavOverrides, 'global.toggleGrammarReview')})`
+                  : 'Grammar review is unavailable in this runtime'
               }
               active={grammarReviewOpen}
               disabled={!grammarSupported}
