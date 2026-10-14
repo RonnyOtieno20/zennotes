@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildOpenNoteDeepLink,
+  cloudSignInUsesLoopback,
   parseCloudAuthDeepLink,
   parseOpenNoteDeepLink,
-  parseQuickCaptureDeepLink
+  parseQuickCaptureDeepLink,
+  registersDeepLinkSchemeAtLaunch
 } from './deep-links'
 
 describe('parseOpenNoteDeepLink', () => {
@@ -102,5 +104,35 @@ describe('parseCloudAuthDeepLink', () => {
     expect(parseCloudAuthDeepLink('zennotes://auth?code=abc%2Fdef&state=state')).toBeNull()
     expect(parseCloudAuthDeepLink('zennotes://open?code=abc&state=state')).toBeNull()
     expect(parseCloudAuthDeepLink('https://zennotes.org/auth?code=abc&state=state')).toBeNull()
+  })
+})
+
+describe('registersDeepLinkSchemeAtLaunch', () => {
+  it('registers on Windows, where no installer writes the scheme (#509)', () => {
+    expect(registersDeepLinkSchemeAtLaunch('win32')).toBe(true)
+  })
+
+  it('keeps registering on macOS', () => {
+    expect(registersDeepLinkSchemeAtLaunch('darwin')).toBe(true)
+  })
+
+  it('leaves Linux to the package desktop file and the user choice', () => {
+    expect(registersDeepLinkSchemeAtLaunch('linux')).toBe(false)
+  })
+})
+
+describe('cloudSignInUsesLoopback', () => {
+  it('returns Windows and Linux sign-ins through the loopback page (#509)', () => {
+    expect(cloudSignInUsesLoopback(true, 'win32')).toBe(true)
+    expect(cloudSignInUsesLoopback(true, 'linux')).toBe(true)
+  })
+
+  it('keeps the zennotes:// link for packaged macOS', () => {
+    expect(cloudSignInUsesLoopback(true, 'darwin')).toBe(false)
+  })
+
+  it('uses the loopback in development builds everywhere, as before', () => {
+    expect(cloudSignInUsesLoopback(false, 'darwin')).toBe(true)
+    expect(cloudSignInUsesLoopback(false, 'win32')).toBe(true)
   })
 })

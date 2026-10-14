@@ -62,7 +62,6 @@ if (upstreamEditor.includes(panelMarker)) {
     ? panelMarker
     : legacyPanelMarker;
   const candidatePanel = blockAt(editor, candidateMarker, outlineStateMarker);
-  const grammarState = `  const [grammarReviewOpen, setGrammarReviewOpen] = useState(false)\n  const [grammarSessionState, setGrammarSessionState] =\n    useState<GrammarDocumentSessionState | null>(null)\n`;
   const requiredUpstreamImports = [
     "import { usePanePanels } from '../lib/use-pane-panels'",
     "bumpSidePanel",
@@ -78,7 +77,9 @@ if (upstreamEditor.includes(panelMarker)) {
       );
     }
   }
-  const replacement = `${upstreamPanel.text}${grammarState}`;
+  // The Grammar Edition keeps no state in this block (it lives in
+  // lib/use-grammar-editor.ts), so upstream's version is taken as is.
+  const replacement = upstreamPanel.text;
   editor = `${editor.slice(0, candidatePanel.start)}${replacement}${editor.slice(candidatePanel.end)}`;
   reconciledPanelState = true;
 }

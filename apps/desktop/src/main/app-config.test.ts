@@ -197,7 +197,7 @@ describe('TOML serialization', () => {
     )
     expect(text).toContain('[vim]')
     expect(text).toContain(
-      'wrapped_line_motions = "display"  # display | logical — how $, I, A and dependent operators treat soft-wrapped lines'
+      'wrapped_line_motions = "display"  # display | logical: how $, I, A and dependent operators treat soft-wrapped lines'
     )
     expect(text).toContain('[view]')
     // Keymaps: every action listed as a commented, grouped default reference.

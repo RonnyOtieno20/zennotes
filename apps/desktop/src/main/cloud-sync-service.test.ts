@@ -74,6 +74,19 @@ async function setup(
         updated_at: '2026-08-10T12:00:00.000Z'
       }
     })),
+    createEncryptedVault: vi.fn(async () => {
+      throw new Error('Encrypted vaults are not part of these tests.')
+    }),
+    supersedeVault: vi.fn(async () => {}),
+    keysetApi: vi.fn(() => ({
+      getKeyset: async () => null,
+      createKeyset: async () => {
+        throw new Error('Keysets are not part of these tests.')
+      },
+      updateKeyset: async () => {
+        throw new Error('Keysets are not part of these tests.')
+      }
+    })),
     deleteVault: vi.fn(async () => {}),
     manifest: vi.fn(
       async (): Promise<CloudSyncManifestResponse> => ({

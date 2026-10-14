@@ -58,7 +58,7 @@ export async function cmdTaskToggle(vault: VaultBackend, args: ParsedArgs): Prom
   const next = await vault.toggleTask(id)
   if (next == null) {
     throw new Error(
-      `Task ${id} no longer exists at that location — the file may have changed. Run \`zn task list\` again.`
+      `Task ${id} no longer exists at that location (the file may have changed). Run \`zn task list\` again.`
     )
   }
   if (getBool(args, 'json')) {

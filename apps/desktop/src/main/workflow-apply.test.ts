@@ -657,6 +657,23 @@ describe("a note's sidecars travel with it", () => {
     expect(await pathExists(path.join(root, '.zennotes', 'note-metadata', 'archive'))).toBe(false)
   })
 
+  it('carries an assistant edit waiting for review, and undo brings it back', async () => {
+    const root = await makeVault()
+    await seedWithSidecars(root, 'inbox/demo/Note.md')
+    const record = '{"version":1,"before":"old\\n","after":"body\\n","edits":[],"outside":[]}\n'
+    const recordRel = (note: string): string => `.zennotes/agent-edits/${note}.json`
+    await mkdir(path.join(root, '.zennotes', 'agent-edits', 'inbox', 'demo'), { recursive: true })
+    await writeFile(path.join(root, recordRel('inbox/demo/Note.md')), record)
+
+    const receipt = await apply(root, [{ kind: 'archive', path: 'inbox/demo/Note.md' }])
+    expect(await readOrNull(root, recordRel('archive/demo/Note.md'))).toBe(record)
+    expect(await readOrNull(root, recordRel('inbox/demo/Note.md'))).toBeNull()
+
+    await undoWorkflowRun(root, receipt.runId)
+    expect(await readOrNull(root, recordRel('inbox/demo/Note.md'))).toBe(record)
+    expect(await pathExists(path.join(root, '.zennotes', 'agent-edits', 'archive'))).toBe(false)
+  })
+
   it('undo moves an untouched sidecar back instead of rewriting it', async () => {
     const root = await makeVault()
     await seedWithSidecars(root, 'inbox/Note.md')

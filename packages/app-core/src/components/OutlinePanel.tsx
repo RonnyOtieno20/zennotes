@@ -81,7 +81,7 @@ export function OutlinePanel({ note, activeLine, onJump, fitWidth }: Props): JSX
         </div>
         <div className="mt-2 text-xs text-ink-500">
           {items.length === 0
-            ? 'No headings yet — add `#` to build an outline.'
+            ? 'No headings yet. Add `#` to build an outline.'
             : `${items.length} heading${items.length === 1 ? '' : 's'}`}
         </div>
         {items.length > 0 && (

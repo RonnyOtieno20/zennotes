@@ -223,6 +223,12 @@ const SettingsModal = lazy(async () => {
   return { default: module.SettingsModal }
 })
 
+const WhatsNewModal = lazy(() => import('./components/WhatsNewModal'))
+
+/** How long after launch What's New waits, so it opens over a settled
+ *  window rather than racing the vault and the restored tabs. */
+const WHATS_NEW_DELAY_MS = 1200
+
 const EmptyVault = lazy(async () => {
   const module = await import('./components/EmptyVault')
   return { default: module.EmptyVault }
@@ -387,6 +393,7 @@ function App(): JSX.Element {
   const unifiedSidebar = useStore((s) => s.unifiedSidebar)
   const settingsOpen = useStore((s) => s.settingsOpen)
   const setSettingsOpen = useStore((s) => s.setSettingsOpen)
+  const whatsNewOpen = useStore((s) => s.whatsNewOpen)
   const themeId = useStore((s) => s.themeId)
   const themeFamily = useStore((s) => s.themeFamily)
   const themeMode = useStore((s) => s.themeMode)
@@ -420,6 +427,14 @@ function App(): JSX.Element {
   useEffect(() => {
     void init()
   }, [init])
+
+  // The first launch after an update shows what it brought (lib/whats-new.ts).
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void useStore.getState().showWhatsNewAfterUpdate()
+    }, WHATS_NEW_DELAY_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
 
   useEffect(() => {
     if (!vault) return undefined
@@ -1263,6 +1278,11 @@ function App(): JSX.Element {
       {settingsOpen && (
         <Suspense fallback={null}>
           <SettingsModal />
+        </Suspense>
+      )}
+      {whatsNewOpen && (
+        <Suspense fallback={null}>
+          <WhatsNewModal />
         </Suspense>
       )}
       <PromptHost />

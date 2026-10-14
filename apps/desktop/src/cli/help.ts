@@ -94,7 +94,7 @@ const SECTIONS: Array<{ heading: string; rows: CommandRow[] }> = [
       { name: 'list', description: 'List notes, most recent first', flags: '--folder <f>  --tag <t>  --limit <n>  --json' },
       { name: 'read <path>', description: 'Print a note body to stdout', flags: '--meta  --json' },
       { name: 'create', description: 'Create a new note. Body from --body or stdin', flags: '--title <t>  --folder inbox|quick|archive  --subpath <p>  --tag <t>  --body "..."|-' },
-      { name: 'write <path>', description: 'Replace a note body. Destructive — prefer append', flags: '--body "..."|-' },
+      { name: 'write <path>', description: 'Replace a note body. Destructive, so prefer append', flags: '--body "..."|-' },
       { name: 'append <path>', description: 'Append text to the end of a note', flags: '--body "..."|-' },
       { name: 'prepend <path>', description: 'Insert text at the top, after frontmatter', flags: '--body "..."|-' },
       { name: 'rename <path>', description: 'Rename a note (filename only)', flags: '--to <new title>' },

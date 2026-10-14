@@ -112,6 +112,11 @@ function rendererManualChunk(id: string): string | undefined {
     return 'vendor-editor-languages'
   }
 
+  // The merge view only serves reviewing an assistant's edits, which
+  // cm-agent-review.ts imports on demand. The rule below would pull it into
+  // vendor-editor, onto every launch; left alone it stays in that lazy chunk.
+  if (id.includes('/@codemirror/merge/')) return undefined
+
   if (
     id.includes('/@codemirror/') ||
     id.includes('/codemirror/') ||

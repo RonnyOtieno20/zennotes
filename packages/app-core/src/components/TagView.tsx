@@ -381,8 +381,8 @@ export function TagView(): JSX.Element {
                     onClick={() => setTagMatchMode(m)}
                     title={
                       m === 'all'
-                        ? 'All — notes with every selected tag (AND)'
-                        : 'Any — notes with at least one selected tag (OR)'
+                        ? 'All: notes with every selected tag (AND)'
+                        : 'Any: notes with at least one selected tag (OR)'
                     }
                     className={[
                       'px-2 py-1 text-xs transition-colors',

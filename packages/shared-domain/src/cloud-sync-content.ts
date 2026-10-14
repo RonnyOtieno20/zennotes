@@ -2,7 +2,8 @@ import type {
   CloudSyncContent,
   CloudSyncContentMetadata,
   CloudSyncContentReference,
-  CloudSyncDownloadInstruction
+  CloudSyncDownloadInstruction,
+  CloudSyncEncryptedContent
 } from '@zennotes/bridge-contract/cloud-sync'
 
 /** Host-only token. Its native handle is never serialized or accepted from HTTP. */
@@ -10,6 +11,13 @@ export interface CloudSyncStagedFile {
   readonly source: 'file'
   readonly reference: Readonly<CloudSyncContentReference>
   readonly preview?: Readonly<CloudSyncContent>
+}
+
+/** Decrypts an encrypted vault's stored bytes; a CloudVaultCipher is one. */
+export interface CloudContentDecryptor {
+  decryptStream(source: AsyncIterable<Uint8Array> | Iterable<Uint8Array>): AsyncGenerator<Uint8Array>
+  /** For native loops: checks a file's first 74 bytes and returns what decrypting it needs. */
+  openContentHeader(header: Uint8Array): Promise<{ header: Uint8Array; objectKey: Uint8Array; aad: Uint8Array }>
 }
 
 export interface CloudSyncDownloadSource {
@@ -20,6 +28,12 @@ export interface CloudSyncDownloadSource {
   /** Optional UTF-8 preview; never bridge more than this many bytes. */
   previewLimitBytes: number
   allowInsecureLoopback?: boolean
+  /**
+   * Present exactly when the reference is `encrypted`: the host checks the
+   * downloaded ciphertext against `reference.encrypted`, decrypts it with this,
+   * then checks the plaintext against the reference as for any download.
+   */
+  decryptor?: CloudContentDecryptor
 }
 
 export interface CloudSyncStagedConflict {
@@ -51,7 +65,7 @@ export function validateCloudSyncContentReference(
   const ref = record(value)
   if (
     !ref ||
-    !onlyKeys(ref, [...metadataKeys, 'item_id', 'revision']) ||
+    !onlyKeys(ref, [...metadataKeys, 'item_id', 'revision', 'encrypted']) ||
     typeof ref.item_id !== 'string' ||
     !ref.item_id ||
     !Number.isSafeInteger(ref.revision) ||
@@ -59,6 +73,7 @@ export function validateCloudSyncContentReference(
   )
     invalid()
   const metadata = validatedMetadata(ref)
+  const encrypted = ref.encrypted === undefined ? undefined : validatedEncrypted(ref.encrypted)
   if (
     expected &&
     (ref.item_id !== expected.item_id ||
@@ -66,7 +81,31 @@ export function validateCloudSyncContentReference(
       !sameMetadata(metadata, expected))
   )
     invalid()
-  return { item_id: ref.item_id as string, revision: ref.revision as number, ...metadata }
+  return {
+    item_id: ref.item_id as string,
+    revision: ref.revision as number,
+    ...metadata,
+    ...(encrypted ? { encrypted } : {})
+  }
+}
+
+/**
+ * An encrypted vault's reference describes the plaintext for the coordinator
+ * and, in `encrypted`, the stored ciphertext the download returns. The
+ * smallest ZNE1 object is 90 bytes (an empty file).
+ */
+function validatedEncrypted(value: unknown): CloudSyncEncryptedContent {
+  const encrypted = record(value)
+  if (
+    !encrypted ||
+    !onlyKeys(encrypted, ['sha256', 'byte_length']) ||
+    typeof encrypted.sha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(encrypted.sha256) ||
+    !Number.isSafeInteger(encrypted.byte_length) ||
+    (encrypted.byte_length as number) < 90
+  )
+    invalid()
+  return { sha256: encrypted.sha256 as string, byte_length: encrypted.byte_length as number }
 }
 
 export function validateCloudSyncDownloadInstruction(
@@ -86,7 +125,7 @@ export function validateCloudSyncDownloadInstruction(
     data.revision !== ref.revision ||
     !content ||
     !onlyKeys(content, metadataKeys) ||
-    !sameMetadata(validatedMetadata(content), ref) ||
+    !instructionContentMatches(content, ref) ||
     !download ||
     !onlyKeys(download, ['method', 'url', 'headers', 'expires_at']) ||
     download.method !== 'GET' ||
@@ -104,13 +143,42 @@ export function validateCloudSyncDownloadInstruction(
   return {
     item_id: ref.item_id,
     revision: ref.revision,
-    content: validatedMetadata(content),
+    content: ref.encrypted ? encryptedInstructionContent(content) : validatedMetadata(content),
     download: {
       method: 'GET',
       url: download.url as string,
       headers: { ...headers } as Record<string, string>,
       expires_at: download.expires_at as string
     }
+  }
+}
+
+/**
+ * A readable reference's download must match its metadata exactly. An
+ * encrypted reference's download is the ciphertext, so it must be `aes-gcm`
+ * and match `encrypted`; nothing else may arrive as encrypted bytes.
+ */
+function instructionContentMatches(content: Record<string, unknown>, ref: CloudSyncContentReference): boolean {
+  if (!ref.encrypted) return sameMetadata(validatedMetadata(content), ref)
+  const sealed = encryptedInstructionContent(content)
+  return sealed.sha256 === ref.encrypted.sha256 && sealed.byte_length === ref.encrypted.byte_length
+}
+
+function encryptedInstructionContent(content: Record<string, unknown>): CloudSyncContentMetadata {
+  if (
+    content.encoding !== 'aes-gcm' ||
+    typeof content.sha256 !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(content.sha256) ||
+    !Number.isSafeInteger(content.byte_length) ||
+    typeof content.media_type !== 'string' ||
+    !content.media_type
+  )
+    invalid()
+  return {
+    encoding: 'aes-gcm',
+    sha256: content.sha256 as string,
+    byte_length: content.byte_length as number,
+    media_type: content.media_type as string
   }
 }
 

@@ -3128,7 +3128,7 @@ export function Sidebar(): JSX.Element {
           </p>
           <p className="mt-1 text-xs leading-5 text-ink-600">
             This vault is in <span className="font-medium text-ink-800">Inbox</span> mode, so
-            top-level files and folders are hidden — intentional for many setups. Switch to{" "}
+            top-level files and folders are hidden, which is intentional for many setups. Switch to{" "}
             <span className="font-medium text-ink-800">Vault root</span> to show them, or dismiss
             this notice.
           </p>

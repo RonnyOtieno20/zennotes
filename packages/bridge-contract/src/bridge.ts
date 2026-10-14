@@ -18,6 +18,8 @@ import type {
   ListNotesPageResponse,
   NoteComment,
   NoteCommentInput,
+  AgentEditRecord,
+  AgentEditSummary,
   NoteContent,
   NoteFolder,
   NoteMeta,
@@ -50,6 +52,9 @@ import type {
   CloudBackupSchedule,
   CloudBackupSnapshot,
   CloudBackupSnapshotItem,
+  CloudEncryptionRecoveryPrompt,
+  CloudEncryptionSecretInput,
+  CloudEncryptionStatus,
   CloudPublishedNote,
   CloudPublishedNoteResult,
   CloudPublishNoteInput,
@@ -127,6 +132,11 @@ export interface ZenCapabilities {
    *  machine-local that is not the vault (`readNoteUndoHistory` and friends).
    *  Absent everywhere but the desktop app, which hides the setting. (#793) */
   supportsUndoFile?: boolean
+  /** The host can read and write agent edit records for a local vault
+   *  (`listAgentEdits` and friends), so assistant edits made through MCP can
+   *  be reviewed. Absent where records are not reachable yet (the web client
+   *  and the phones), which hides the review. */
+  supportsAgentEditReview?: boolean
   /** Host-mediated provider transport; false/absent on the web runtime. */
   supportsGrammarProviderTransport?: boolean
 }
@@ -165,6 +175,11 @@ export interface ZenBridge {
   resetAppZoom(): Promise<number>
   getAppUpdateState(): Promise<AppUpdateState>
   checkForAppUpdates(): Promise<AppUpdateState>
+  /** The desktop app's anonymous install/update count: one message to
+   *  zennotes.org with the event, version, OS, architecture and install kind,
+   *  no identifier. The caller checks the setting; the host refuses
+   *  development builds and test runs, and sends each event once per run. */
+  sendUsageCount?(event: 'install' | 'update'): Promise<void>
   checkForAppUpdatesWithUi(): Promise<void>
   downloadAppUpdate(): Promise<AppUpdateState>
   installAppUpdate(): Promise<void>
@@ -183,7 +198,23 @@ export interface ZenBridge {
   listCloudVaults(): Promise<CloudSyncVault[]>
   getCloudVaultLink(): Promise<CloudVaultLink | null>
   linkCloudVault(vaultId: string): Promise<CloudVaultLink>
-  createAndLinkCloudVault(name: string): Promise<CloudVaultLink>
+  createAndLinkCloudVault(name: string, options?: { encrypted?: boolean }): Promise<CloudVaultLink>
+  /** End-to-end encryption; hosts that cannot open encrypted vaults leave these out. */
+  getCloudEncryptionStatus?(): Promise<CloudEncryptionStatus>
+  prepareCloudEncryptionSetup?(passphrase: string): Promise<CloudEncryptionRecoveryPrompt>
+  finishCloudEncryptionSetup?(setupId: string): Promise<void>
+  unlockCloudEncryption?(secret: CloudEncryptionSecretInput): Promise<void>
+  changeCloudEncryptionPassphrase?(
+    current: CloudEncryptionSecretInput,
+    next: string
+  ): Promise<void>
+  prepareNewCloudRecoveryKey?(
+    current: CloudEncryptionSecretInput
+  ): Promise<CloudEncryptionRecoveryPrompt>
+  finishNewCloudRecoveryKey?(setupId: string): Promise<void>
+  lockCloudEncryption?(): Promise<void>
+  /** Moves the linked readable Cloud vault into a new end-to-end encrypted one. */
+  encryptCloudVault?(): Promise<CloudVaultLink>
   unlinkCloudVault(): Promise<void>
   deleteCloudVault(): Promise<void>
   syncCloudVault(): Promise<CloudSyncRunSummary>
@@ -327,6 +358,13 @@ export interface ZenBridge {
   readNote(relPath: string): Promise<NoteContent>
   readNoteComments(relPath: string): Promise<NoteComment[]>
   writeNoteComments(relPath: string, comments: NoteCommentInput[]): Promise<NoteComment[]>
+  /** Notes with assistant edits to review, newest first. Only on hosts with
+   *  `supportsAgentEditReview`. */
+  listAgentEdits?(): Promise<AgentEditSummary[]>
+  /** A note's agent edit record, or null when there is none. */
+  readAgentEdit?(relPath: string): Promise<AgentEditRecord | null>
+  /** Save a review's progress, or delete the record with `null`. */
+  writeAgentEdit?(relPath: string, record: AgentEditRecord | null): Promise<void>
   scanTasks(): Promise<VaultTask[]>
   scanTasksForPath(relPath: string): Promise<VaultTask[]>
   /** Resolves to null when the `.csv` no longer exists (e.g. a stale tab). */

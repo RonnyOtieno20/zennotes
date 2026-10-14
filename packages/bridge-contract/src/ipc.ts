@@ -47,6 +47,9 @@ export const IPC = {
   VAULT_READ_NOTE: 'vault:read-note',
   VAULT_READ_COMMENTS: 'vault:read-comments',
   VAULT_WRITE_COMMENTS: 'vault:write-comments',
+  VAULT_LIST_AGENT_EDITS: 'vault:list-agent-edits',
+  VAULT_READ_AGENT_EDIT: 'vault:read-agent-edit',
+  VAULT_WRITE_AGENT_EDIT: 'vault:write-agent-edit',
   VAULT_WRITE_NOTE: 'vault:write-note',
   VAULT_APPEND_NOTE: 'vault:append-note',
   VAULT_CREATE_NOTE: 'vault:create-note',
@@ -108,6 +111,7 @@ export const IPC = {
   APP_ZOOM_RESET: 'app:zoom-reset',
   APP_UPDATER_GET_STATE: 'app-updater:get-state',
   APP_UPDATER_CHECK: 'app-updater:check',
+  APP_USAGE_COUNT: 'app:usage-count',
   APP_UPDATER_CHECK_WITH_UI: 'app-updater:check-with-ui',
   APP_UPDATER_DOWNLOAD: 'app-updater:download',
   APP_UPDATER_INSTALL: 'app-updater:install',
@@ -117,6 +121,15 @@ export const IPC = {
   CLOUD_ACCOUNT_LOGOUT: 'cloud-account:logout',
   CLOUD_ACCOUNT_ON_CHANGE: 'cloud-account:on-change',
   CLOUD_VAULTS_LIST: 'cloud-vaults:list',
+  CLOUD_ENCRYPTION_STATUS: 'cloud-encryption:status',
+  CLOUD_ENCRYPTION_SETUP_PREPARE: 'cloud-encryption:setup-prepare',
+  CLOUD_ENCRYPTION_SETUP_FINISH: 'cloud-encryption:setup-finish',
+  CLOUD_ENCRYPTION_UNLOCK: 'cloud-encryption:unlock',
+  CLOUD_ENCRYPTION_PASSPHRASE_CHANGE: 'cloud-encryption:passphrase-change',
+  CLOUD_ENCRYPTION_RECOVERY_PREPARE: 'cloud-encryption:recovery-prepare',
+  CLOUD_ENCRYPTION_RECOVERY_FINISH: 'cloud-encryption:recovery-finish',
+  CLOUD_ENCRYPTION_LOCK: 'cloud-encryption:lock',
+  CLOUD_VAULT_ENCRYPT: 'cloud-vault:encrypt',
   CLOUD_SERVICE_ACCOUNT_GET: 'cloud-service-account:get',
   CLOUD_PUBLISHED_NOTES_LIST: 'cloud-published-notes:list',
   CLOUD_PUBLISHED_NOTE_CREATE: 'cloud-published-note:create',
@@ -690,6 +703,42 @@ export interface NoteContent extends NoteMeta {
   body: string
 }
 
+/** One assistant edit in an agent edit record (docs/ideas/agent-edit-review.md). */
+export interface AgentEditEntry {
+  /** Epoch milliseconds. */
+  at: number
+  /** The assistant's display name, as comments carry it ("Claude Code"). */
+  agent: string
+  /** The MCP tool that made the edit. */
+  tool: string
+}
+
+/** A change someone else made between two assistant edits. */
+export interface AgentEditOutsideChange {
+  from: string
+  to: string
+}
+
+/** What a note said before an assistant changed it through MCP, kept beside
+ *  the note at `.zennotes/agent-edits/<note>.json` until the user reviews the
+ *  change. Built and read by `@shared/agent-edits`. */
+export interface AgentEditRecord {
+  version: 1
+  before: string
+  after: string | null
+  edits: AgentEditEntry[]
+  outside: AgentEditOutsideChange[]
+}
+
+/** A note with assistant edits to review, for the banner and the palette. */
+export interface AgentEditSummary {
+  notePath: string
+  agent: string
+  /** The newest edit, epoch milliseconds. */
+  at: number
+  edits: number
+}
+
 export interface NoteComment {
   id: string
   /** Path relative to the vault root for the note this comment belongs to. */
@@ -968,10 +1017,14 @@ export type VaultChangeKind = 'add' | 'change' | 'unlink'
 /** `templates` is a custom template under `.zennotes/templates/` changing on
  *  disk; the path is that file's vault-relative path, and the client re-lists
  *  templates rather than notes. */
+/** `agent-edits` is a note's agent edit record under `.zennotes/agent-edits/`
+ *  changing (an assistant edited the note through MCP, or a review moved on);
+ *  like `comments`, the path is the NOTE's vault-relative path. */
 export type VaultChangeScope =
   | 'content'
   | 'vault-settings'
   | 'comments'
+  | 'agent-edits'
   | 'database'
   | 'folder'
   | 'templates'

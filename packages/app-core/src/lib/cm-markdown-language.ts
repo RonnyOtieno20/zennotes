@@ -57,6 +57,7 @@ import {
 import { styleTags, tags as t } from '@lezer/highlight'
 import { isFrontmatterFence } from '@shared/markdown-lines'
 import { resolveCodeLanguage } from './cm-code-languages'
+import { headingIndentGuard } from './cm-heading-indent-guard'
 
 type ParseRange = { from: number; to: number }
 
@@ -253,7 +254,9 @@ export const noteLanguage = new Language(
 )
 
 /** Language support for a note editor. Replaces `markdown({...})` in every
- *  editor so they all agree on where frontmatter ends and markdown begins. */
+ *  editor so they all agree on where frontmatter ends and markdown begins.
+ *  It also carries the heading indent guard (#925), so every editor that
+ *  parses notes keeps Tab and `>>` from turning a heading into code. */
 export function noteMarkdown(): LanguageSupport {
-  return new LanguageSupport(noteLanguage, noteBody.support)
+  return new LanguageSupport(noteLanguage, [noteBody.support, headingIndentGuard()])
 }

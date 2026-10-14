@@ -1,5 +1,6 @@
 import { readNoteCreatedAt, prepareNoteCreation, removeNoteCreation, noteMetadataPath } from '../main/note-creation-metadata'
 import { noteCommentsPath, noteCommentsRoot, relocateFolderTrees, relocateNote } from '../main/note-sidecars'
+import { agentEditFolderPath, removeAgentEditRecord } from '../main/agent-edit-files'
 /**
  * Vault operations used by the MCP server. Mirrors the filesystem
  * behavior of src/main/vault.ts, but without Electron dependencies —
@@ -330,7 +331,7 @@ export async function readVaultRootFromConfig(): Promise<string | null> {
  *  in main/app-config.ts, which reaches it through Electron's `app`; this
  *  process has none. Note this is NOT `userDataDir()` above; the portable
  *  prefs live beside it, in an XDG-style location the user can sync. */
-function portableConfigDir(): string {
+export function portableConfigDir(): string {
   const explicit = process.env.ZENNOTES_CONFIG_DIR?.trim()
   if (explicit) return explicit
   const xdg = process.env.XDG_CONFIG_HOME?.trim()
@@ -597,6 +598,20 @@ function resolveSafe(root: string, rel: string): string {
     throw new Error(`Path escapes vault: ${rel}`)
   }
   return abs
+}
+
+/**
+ * Resolve a note an edit is about to write, and refuse anything outside the
+ * note folders BEFORE a byte lands. The edits used to write first and check
+ * after, so `write_note` on `.zennotes/...` created the file and only then
+ * reported an error: an assistant could plant comments, creation dates or
+ * agent edit records, the files that say what a note used to be.
+ */
+async function noteForWrite(root: string, rel: string): Promise<{ abs: string; folder: NoteFolder }> {
+  const abs = resolveSafe(root, rel)
+  const folder = await folderOf(root, abs)
+  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
+  return { abs, folder }
 }
 
 async function folderOf(root: string, abs: string): Promise<NoteFolder | null> {
@@ -889,12 +904,10 @@ export async function readNote(root: string, rel: string): Promise<NoteContent> 
 }
 
 export async function writeNote(root: string, rel: string, body: string): Promise<NoteMeta> {
-  const abs = resolveSafe(root, rel)
+  const { abs, folder } = await noteForWrite(root, rel)
   await fs.mkdir(path.dirname(abs), { recursive: true })
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, body, 'utf8')
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)
 }
 
@@ -980,6 +993,8 @@ export async function createNote(
   const abs = path.join(dir, `${finalTitle}.md`)
   const content = body ?? `# ${finalTitle}\n\n`
   await removeNoteCreation(root, toPosix(path.relative(root, abs)))
+  // A record left by an earlier note of this name would offer a bogus review.
+  await removeAgentEditRecord(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, content, 'utf8')
   return await readMeta(root, abs, folder)
 }
@@ -1123,6 +1138,7 @@ export async function deleteNote(root: string, rel: string): Promise<void> {
   // be taken over by the next note created under this name.
   await fs.rm(noteCommentsPath(root, notePath), { force: true })
   await removeNoteCreation(root, notePath)
+  await removeAgentEditRecord(root, notePath)
 }
 
 export async function emptyTrash(root: string): Promise<void> {
@@ -1133,6 +1149,7 @@ export async function emptyTrash(root: string): Promise<void> {
     const trashRel = toPosix(path.relative(root, trashDir))
     await fs.rm(resolveSafe(noteCommentsRoot(root), trashRel), { recursive: true, force: true })
     await removeNoteCreation(root, trashRel, true)
+    await removeAgentEditRecord(root, trashRel, true)
   } catch {
     /* no trash dir */
   }
@@ -1168,13 +1185,15 @@ export async function renameFolder(
   }
   const oldRel = toPosix(path.relative(root, oldAbs))
   const newRel = toPosix(path.relative(root, newAbs))
-  // The folder's comments and creation dates move as one with it, the way the
-  // desktop's renameFolderTrees does; a failure puts all three back.
+  // The folder's comments, creation dates and agent edit records move as one
+  // with it, the way the desktop's renameFolderTrees does; a failure puts all
+  // of them back.
   await relocateFolderTrees(
     [
       [oldAbs, newAbs],
       [resolveSafe(noteCommentsRoot(root), oldRel), resolveSafe(noteCommentsRoot(root), newRel)],
-      [await noteMetadataPath(root, oldRel, true), await noteMetadataPath(root, newRel, true)]
+      [await noteMetadataPath(root, oldRel, true), await noteMetadataPath(root, newRel, true)],
+      [agentEditFolderPath(root, oldRel), agentEditFolderPath(root, newRel)]
     ],
     async () => {}
   )
@@ -1194,6 +1213,7 @@ export async function deleteFolder(
   await fs.rm(abs, { recursive: true, force: true })
   await fs.rm(resolveSafe(noteCommentsRoot(root), rel), { recursive: true, force: true })
   await removeNoteCreation(root, rel, true)
+  await removeAgentEditRecord(root, rel, true)
 }
 
 /* ---------- Text search ---------------------------------------------- */
@@ -1839,12 +1859,10 @@ export function appendToBody(body: string, text: string): string {
 }
 
 export async function appendToNote(root: string, rel: string, text: string): Promise<NoteMeta> {
-  const abs = resolveSafe(root, rel)
+  const { abs, folder } = await noteForWrite(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, appendToBody(body, text), 'utf8')
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)
 }
 
@@ -1858,12 +1876,10 @@ export function prependToBody(body: string, text: string): string {
 }
 
 export async function prependToNote(root: string, rel: string, text: string): Promise<NoteMeta> {
-  const abs = resolveSafe(root, rel)
+  const { abs, folder } = await noteForWrite(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, prependToBody(body, text), 'utf8')
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)
 }
 
@@ -1901,18 +1917,12 @@ export async function replaceInNote(
   replace: string,
   occurrence: 'first' | 'all' = 'first'
 ): Promise<{ meta: NoteMeta; replacements: number }> {
-  const abs = resolveSafe(root, rel)
+  const { abs, folder } = await noteForWrite(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   const { body: next, replacements } = replaceInBody(body, find, replace, occurrence)
-  if (replacements === 0) {
-    const folder = await folderOf(root, abs)
-    if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
-    return { meta: await readMeta(root, abs, folder), replacements: 0 }
-  }
+  if (replacements === 0) return { meta: await readMeta(root, abs, folder), replacements: 0 }
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, next, 'utf8')
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return { meta: await readMeta(root, abs, folder), replacements }
 }
 
@@ -1922,12 +1932,10 @@ export async function insertAtLine(
   lineNumber: number,
   text: string
 ): Promise<NoteMeta> {
-  const abs = resolveSafe(root, rel)
+  const { abs, folder } = await noteForWrite(root, rel)
   const body = await fs.readFile(abs, 'utf8')
   await prepareNoteCreation(root, toPosix(path.relative(root, abs)))
   await fs.writeFile(abs, insertAtLineInBody(body, lineNumber, text), 'utf8')
-  const folder = await folderOf(root, abs)
-  if (!folder) throw new Error(`Note not in a known folder: ${rel}`)
   return await readMeta(root, abs, folder)
 }
 

@@ -27,6 +27,7 @@ import {
   type CloudSyncStateStore
 } from './cloud-sync-coordinator'
 import type { CloudSyncIdSource, CloudSyncState } from './cloud-sync-engine'
+import { randomUUID } from './random-uuid'
 
 type SyncClient = Pick<
   CloudSyncApiClient,
@@ -86,8 +87,8 @@ export class CloudSyncHostService {
   constructor(private readonly dependencies: CloudSyncHostServiceDependencies) {
     this.now = dependencies.now ?? (() => new Date())
     this.ids = dependencies.ids ?? {
-      itemId: () => crypto.randomUUID(),
-      operationId: () => crypto.randomUUID()
+      itemId: () => randomUUID(),
+      operationId: () => randomUUID()
     }
   }
 

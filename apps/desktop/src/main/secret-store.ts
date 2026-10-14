@@ -1,4 +1,5 @@
 import { app, safeStorage } from 'electron'
+import { randomUUID } from 'node:crypto'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
@@ -6,6 +7,7 @@ const KEYTAR_SERVICE = 'ZenNotes Remote Workspace'
 const KEYTAR_ACCOUNT_PREFIX = 'remote-workspace:'
 const CLOUD_KEYTAR_SERVICE = 'ZenNotes Cloud'
 const CLOUD_KEYTAR_ACCOUNT_PREFIX = 'cloud:'
+const CLOUD_E2EE_ACCOUNT_PREFIX = 'cloud-e2ee:'
 const FALLBACK_FILE = 'remote-workspace-secrets.json'
 
 let warnedAboutFallback = false
@@ -45,23 +47,88 @@ async function loadKeytar(): Promise<KeytarModule | null> {
   return null
 }
 
+class UnreadableSecretsFile extends Error {}
+
+/** A missing file is an empty store; a file that cannot be parsed is not. */
+async function readFallbackSecrets(): Promise<SecretMap> {
+  let raw: string
+  try {
+    raw = await fs.readFile(fallbackPath(), 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    throw error
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new UnreadableSecretsFile('The ZenNotes secrets file could not be read.')
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new UnreadableSecretsFile('The ZenNotes secrets file is not a secrets map.')
+  }
+  const out: SecretMap = {}
+  for (const [key, value] of Object.entries(parsed)) {
+    if (typeof value === 'string' && value.trim()) out[key] = value
+  }
+  return out
+}
+
+/** Reads never fail a caller: an unreadable store simply holds nothing usable. */
 async function loadFallbackSecrets(): Promise<SecretMap> {
   try {
-    const raw = await fs.readFile(fallbackPath(), 'utf8')
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    const out: SecretMap = {}
-    for (const [key, value] of Object.entries(parsed)) {
-      if (typeof value === 'string' && value.trim()) out[key] = value
-    }
-    return out
-  } catch {
+    return await readFallbackSecrets()
+  } catch (error) {
+    console.warn('[secrets] could not read the secrets file:', (error as Error).message)
     return {}
   }
 }
 
+let fallbackUpdates: Promise<unknown> = Promise.resolve()
+
+/**
+ * Every change reads, edits and replaces the file inside one queue, so two
+ * sign-ins at once cannot drop each other's entry. An unreadable file is moved
+ * aside, never overwritten: its other entries stay recoverable by hand.
+ */
+function updateFallbackSecrets(edit: (secrets: SecretMap) => void): Promise<void> {
+  const run = fallbackUpdates.then(async () => {
+    let secrets: SecretMap
+    try {
+      secrets = await readFallbackSecrets()
+    } catch (error) {
+      if (!(error instanceof UnreadableSecretsFile)) throw error
+      const aside = `${fallbackPath()}.unreadable-${Date.now()}`
+      await fs.rename(fallbackPath(), aside)
+      console.warn(`[secrets] moved an unreadable secrets file aside to ${aside}`)
+      secrets = {}
+    }
+    edit(secrets)
+    await saveFallbackSecrets(secrets)
+  })
+  fallbackUpdates = run.catch(() => {})
+  return run
+}
+
+/** Written to a private temporary file, synced, then renamed over the old one. */
 async function saveFallbackSecrets(next: SecretMap): Promise<void> {
-  await fs.mkdir(path.dirname(fallbackPath()), { recursive: true })
-  await fs.writeFile(fallbackPath(), JSON.stringify(next, null, 2), 'utf8')
+  const target = fallbackPath()
+  await fs.mkdir(path.dirname(target), { recursive: true })
+  const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
+  const handle = await fs.open(temporary, 'wx', 0o600)
+  try {
+    await handle.writeFile(JSON.stringify(next, null, 2), 'utf8')
+    await handle.sync()
+  } finally {
+    await handle.close()
+  }
+  try {
+    await fs.rename(temporary, target)
+  } catch (error) {
+    await fs.rm(temporary, { force: true })
+    throw error
+  }
+  await fs.chmod(target, 0o600).catch(() => {})
 }
 
 function encodeSecret(secret: string): string | null {
@@ -121,15 +188,17 @@ export async function setRemoteWorkspaceSecret(id: string, secret: string | null
     return Boolean(secret && secret.trim())
   }
 
-  const fallback = await loadFallbackSecrets()
   if (secret && secret.trim()) {
     const encoded = encodeSecret(secret.trim())
     if (!encoded) return false
-    fallback[normalizedId] = encoded
+    await updateFallbackSecrets((fallback) => {
+      fallback[normalizedId] = encoded
+    })
   } else {
-    delete fallback[normalizedId]
+    await updateFallbackSecrets((fallback) => {
+      delete fallback[normalizedId]
+    })
   }
-  await saveFallbackSecrets(fallback)
   return Boolean(secret && secret.trim())
 }
 
@@ -145,8 +214,9 @@ export async function deleteRemoteWorkspaceSecret(id: string): Promise<void> {
 
   const fallback = await loadFallbackSecrets()
   if (!(normalizedId in fallback)) return
-  delete fallback[normalizedId]
-  await saveFallbackSecrets(fallback)
+  await updateFallbackSecrets((secrets) => {
+    delete secrets[normalizedId]
+  })
 }
 
 function cloudFallbackKey(baseUrl: string): string {
@@ -187,9 +257,9 @@ export async function setCloudServiceSecret(baseUrl: string, secret: string): Pr
 
   const encoded = encodeSecret(normalizedSecret)
   if (!encoded) return false
-  const fallback = await loadFallbackSecrets()
-  fallback[cloudFallbackKey(normalizedBaseUrl)] = encoded
-  await saveFallbackSecrets(fallback)
+  await updateFallbackSecrets((fallback) => {
+    fallback[cloudFallbackKey(normalizedBaseUrl)] = encoded
+  })
   return true
 }
 
@@ -209,6 +279,67 @@ export async function deleteCloudServiceSecret(baseUrl: string): Promise<void> {
   const fallback = await loadFallbackSecrets()
   const key = cloudFallbackKey(normalizedBaseUrl)
   if (!(key in fallback)) return
-  delete fallback[key]
-  await saveFallbackSecrets(fallback)
+  await updateFallbackSecrets((secrets) => {
+    delete secrets[key]
+  })
+}
+
+/**
+ * The unlocked end-to-end encryption account key for one Cloud account, kept
+ * only in the OS-protected store. It is a cache: the passphrase or recovery
+ * key can always unlock the account again, so a lost entry costs a prompt,
+ * never data. Scoped by account so a second account never reads it.
+ */
+function cloudAccountKeyName(baseUrl: string, accountEmail: string): string {
+  return `${CLOUD_E2EE_ACCOUNT_PREFIX}${baseUrl.trim()}#${accountEmail.trim().toLowerCase()}`
+}
+
+export async function getCloudAccountKeySecret(baseUrl: string, accountEmail: string): Promise<string | null> {
+  const name = cloudAccountKeyName(baseUrl, accountEmail)
+  const keytar = await loadKeytar()
+  if (keytar) return keytar.getPassword(CLOUD_KEYTAR_SERVICE, name)
+  const encoded = (await loadFallbackSecrets())[name]
+  return encoded ? decodeSecret(encoded) : null
+}
+
+export async function setCloudAccountKeySecret(
+  baseUrl: string,
+  accountEmail: string,
+  value: string
+): Promise<boolean> {
+  const name = cloudAccountKeyName(baseUrl, accountEmail)
+  const keytar = await loadKeytar()
+  if (keytar) {
+    await keytar.setPassword(CLOUD_KEYTAR_SERVICE, name, value)
+    return true
+  }
+  const encoded = encodeSecret(value)
+  if (!encoded) return false
+  await updateFallbackSecrets((fallback) => {
+    fallback[name] = encoded
+  })
+  return true
+}
+
+export async function deleteCloudAccountKeySecret(baseUrl: string, accountEmail: string): Promise<void> {
+  const name = cloudAccountKeyName(baseUrl, accountEmail)
+  const keytar = await loadKeytar()
+  if (keytar) {
+    await keytar.deletePassword(CLOUD_KEYTAR_SERVICE, name)
+    return
+  }
+  if (!(name in (await loadFallbackSecrets()))) return
+  await updateFallbackSecrets((fallback) => {
+    delete fallback[name]
+  })
+}
+
+/** Deletes every account key stored for one Cloud service, whichever account it belonged to. */
+export async function deleteCloudAccountKeySecrets(baseUrl: string): Promise<void> {
+  const prefix = `${CLOUD_E2EE_ACCOUNT_PREFIX}${baseUrl.trim()}#`
+  const stale = Object.keys(await loadFallbackSecrets()).filter((name) => name.startsWith(prefix))
+  if (stale.length === 0) return
+  await updateFallbackSecrets((fallback) => {
+    for (const name of stale) delete fallback[name]
+  })
 }

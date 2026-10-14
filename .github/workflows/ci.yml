@@ -42,6 +42,9 @@ jobs:
           - ubuntu-24.04-arm
           - macos-latest
           - windows-latest
+          # And its Windows counterpart, where the ARM64 release build comes
+          # from (#928).
+          - windows-11-arm
     steps:
       - name: Check out repository
         uses: actions/checkout@v6
@@ -56,7 +59,7 @@ jobs:
         run: npm ci
 
       - name: Verify terminal artifacts and legacy launchers
-        if: matrix.os != 'windows-latest'
+        if: runner.os != 'Windows'
         run: node --test tooling/scripts/terminal-artifact.test.mjs tooling/scripts/terminal-launcher.test.mjs
 
       - name: Verify standalone shared packages
@@ -97,3 +100,13 @@ jobs:
 
       - name: Typecheck and build app
         run: npm run build:prod
+
+      - name: Package the ARM64 Windows app and check it launches
+        if: matrix.os == 'windows-11-arm'
+        shell: bash
+        # No maintainer has an ARM64 Windows machine, so this is where the
+        # native build is proven to start before a release ships it (#928):
+        # a CDP page target, the app drawn, and an ARM64 executable.
+        run: |
+          npm exec --workspace @zennotes/desktop -- electron-builder --win dir --arm64 --publish never
+          node tooling/scripts/packaged-launch-check.mjs dist/win-arm64-unpacked/ZenNotes.exe --expect-arch arm64

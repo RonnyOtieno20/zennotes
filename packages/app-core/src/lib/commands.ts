@@ -6,6 +6,7 @@
  * reflect the store state at that moment (toggle labels flip, context-
  * sensitive commands like "Unarchive" only show up when applicable).
  */
+import { requestAgentEditReview } from './agent-review-runtime'
 import { isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
 import { confirmApp } from './confirm-requests'
 import { requestSettingsTarget } from './settings-navigation'
@@ -45,7 +46,7 @@ import {
   hasPendingCloudReview,
   openPendingCloudReview
 } from './cloud-auto-sync'
-import { DEMO_TOUR_START_PATH } from '@shared/demo-tour'
+import { DEMO_TOUR_START_PATH, isDemoTourStartPath } from '@shared/demo-tour'
 
 const APP_WEBSITE_URL = 'https://zennotes.org'
 const APP_DISCORD_URL = 'https://discord.gg/W4fWzapKS6'
@@ -859,6 +860,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'App',
       keywords: 'release download changelog latest',
       run: () => openExternal(APP_RELEASES_URL)
+    },
+    {
+      id: 'app.whatsNew',
+      title: 'What’s New in ZenNotes',
+      category: 'App',
+      keywords: "whats what's new release notes changelog update announcement",
+      when: () => window.zen.getAppInfo().runtime === 'desktop',
+      run: () => void getState().openWhatsNew()
     },
     {
       id: 'app.report-issue',
@@ -1733,7 +1742,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       category: 'Tag',
       run: async () => {
         const from = await promptApp({
-          title: 'Rename tag — old name',
+          title: 'Rename tag: old name',
           placeholder: 'tag'
         })
         if (!from) return
@@ -1770,14 +1779,14 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
   cmds.push(
     {
       id: 'demo.generate',
-      title: getState().notes.some((note) => note.path === DEMO_TOUR_START_PATH)
+      title: getState().notes.some((note) => isDemoTourStartPath(note.path))
         ? 'Regenerate Demo Tour Notes'
         : 'Generate Demo Tour Notes',
       category: 'Demo',
       keywords: 'demo onboarding starter tour sample example seed welcome',
       when: () => !!getState().vault,
       run: async () => {
-        const installed = getState().notes.some((note) => note.path === DEMO_TOUR_START_PATH)
+        const installed = getState().notes.some((note) => isDemoTourStartPath(note.path))
         const ok = await confirmApp({
           title: installed
             ? 'Regenerate the built-in demo tour in this vault?'
@@ -1793,7 +1802,10 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         for (const path of result.notePaths) {
           await getState().applyChange({ kind: 'change', path, folder: 'inbox' })
         }
-        await getState().selectNote(DEMO_TOUR_START_PATH)
+        // A server that still writes the older note names reports them here.
+        await getState().selectNote(
+          result.notePaths.find(isDemoTourStartPath) ?? DEMO_TOUR_START_PATH
+        )
       }
     },
     {
@@ -1801,7 +1813,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       title: 'Remove Demo Tour Notes',
       category: 'Demo',
       keywords: 'demo onboarding starter tour sample example delete clear uninstall',
-      when: () => getState().notes.some((note) => note.path === DEMO_TOUR_START_PATH),
+      when: () => getState().notes.some((note) => isDemoTourStartPath(note.path)),
       run: async () => {
         const ok = await confirmApp({
           title: 'Remove the built-in demo tour from this vault?',
@@ -1899,6 +1911,24 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       when: () => hasPendingCloudReview(),
       run: () => openPendingCloudReview(getState().activeNote?.path)
     },
+    // One entry per note an assistant edited through MCP that has not been
+    // reviewed yet (docs/ideas/agent-edit-review.md), newest first. A record
+    // whose note is gone (deleted outside ZenNotes) has nothing to open.
+    ...Object.values(getState().agentEdits)
+      .filter((summary) => getState().notes.some((note) => note.path === summary.notePath))
+      .sort((a, b) => b.at - a.at)
+      .map(
+        (summary): Command => ({
+          id: `app.agentEdits.review:${summary.notePath}`,
+          title: `Review Agent Changes: ${(summary.notePath.split('/').pop() ?? summary.notePath).replace(/\.md$/i, '')}`,
+          category: 'Note',
+          keywords: `assistant agent mcp ai changes diff review accept reject ${summary.agent} ${summary.notePath}`,
+          run: async () => {
+            await getState().selectNote(summary.notePath)
+            requestAgentEditReview(summary.notePath)
+          }
+        })
+      ),
     {
       id: 'app.cloud.reviewVaultRemoval',
       title: 'Review Cloud Vault',
@@ -2130,7 +2160,7 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
         const ok = await confirmApp({
           title: `Remove zn from ${status.installedAt}?`,
           description:
-            'macOS may prompt for an admin password to remove the symlink. The CLI binary inside the app stays bundled — you can reinstall any time.',
+            'macOS may prompt for an admin password to remove the symlink. The CLI binary inside the app stays bundled, so you can reinstall any time.',
           confirmLabel: 'Uninstall',
           danger: true
         })

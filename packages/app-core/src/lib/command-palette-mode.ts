@@ -29,7 +29,8 @@ export const COMMAND_OVERLAY_FLAGS = [
   'bufferPaletteOpen',
   'outlinePaletteOpen',
   'templatePaletteOpen',
-  'embedDrawingPaletteOpen'
+  'embedDrawingPaletteOpen',
+  'whatsNewOpen'
 ] as const
 
 export type CommandOverlayFlag = (typeof COMMAND_OVERLAY_FLAGS)[number]

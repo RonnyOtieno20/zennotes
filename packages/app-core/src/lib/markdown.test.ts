@@ -247,6 +247,14 @@ describe('table column widths (#294)', () => {
     const html = renderMarkdown('| A | B |\n| --- | --- |\n| 1 | 2 |\n')
     expect(html).not.toContain('colgroup')
     expect(html).not.toContain('zen-has-col-widths')
+    expect(html).not.toContain('zen-table-scroll')
+  })
+  it('wraps a table with set widths so a wide one scrolls instead of squeezing (#920)', () => {
+    const html = renderMarkdown('# Plan\n\n| A | B |\n| --- | --- |\n| 1 | 2 |\n<!-- zen:cols=300,900 -->\n')
+    expect(html).toMatch(/<div class="zen-table-scroll" data-source-line="3"><table class="zen-has-col-widths"><colgroup>/)
+    // Scroll sync reads the stamp from the preview's direct children only, so
+    // it moves to the wrapper rather than staying on the wrapped table.
+    expect(html).not.toMatch(/<table[^>]*data-source-line/)
   })
 })
 

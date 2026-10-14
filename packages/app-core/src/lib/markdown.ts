@@ -832,6 +832,13 @@ function rehypeCustomCodeLanguages() {
  * turn it into a <colgroup> so the preview and PDF export render the columns at
  * the widths set by the live-table resize handles. The comment node itself is
  * dropped by the sanitizer. Runs after rehypeRaw so the comment is a hast node.
+ *
+ * The table goes into a `.zen-table-scroll` wrapper that scrolls sideways
+ * when the columns add up to more than the reading width, as the editor's
+ * table does (#920). Squeezing the table to fit instead shrank every column
+ * and re-wrapped the cells the widths were set to keep on one line. The
+ * wrapper takes over the table's `data-source-line`, because scroll sync
+ * reads that stamp from the preview's direct children only.
  */
 function rehypeTableColWidths() {
   return (tree: HastRoot): void => {
@@ -862,8 +869,17 @@ function rehypeTableColWidths() {
         }))
       } as unknown as HastElement
       node.children = [colgroup, ...(node.children ?? [])] as HastElement['children']
-      const cls = (node.properties?.className as string[] | undefined) ?? []
-      node.properties = { ...(node.properties ?? {}), className: [...cls, 'zen-has-col-widths'] }
+      const { 'data-source-line': sourceLine, dataSourceLine, ...properties } = (node.properties ??
+        {}) as Record<string, unknown>
+      const cls = (properties.className as string[] | undefined) ?? []
+      node.properties = { ...properties, className: [...cls, 'zen-has-col-widths'] } as HastElement['properties']
+      const line = sourceLine ?? dataSourceLine
+      siblings[index] = {
+        type: 'element',
+        tagName: 'div',
+        properties: { className: ['zen-table-scroll'], ...(line != null ? { 'data-source-line': line } : {}) },
+        children: [node]
+      } as unknown as AnyNode
     })
   }
 }

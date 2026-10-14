@@ -299,6 +299,27 @@ export function getAppUpdateState(): AppUpdateState {
   return { ...updateState }
 }
 
+/** The feed of the Windows ARM64 build (#928). electron-builder names every
+ *  Windows feed `latest.yml`, whatever the architecture, so the release
+ *  workflow publishes the x64 build's under that name and the ARM64 build's
+ *  as `latest-arm64.yml`. electron-updater reads `<channel>.yml` on Windows. */
+export const WINDOWS_ARM64_UPDATE_CHANNEL = 'latest-arm64'
+
+/** The update channel a Windows copy reads, or null for the default feed.
+ *  An x64 copy running under ARM64 emulation reads the ARM64 feed as well, so
+ *  its next update is the native build: electron-updater already does that
+ *  for an Intel copy under Rosetta on a Mac. */
+export function windowsUpdateChannel(input: {
+  platform: NodeJS.Platform
+  arch: string
+  runningUnderARM64Translation: boolean
+}): string | null {
+  if (input.platform !== 'win32') return null
+  return input.arch === 'arm64' || input.runningUnderARM64Translation
+    ? WINDOWS_ARM64_UPDATE_CHANNEL
+    : null
+}
+
 export function initAppUpdater(): void {
   if (initialized) return
   initialized = true
@@ -353,6 +374,18 @@ export function initAppUpdater(): void {
   updater = chosen
   updater.autoDownload = false
   updater.autoInstallOnAppQuit = true
+  const channel = windowsUpdateChannel({
+    platform: process.platform,
+    arch: process.arch,
+    runningUnderARM64Translation: app.runningUnderARM64Translation
+  })
+  if (channel) {
+    updater.channel = channel
+    // Setting a channel also allows downgrades (electron-updater's way back
+    // from a beta channel). This feed is the same release line, so a newer
+    // version stays the only update.
+    updater.allowDowngrade = false
+  }
 
   updater.on('checking-for-update', () => {
     setUpdateState(
@@ -885,20 +918,24 @@ export function describeInstall(): { os: string; install: string } {
       mas: Boolean(process.mas),
       windowsStore: Boolean(process.windowsStore),
       portableExecutableDir: process.env.PORTABLE_EXECUTABLE_DIR,
-      linuxFormat: () =>
-        linuxUpdaterFormat({
-          isAppImage: Boolean(process.env.APPIMAGE),
-          isOfficialSystemPackage: isOfficialLinuxSystemPackage(
-            process.resourcesPath,
-            existsSync(join(process.resourcesPath, 'package-type'))
-          ),
-          osRelease
-        })
+      linuxFormat: () => currentLinuxFormat(osRelease)
     })
   } catch {
     install = 'unknown'
   }
   return { os, install }
+}
+
+/** This copy's Linux install format, as the updater acts on it. */
+export function currentLinuxFormat(osRelease: string | null = readOsReleaseOrNull()): LinuxPackageFormat {
+  return linuxUpdaterFormat({
+    isAppImage: Boolean(process.env.APPIMAGE),
+    isOfficialSystemPackage: isOfficialLinuxSystemPackage(
+      process.resourcesPath,
+      existsSync(join(process.resourcesPath, 'package-type'))
+    ),
+    osRelease
+  })
 }
 
 function shellQuote(value: string): string {

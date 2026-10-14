@@ -95,6 +95,28 @@ export function buildOpenNoteDeepLink(relPath: string): string {
   return `${ZENNOTES_DEEP_LINK_SCHEME}://open?path=${encoded}`
 }
 
+/** Whether the app registers itself for zennotes:// links each time it starts.
+ *  Windows has to: electron-builder's `protocols` option is macOS only, so
+ *  neither the NSIS installer nor the zip writes the scheme to the registry,
+ *  and until 2.68 no Windows install could open a zennotes:// link at all.
+ *  Registering per user at launch also covers the zip, wherever it was
+ *  unpacked. Linux stays with the package's .desktop file, which already
+ *  declares the scheme; setting the default there would override the user's
+ *  own xdg-mime choice. */
+export function registersDeepLinkSchemeAtLaunch(platform: NodeJS.Platform): boolean {
+  return platform === 'darwin' || platform === 'win32'
+}
+
+/** Whether a Cloud sign-in returns to the app through a one-time page on
+ *  http://127.0.0.1 (RFC 8252's loopback redirect) instead of a zennotes://
+ *  link. The loopback needs no link handler and no browser prompt, so it is
+ *  the default; only packaged macOS keeps the link, which its signed bundle
+ *  always registers. Windows and Linux sign-ins used to hang on a link nothing
+ *  handled (an AppImage without desktop integration, every Windows install). */
+export function cloudSignInUsesLoopback(packaged: boolean, platform: NodeJS.Platform): boolean {
+  return !packaged || platform !== 'darwin'
+}
+
 export function normalizeDeepLinkNotePath(rawPath: string | null | undefined): string | null {
   const trimmed = rawPath?.trim()
   if (!trimmed || trimmed.includes('\0')) return null

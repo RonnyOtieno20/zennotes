@@ -83,7 +83,7 @@ function softPaperManifest(): string {
         name: 'Soft Paper',
         author: 'Nick Milo (port)',
         version: '1.0.0',
-        description: 'A warm, paper-like theme — light + dark.',
+        description: 'A warm, paper-like theme (light + dark).',
         modes: 'both',
         preview: { light: '#1a7da4', dark: '#85c1dc' }
       },
@@ -126,7 +126,7 @@ my-theme/
 \`\`\`
 
 \`modes\` is \`"light"\`, \`"dark"\`, or \`"both"\`. \`preview\` colors are only used for
-the swatch on the Settings card. A missing manifest is fine — the theme is then
+the swatch on the Settings card. A missing manifest is fine: the theme is then
 named after its folder and assumed to support both modes.
 
 ## theme.css

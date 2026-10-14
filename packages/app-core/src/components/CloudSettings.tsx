@@ -8,6 +8,7 @@ import type {
   CloudBackupScheduleFailure,
   CloudBackupSnapshot,
   CloudBackupSnapshotItem,
+  CloudEncryptionStatus,
   CloudPublishedNote,
   CloudServiceAccount,
   CloudSyncRunSummary,
@@ -20,6 +21,7 @@ import type {
 import { getZenBridge, type ZenBridge } from "@zennotes/bridge-contract/bridge";
 import { cloudBackupLimitMessage } from "@zennotes/shared-domain/cloud-backup";
 import { confirmApp } from "../lib/confirm-requests";
+import { CloudEncryptionPanel } from "./CloudEncryptionPanel";
 import {
   clearRemovedCloudVault,
   cloudSyncAttentionItems,
@@ -57,6 +59,7 @@ type CloudAction =
   | "link"
   | "unlink"
   | "vault-delete"
+  | "vault-encrypt"
   | "sync"
   | "backup-create"
   | "backup-schedule"
@@ -82,6 +85,7 @@ const VAULT_SECTION_ACTIONS: ReadonlySet<CloudAction> = new Set<CloudAction>([
   "link",
   "unlink",
   "vault-delete",
+  "vault-encrypt",
   "settings-local",
   "settings-cloud",
 ]);
@@ -116,6 +120,9 @@ export function CloudSettings({
   const [link, setLink] = useState<CloudVaultLink | null>(null);
   const [selectedVaultId, setSelectedVaultId] = useState("");
   const [newVaultName, setNewVaultName] = useState(localVaultName);
+  const [encryptionStatus, setEncryptionStatus] = useState<CloudEncryptionStatus | null>(null);
+  const [encryptNewVault, setEncryptNewVault] = useState(false);
+  const encryptionReady = encryptionStatus?.keyset === true && encryptionStatus.unlocked;
   const [summary, setSummary] = useState<CloudSyncRunSummary | null>(null);
   // The settings question is the runtime's, not this panel's: sync raises it
   // and the prompt answers it from anywhere, so this panel only shows it.
@@ -511,7 +518,10 @@ export function CloudSettings({
     runAction("link", async () => {
       const name = newVaultName.trim();
       if (!name) throw new Error("Enter a name for the cloud vault.");
-      const createdLink = await bridge.createAndLinkCloudVault(name);
+      const createdLink =
+        encryptNewVault && encryptionReady
+          ? await bridge.createAndLinkCloudVault(name, { encrypted: true })
+          : await bridge.createAndLinkCloudVault(name);
       setLink(createdLink);
       setSelectedVaultId(createdLink.vault_id);
       setSummary(null);
@@ -527,6 +537,25 @@ export function CloudSettings({
     setBackupSchedule(null);
     closeBackupNotes();
     setRestoreResult(null);
+  };
+
+  const encryptVault = async (): Promise<void> => {
+    if (!bridge.encryptCloudVault) return;
+    const confirmed = await confirmApp({
+      title: "Encrypt this vault?",
+      description:
+        "ZenNotes makes a new end-to-end encrypted Cloud vault with the same name, uploads this device's copy into it, and then deletes the readable Cloud copy. Cloud version history and backups of the readable copy are not carried over, so download a backup first if you want one. Your other devices stop syncing until you unlock encryption and open the encrypted vault on them.",
+      confirmLabel: "Encrypt this vault",
+      danger: false,
+    });
+    if (!confirmed) return;
+    await runAction("vault-encrypt", async () => {
+      const encryptedLink = await bridge.encryptCloudVault!();
+      setLink(encryptedLink);
+      setSelectedVaultId(encryptedLink.vault_id);
+      setSummary(null);
+      await refreshCloudVaults();
+    });
   };
 
   const unlinkVault = async (): Promise<void> => {
@@ -817,6 +846,7 @@ export function CloudSettings({
             <>
               <CloudFeatureList account={serviceAccount} />
               <CloudUsageSummary account={serviceAccount} />
+              <CloudEncryptionPanel bridge={bridge} onStatusChange={setEncryptionStatus} />
               <CloudVaultPanel
                 action={action}
                 cloudVaults={cloudVaults}
@@ -825,6 +855,9 @@ export function CloudSettings({
                 linkMismatch={linkMismatch}
                 localVaultAvailable={localVaultAvailable}
                 newVaultName={newVaultName}
+                encryptionReady={encryptionReady}
+                encryptNewVault={encryptNewVault}
+                onEncryptNewVaultChange={setEncryptNewVault}
                 selectedVaultId={effectiveSelectedVaultId}
                 summary={summary}
                 vaultError={vaultError}
@@ -835,6 +868,9 @@ export function CloudSettings({
                 onSelectedVaultChange={setSelectedVaultId}
                 onSync={() => void syncVault()}
                 onUnlink={() => void unlinkVault()}
+                onEncrypt={
+                  encryptionReady && bridge.encryptCloudVault ? () => void encryptVault() : undefined
+                }
                 onDelete={deleteVault}
                 onDismissRemoval={clearRemovedCloudVault}
                 onUseAnotherAccount={() => void logout()}
@@ -1258,6 +1294,9 @@ function CloudVaultPanel({
   linkMismatch,
   localVaultAvailable,
   newVaultName,
+  encryptionReady,
+  encryptNewVault,
+  onEncryptNewVaultChange,
   selectedVaultId,
   settingsConflict,
   summary,
@@ -1270,6 +1309,7 @@ function CloudVaultPanel({
   onSelectedVaultChange,
   onSync,
   onUnlink,
+  onEncrypt,
   onDelete,
   onDismissRemoval,
   onUseAnotherAccount,
@@ -1282,6 +1322,9 @@ function CloudVaultPanel({
   linkMismatch: boolean;
   localVaultAvailable: boolean;
   newVaultName: string;
+  encryptionReady: boolean;
+  encryptNewVault: boolean;
+  onEncryptNewVaultChange: (value: boolean) => void;
   selectedVaultId: string;
   settingsConflict: CloudSyncSettingsConflict | null;
   summary: CloudSyncRunSummary | null;
@@ -1294,6 +1337,8 @@ function CloudVaultPanel({
   onSelectedVaultChange: (value: string) => void;
   onSync: () => void;
   onUnlink: () => void;
+  /** Present when this device can move the linked vault into an encrypted one. */
+  onEncrypt?: () => void;
   onDelete: () => void;
   onDismissRemoval: () => void;
   onUseAnotherAccount: () => void;
@@ -1307,6 +1352,9 @@ function CloudVaultPanel({
   const syncFailed = syncPhase === "error";
   const currentResult = !syncing && !syncFailed;
   const displayedSummary = summary ?? lastSummary;
+  const linkedVaultEncrypted = Boolean(
+    link && cloudVaults.find((vault) => vault.id === link.vault_id)?.encryption,
+  );
   if (!syncIncluded) {
     return (
       <CloudNotice>Sync is not included in this subscription.</CloudNotice>
@@ -1386,6 +1434,9 @@ function CloudVaultPanel({
               cloudVaults={cloudVaults}
               moving
               newVaultName={newVaultName}
+              encryptionReady={encryptionReady}
+              encryptNewVault={encryptNewVault}
+              onEncryptNewVaultChange={onEncryptNewVaultChange}
               selectedVaultId={selectedVaultId}
               onCreateAndLink={onCreateAndLink}
               onLink={onLink}
@@ -1401,6 +1452,7 @@ function CloudVaultPanel({
                   Linked to {link.vault_name}
                 </div>
                 <div className="mt-1 text-xs text-ink-500">
+                  {linkedVaultEncrypted ? "End-to-end encrypted. " : ""}
                   Syncs automatically on this device.
                 </div>
               </div>
@@ -1412,6 +1464,11 @@ function CloudVaultPanel({
                 >
                   {action === "unlink" ? "Unlinking…" : "Unlink this device"}
                 </Button>
+                {onEncrypt && !linkedVaultEncrypted && (
+                  <Button disabled={action !== null || syncing} onClick={onEncrypt}>
+                    {action === "vault-encrypt" ? "Encrypting…" : "Encrypt this vault"}
+                  </Button>
+                )}
                 <Button
                   variant="danger"
                   disabled={action !== null}
@@ -1469,6 +1526,9 @@ function CloudVaultPanel({
             cloudVaults={cloudVaults}
             moving={false}
             newVaultName={newVaultName}
+            encryptionReady={encryptionReady}
+            encryptNewVault={encryptNewVault}
+            onEncryptNewVaultChange={onEncryptNewVaultChange}
             selectedVaultId={selectedVaultId}
             onCreateAndLink={onCreateAndLink}
             onLink={onLink}
@@ -1486,6 +1546,9 @@ function CloudVaultDestinationOptions({
   cloudVaults,
   moving,
   newVaultName,
+  encryptionReady,
+  encryptNewVault,
+  onEncryptNewVaultChange,
   selectedVaultId,
   onCreateAndLink,
   onLink,
@@ -1496,6 +1559,9 @@ function CloudVaultDestinationOptions({
   cloudVaults: CloudSyncVault[];
   moving: boolean;
   newVaultName: string;
+  encryptionReady: boolean;
+  encryptNewVault: boolean;
+  onEncryptNewVaultChange: (value: boolean) => void;
   selectedVaultId: string;
   onCreateAndLink: () => void;
   onLink: () => void;
@@ -1535,7 +1601,7 @@ function CloudVaultDestinationOptions({
             >
               {cloudVaults.map((vault) => (
                 <option key={vault.id} value={vault.id}>
-                  {vault.name}
+                  {vault.encryption ? `${vault.name} (end-to-end encrypted)` : vault.name}
                 </option>
               ))}
             </select>
@@ -1548,6 +1614,7 @@ function CloudVaultDestinationOptions({
               </div>
               {selectedVault && (
                 <div className="mt-1 text-xs text-ink-500">
+                  {selectedVault.encryption ? "End-to-end encrypted · " : ""}
                   Updated {formatCloudVaultDate(selectedVault.updated_at)}
                 </div>
               )}
@@ -1607,6 +1674,21 @@ function CloudVaultDestinationOptions({
                 : "Create and link"}
           </Button>
         </div>
+        {encryptionReady && (
+          <label className="flex items-start gap-2 text-sm leading-6 text-ink-700">
+            <input
+              type="checkbox"
+              checked={encryptNewVault}
+              disabled={action !== null}
+              onChange={(event) => onEncryptNewVaultChange(event.target.checked)}
+              className="mt-1.5 h-4 w-4"
+            />
+            <span>
+              End-to-end encrypt this vault. ZenNotes Cloud cannot read its
+              notes, attachments, or names.
+            </span>
+          </label>
+        )}
       </div>
     </div>
   );
@@ -2846,7 +2928,7 @@ function errorMessage(error: unknown, fallback: string): string {
   // rejection; the class name ("CloudServiceRequestError") is not for people.
   const message = error.message
     .replace(/^Error invoking remote method '[^']+':\s*/i, "")
-    .replace(/^(?:[A-Z][A-Za-z]*)?Error:\s*/, "")
+    .replace(/^(?:[A-Z][A-Za-z0-9]*)?Error:\s*/, "")
     .trim();
 
   return message || fallback;

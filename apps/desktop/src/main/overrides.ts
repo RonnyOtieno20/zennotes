@@ -29,9 +29,9 @@ function isSafeName(name: unknown): name is string {
   )
 }
 
-const EXAMPLE = `/* ZenNotes override — a cookbook. Toggle it on in Settings → Appearance →
+const EXAMPLE = `/* ZenNotes override: a cookbook. Toggle it on in Settings → Appearance →
  * Overrides, then uncomment a recipe below to use it. As shipped, this file
- * changes nothing — every recipe is commented out.
+ * changes nothing: every recipe is commented out.
  *
  * Overrides layer on top of whichever theme is active. Target :root[data-theme]
  * so your rule wins over both a built-in theme's :root[data-theme="…"] block and
@@ -70,7 +70,7 @@ const EXAMPLE = `/* ZenNotes override — a cookbook. Toggle it on in Settings �
 }
 */
 
-/* Any other CSS works too — use the "Developer tools" button in Settings →
+/* Any other CSS works too. Use the "Developer tools" button in Settings →
  * Appearance → Overrides to inspect an element, find its class, then style it.
  * Fonts and text size live in Settings → Typography, so set those there. */
 `

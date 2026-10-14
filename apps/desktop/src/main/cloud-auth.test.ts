@@ -18,7 +18,10 @@ afterEach(async () => {
   );
 });
 
-async function setup(allowInsecureLocalDevelopment = false) {
+async function setup(
+  allowInsecureLocalDevelopment = false,
+  revokeTimeoutMs?: number,
+) {
   const storageDirectory = await mkdtemp(
     path.join(os.tmpdir(), "zennotes-cloud-auth-"),
   );
@@ -44,6 +47,7 @@ async function setup(allowInsecureLocalDevelopment = false) {
     randomState: () => "fixed-state",
     randomVerifier: () => "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
     allowInsecureLocalDevelopment,
+    revokeTimeoutMs,
   });
   return {
     manager,
@@ -166,18 +170,10 @@ describe("CloudAuthManager", () => {
 
   it("removes the stored credential when logging out", async () => {
     const { manager, secrets, fetchImplementation } = await setup();
-    await manager.connect("https://zennotes.org");
+    await connectAccount(manager, fetchImplementation);
     fetchImplementation.mockResolvedValueOnce(
-      new Response(
-        JSON.stringify({
-          token: "secret-token",
-          user: { name: "Ada", email: "ada@example.com" },
-          device: { id: "device-1", name: "Test Mac", platform: "desktop" },
-        }),
-        { status: 200 },
-      ),
+      new Response(null, { status: 204 }),
     );
-    await manager.complete({ code: "OneTimeCode", state: "fixed-state" });
 
     await expect(manager.logout()).resolves.toEqual({
       state: "disconnected",
@@ -204,6 +200,169 @@ describe("CloudAuthManager", () => {
     await expect(
       manager.complete({ code: "OneTimeCode", state: "fixed-state" }),
     ).rejects.toThrow("invalid or has expired");
+  });
+});
+
+async function connectAccount(
+  manager: CloudAuthManager,
+  fetchImplementation: ReturnType<typeof vi.fn<typeof fetch>>,
+): Promise<void> {
+  await manager.connect("https://zennotes.org");
+  fetchImplementation.mockResolvedValueOnce(
+    new Response(
+      JSON.stringify({
+        token: "secret-token",
+        user: { name: "Ada", email: "ada@example.com" },
+        device: { id: "device-1", name: "Test Mac", platform: "desktop" },
+      }),
+      { status: 200 },
+    ),
+  );
+  await manager.complete({ code: "OneTimeCode", state: "fixed-state" });
+  fetchImplementation.mockClear();
+}
+
+describe("CloudAuthManager logout revokes the device", () => {
+  it("asks the service with the token before deleting it", async () => {
+    const { manager, secrets, fetchImplementation, storageDirectory } =
+      await setup();
+    await connectAccount(manager, fetchImplementation);
+    let tokenWhileRevoking: string | undefined;
+    fetchImplementation.mockImplementationOnce(async () => {
+      tokenWhileRevoking = secrets.get("https://zennotes.org");
+      return new Response(null, { status: 204 });
+    });
+
+    await expect(manager.logout()).resolves.toEqual({
+      state: "disconnected",
+      account: null,
+    });
+
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+    const [url, init] = fetchImplementation.mock.calls[0];
+    expect(url).toBe("https://zennotes.org/api/v1/devices/current");
+    expect(init).toMatchObject({
+      method: "DELETE",
+      redirect: "error",
+      headers: {
+        Accept: "application/json",
+        Authorization: "Bearer secret-token",
+      },
+    });
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(tokenWhileRevoking).toBe("secret-token");
+    expect(secrets.size).toBe(0);
+    await expect(
+      readFile(path.join(storageDirectory, "cloud-account.json"), "utf8"),
+    ).rejects.toThrow();
+  });
+
+  it("signs out when the service fails or cannot be reached", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (const answer of [
+        () => Promise.reject(new TypeError("fetch failed")),
+        () => Promise.resolve(new Response(null, { status: 500 })),
+      ]) {
+        const { manager, secrets, fetchImplementation } = await setup();
+        await connectAccount(manager, fetchImplementation);
+        fetchImplementation.mockImplementationOnce(answer);
+
+        await expect(manager.logout()).resolves.toEqual({
+          state: "disconnected",
+          account: null,
+        });
+        expect(secrets.size).toBe(0);
+      }
+      expect(warn).toHaveBeenCalledTimes(2);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("stops waiting for a service that never answers", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { manager, secrets, fetchImplementation } = await setup(false, 20);
+      await connectAccount(manager, fetchImplementation);
+      fetchImplementation.mockImplementationOnce(
+        (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener("abort", () =>
+              reject(init.signal?.reason),
+            );
+          }),
+      );
+
+      await expect(manager.logout()).resolves.toEqual({
+        state: "disconnected",
+        account: null,
+      });
+      expect(secrets.size).toBe(0);
+      expect(warn).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("takes an already revoked token (401) as done", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { manager, secrets, fetchImplementation } = await setup();
+      await connectAccount(manager, fetchImplementation);
+      fetchImplementation.mockResolvedValueOnce(
+        new Response(JSON.stringify({ message: "Unauthenticated." }), {
+          status: 401,
+        }),
+      );
+
+      await manager.logout();
+
+      expect(secrets.size).toBe(0);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("asks zennotes.org for a legacy account and skips an account with no token", async () => {
+    const { manager, storageDirectory, secrets, fetchImplementation } =
+      await setup();
+    const legacyAccount = {
+      base_url: "https://zennotes.laravel.cloud",
+      user: { name: "Niri", email: "niri@example.com" },
+      device: { id: "device-3", name: "Test Mac", platform: "desktop" },
+      connected_at: "2026-08-12T09:00:00.000Z",
+    };
+    await writeFile(
+      path.join(storageDirectory, "cloud-account.json"),
+      JSON.stringify(legacyAccount),
+    );
+    secrets.set("https://zennotes.laravel.cloud", "legacy-token");
+    fetchImplementation.mockResolvedValueOnce(
+      new Response(null, { status: 204 }),
+    );
+
+    await manager.logout();
+
+    expect(fetchImplementation).toHaveBeenCalledOnce();
+    expect(fetchImplementation.mock.calls[0][0]).toBe(
+      "https://zennotes.org/api/v1/devices/current",
+    );
+    expect(fetchImplementation.mock.calls[0][1]?.headers).toMatchObject({
+      Authorization: "Bearer legacy-token",
+    });
+    expect(secrets.size).toBe(0);
+
+    fetchImplementation.mockClear();
+    await writeFile(
+      path.join(storageDirectory, "cloud-account.json"),
+      JSON.stringify({ ...legacyAccount, base_url: "https://zennotes.org" }),
+    );
+
+    await manager.logout();
+
+    expect(fetchImplementation).not.toHaveBeenCalled();
   });
 });
 

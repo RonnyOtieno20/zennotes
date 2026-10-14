@@ -419,7 +419,7 @@ function buildPinnedRefPlaceholder(
   const button = document.createElement('button')
   button.type = 'button'
   button.className = 'local-asset-pinned-ref-button'
-  button.title = 'Showing in the reference pane — click to focus'
+  button.title = 'Showing in the reference pane (click to focus)'
   button.addEventListener('click', (event) => {
     event.preventDefault()
     event.stopPropagation()

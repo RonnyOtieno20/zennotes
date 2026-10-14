@@ -1,5 +1,10 @@
 import type {
   CloudBackupItemsQuery,
+  CloudBackupSnapshotItem,
+  CloudEncryptionKeyset,
+  CloudEncryptionKeysetCreate,
+  CloudEncryptionKeysetResponse,
+  CloudEncryptionKeysetUpdate,
   CloudBackupNoteRestoreRequest,
   CloudBackupNoteRestoreResponse,
   CloudBackupRestoreRequest,
@@ -29,6 +34,15 @@ import type {
   CloudSyncVaultResponse
 } from '@zennotes/bridge-contract/cloud-sync'
 import type { CloudSyncRateLimitScope } from './cloud-sync-rate-limit'
+import type { CloudKeysetApi } from './cloud-e2ee-account'
+import {
+  CLOUD_E2EE_HEADER,
+  CLOUD_E2EE_HEADER_VALUE,
+  CloudVaultCipher,
+  ENCRYPTED_VAULT_PLACEHOLDER_NAME,
+  type CloudVaultCipherSource,
+  withoutClientHints
+} from './cloud-e2ee-vault'
 
 export * from './cloud-sync-content'
 export type {
@@ -73,6 +87,8 @@ export interface CloudSyncHttpRequest {
   /** Only for explicitly idempotent JSON operations with stable operation/session IDs.
    * GETs are replayable by default. Other requests are never retried implicitly. */
   retryOnRateLimit?: boolean
+  /** Extra request headers; transports forward them. */
+  headers?: Record<string, string>
 }
 
 export interface CloudSyncHttpTransport {
@@ -89,6 +105,14 @@ export interface CloudSyncApiClientOptions {
   maxInlineBytes?: number
   signal?: AbortSignal
   allowInsecureLoopbackDownloads?: boolean
+  /**
+   * The host decrypts every path an encrypted vault's bytes can take,
+   * including its streamed uploads and downloads. Only then does the client
+   * tell the service it may serve encrypted vaults (docs/specs/cloud-e2ee.md).
+   */
+  endToEndEncryption?: boolean
+  /** Required with endToEndEncryption: where each vault's cipher comes from. */
+  vaultCiphers?: CloudVaultCipherSource
 }
 
 /** Typed API surface shared by Electron and both Capacitor shells. */
@@ -114,14 +138,35 @@ export class CloudSyncApiClient {
     this.downloadSignal = options.signal
     this.allowInsecureLoopbackDownloads = options.allowInsecureLoopbackDownloads === true
     this.requiresContentReferenceHost = options.contentReferences === true
+    if (options.endToEndEncryption && !options.vaultCiphers) {
+      throw new Error('End-to-end encryption needs a source of vault ciphers.')
+    }
+  }
+
+  /** Every request goes through here, so the encryption header is never forgotten. */
+  private send<Response>(request: CloudSyncHttpRequest): Promise<Response> {
+    if (!this.options.endToEndEncryption) return this.http.request<Response>(request)
+    return this.http.request<Response>({
+      ...request,
+      headers: { ...request.headers, [CLOUD_E2EE_HEADER]: CLOUD_E2EE_HEADER_VALUE }
+    })
+  }
+
+  /**
+   * The cipher for an encrypted vault, or null for a readable one. Throws when
+   * the vault is encrypted and this device is locked, before any request.
+   */
+  protected async vaultCipher(vaultId: string): Promise<CloudVaultCipher | null> {
+    if (!this.options.endToEndEncryption || !this.options.vaultCiphers) return null
+    return this.options.vaultCiphers.forVault(vaultId)
   }
 
   async listVaults(): Promise<CloudSyncVaultCollection> {
-    return this.http.request({ method: 'GET', path: '/api/v1/vaults' })
+    return this.send({ method: 'GET', path: '/api/v1/vaults' })
   }
 
   async account(): Promise<CloudServiceAccountResponse> {
-    const response = await this.http.request<CloudServiceAccountResponse>({ method: 'GET', path: '/api/v1/account' })
+    const response = await this.send<CloudServiceAccountResponse>({ method: 'GET', path: '/api/v1/account' })
     const key = this.capabilityKey()
     if (key) contentCapabilities.set(key, {
       until: Date.now() + 300_000, value: Promise.resolve(response.data.capabilities?.content_references === true)
@@ -173,26 +218,79 @@ export class CloudSyncApiClient {
   }
 
   async createVault(name: string): Promise<CloudSyncVaultResponse> {
-    return this.http.request({
+    return this.send({
       method: 'POST',
       path: '/api/v1/vaults',
       body: { name }
     })
   }
 
+  /** Creates an end-to-end encrypted vault: a fresh vault key sealed under the account key, and the real name sealed. */
+  async createEncryptedVault(
+    name: string,
+    accountKey: Uint8Array,
+    accountKeyVersion: number
+  ): Promise<CloudSyncVaultResponse> {
+    if (!this.options.endToEndEncryption) throw new Error('This app cannot create encrypted vaults.')
+    return this.send({
+      method: 'POST',
+      path: '/api/v1/vaults',
+      body: {
+        name: ENCRYPTED_VAULT_PLACEHOLDER_NAME,
+        encryption: await CloudVaultCipher.prepareVault(name, accountKey, accountKeyVersion)
+      }
+    })
+  }
+
+  /** Points a readable vault at the encrypted vault that replaces it; the service then deletes it. */
+  async supersedeVault(vaultId: string, successorVaultId: string): Promise<void> {
+    await this.send({
+      method: 'POST',
+      path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/supersede`,
+      body: { successor_vault_id: successorVaultId }
+    })
+  }
+
+  async getKeyset(): Promise<CloudEncryptionKeyset | null> {
+    try {
+      return (await this.send<CloudEncryptionKeysetResponse>({ method: 'GET', path: '/api/v1/encryption/keyset' })).data
+    } catch (error) {
+      const failure = error as { status?: number; code?: string | null }
+      if (failure.status === 404 || failure.code === 'KEYSET_NOT_FOUND') return null
+      throw error
+    }
+  }
+
+  async createKeyset(body: CloudEncryptionKeysetCreate): Promise<CloudEncryptionKeyset> {
+    return (await this.send<CloudEncryptionKeysetResponse>({ method: 'POST', path: '/api/v1/encryption/keyset', body })).data
+  }
+
+  async updateKeyset(body: CloudEncryptionKeysetUpdate): Promise<CloudEncryptionKeyset> {
+    return (await this.send<CloudEncryptionKeysetResponse>({ method: 'PUT', path: '/api/v1/encryption/keyset', body })).data
+  }
+
+  /** The keyset calls in the shape the account functions take. */
+  keysetApi(): CloudKeysetApi {
+    return {
+      getKeyset: () => this.getKeyset(),
+      createKeyset: (body) => this.createKeyset(body),
+      updateKeyset: (body) => this.updateKeyset(body)
+    }
+  }
+
   async deleteVault(vaultId: string): Promise<void> {
-    await this.http.request({
+    await this.send({
       method: 'DELETE',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}`
     })
   }
 
   async listPublishedNotes(): Promise<CloudPublishedNoteCollection> {
-    return this.http.request({ method: 'GET', path: '/api/v1/shares' })
+    return this.send({ method: 'GET', path: '/api/v1/shares' })
   }
 
   async publishNote(input: CloudPublishRequest): Promise<CloudPublishedNoteResult> {
-    return this.http.request({
+    return this.send({
       method: 'POST',
       path: '/api/v1/shares',
       body: publishedNoteBody(input),
@@ -203,11 +301,11 @@ export class CloudSyncApiClient {
   /** Stage a publish's attachments: answers one presigned PUT per file, or 404
    * where the service has no staged uploads. */
   async createPublishUpload(body: CloudPublishUploadRequest): Promise<CloudPublishUploadResponse> {
-    return this.http.request({ method: 'POST', path: '/api/v1/shares/uploads', body })
+    return this.send({ method: 'POST', path: '/api/v1/shares/uploads', body })
   }
 
   async abortPublishUpload(uploadId: string): Promise<void> {
-    await this.http.request({
+    await this.send({
       method: 'DELETE',
       path: `/api/v1/shares/uploads/${encodeURIComponent(uploadId)}`
     })
@@ -217,7 +315,7 @@ export class CloudSyncApiClient {
     shareId: number,
     input: CloudPublishRequest
   ): Promise<CloudPublishedNoteResult> {
-    return this.http.request({
+    return this.send({
       method: 'PUT',
       path: `/api/v1/shares/${encodeURIComponent(String(shareId))}`,
       body: publishedNoteBody(input),
@@ -226,7 +324,7 @@ export class CloudSyncApiClient {
   }
 
   async unpublishNote(shareId: number): Promise<void> {
-    await this.http.request({
+    await this.send({
       method: 'DELETE',
       path: `/api/v1/shares/${encodeURIComponent(String(shareId))}`
     })
@@ -236,23 +334,29 @@ export class CloudSyncApiClient {
     vaultId: string,
     options: { includeContent?: boolean; page?: number; perPage?: number } & CloudSyncContentRequestOptions = {}
   ): Promise<CloudSyncManifestResponse> {
+    const cipher = await this.vaultCipher(vaultId)
     const query = encodeQuery({
       include_content: options.includeContent,
       page: options.page,
       per_page: options.perPage,
       ...this.contentQuery(options, options.includeContent === false)
     })
-    return this.http.request({
+    const response = await this.send<CloudSyncManifestResponse>({
       method: 'GET',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/manifest${query}`
     })
+    if (!cipher) return response
+    return { ...response, data: await Promise.all(response.data.map((item) => cipher.openManifestItem(item))) }
   }
 
   async changes(vaultId: string, after: number, limit = 100, options: CloudSyncContentRequestOptions = {}): Promise<CloudSyncChangeResponse> {
-    return this.http.request({
+    const cipher = await this.vaultCipher(vaultId)
+    const response = await this.send<CloudSyncChangeResponse>({
       method: 'GET',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/changes${encodeQuery({ after, limit, ...this.contentQuery(options) })}`
     })
+    if (!cipher) return response
+    return { ...response, data: await Promise.all(response.data.map((change) => cipher.openChange(change))) }
   }
 
   async revision(
@@ -261,15 +365,22 @@ export class CloudSyncApiClient {
     revision: number,
     options: CloudSyncContentRequestOptions = {}
   ): Promise<CloudSyncRevisionResponse> {
-    return this.http.request({
+    const cipher = await this.vaultCipher(vaultId)
+    const response = await this.send<CloudSyncRevisionResponse>({
       method: 'GET',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/items/${encodeURIComponent(itemId)}/revisions/${encodeURIComponent(String(revision))}${encodeQuery(this.contentQuery(options))}`
     })
+    return cipher ? { ...response, data: await cipher.openRevision(response.data) } : response
+  }
+
+  /** The coordinator asks for this before staging an `encrypted` reference. */
+  async contentDecryptor(vaultId: string): Promise<CloudVaultCipher | null> {
+    return this.vaultCipher(vaultId)
   }
 
   async download(vaultId: string, itemId: string, revision: number): Promise<CloudSyncDownloadResponse> {
     if (!this.referencesActive) throw new Error('Negotiate Cloud content references before downloading revisions.')
-    return this.http.request({ method: 'GET',
+    return this.send({ method: 'GET',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/items/${encodeURIComponent(itemId)}/revisions/${encodeURIComponent(String(revision))}/download`
     })
   }
@@ -278,20 +389,31 @@ export class CloudSyncApiClient {
     vaultId: string,
     body: CloudSyncMutationRequest
   ): Promise<CloudSyncMutationResponse> {
-    return this.http.request({
+    const cipher = await this.vaultCipher(vaultId)
+    const mutations = cipher
+      ? await Promise.all(body.mutations.map((mutation) => cipher.encryptMutation(mutation)))
+      : body.mutations.map(withoutClientHints)
+    const response = await this.send<CloudSyncMutationResponse>({
       method: 'POST',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/mutations`,
-      body,
+      body: { mutations },
       ...(body.mutations.length > 0 && body.mutations.every((mutation) => mutation.operation_id)
         ? { retryOnRateLimit: true } : {})
     })
+    return cipher ? cipher.openMutationResponse(response) : response
   }
 
   async initiateUpload(
     vaultId: string,
     body: CloudSyncUploadRequest
   ): Promise<CloudSyncUploadInitiationResponse> {
-    return this.http.request({
+    const cipher = await this.vaultCipher(vaultId)
+    if (cipher && (body.content.encoding !== 'aes-gcm' || !body.meta)) {
+      // The host seals streamed uploads itself; refusing here keeps a host bug
+      // from sending a readable file into an encrypted vault.
+      throw new Error('Encrypted vaults accept only encrypted uploads.')
+    }
+    return this.send({
       method: 'POST',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/uploads`,
       body,
@@ -303,30 +425,33 @@ export class CloudSyncApiClient {
     vaultId: string,
     uploadId: string
   ): Promise<CloudSyncUploadCompletionResponse> {
-    return this.http.request({
+    const cipher = await this.vaultCipher(vaultId)
+    const response = await this.send<CloudSyncUploadCompletionResponse>({
       method: 'POST',
       path: `${this.uploadPath(vaultId, uploadId)}/complete`,
       timeoutMs: 300_000,
       ...(uploadId ? { retryOnRateLimit: true } : {})
     })
+    if (!cipher) return response
+    return { data: { ...response.data, result: await cipher.openMutationResponse(response.data.result) } }
   }
 
   async abortUpload(vaultId: string, uploadId: string): Promise<void> {
-    await this.http.request({
+    await this.send({
       method: 'DELETE',
       path: this.uploadPath(vaultId, uploadId)
     })
   }
 
   async listBackups(vaultId: string): Promise<CloudBackupSnapshotCollection> {
-    return this.http.request({
+    return this.send({
       method: 'GET',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/backups`
     })
   }
 
   async backupSchedule(vaultId: string): Promise<CloudBackupScheduleResponse> {
-    return this.http.request({
+    return this.send({
       method: 'GET',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/backup-schedule`
     })
@@ -336,7 +461,7 @@ export class CloudSyncApiClient {
     vaultId: string,
     enabled: boolean
   ): Promise<CloudBackupScheduleResponse> {
-    return this.http.request({
+    return this.send({
       method: 'PUT',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/backup-schedule`,
       body: { enabled }
@@ -349,13 +474,31 @@ export class CloudSyncApiClient {
     query: CloudBackupItemsQuery = {}
   ): Promise<CloudBackupSnapshotItemCollection> {
     const search = query.search?.trim()
-    return this.http.request({
-      method: 'GET',
-      path: `${this.backupPath(vaultId, backupId)}/items${encodeQuery({
-        page: query.page,
-        search: search || undefined
-      })}`
-    })
+    const cipher = await this.vaultCipher(vaultId)
+    const page = (number: number | undefined, text: string | undefined, perPage?: number) =>
+      this.send<CloudBackupSnapshotItemCollection>({
+        method: 'GET',
+        path: `${this.backupPath(vaultId, backupId)}/items${encodeQuery({ page: number, per_page: perPage, search: text || undefined })}`
+      })
+    if (!cipher) return page(query.page, search)
+
+    const open = (items: CloudBackupSnapshotItem[]) => Promise.all(items.map((item) => cipher.openBackupItem(item)))
+    if (!search) {
+      const response = await page(query.page, undefined)
+      return { ...response, data: await open(response.data) }
+    }
+    // The service cannot read an encrypted vault's names, so it cannot search
+    // them: read every page and search the decrypted names here.
+    const needle = search.toLowerCase()
+    const matches: CloudBackupSnapshotItem[] = []
+    // The service pages an encrypted backup up to 500 items at a time, so a
+    // search reads a large backup without running into the sync rate limit.
+    for (let number = 1, last = 1; number <= last; number++) {
+      const response = await page(number, undefined, 500)
+      matches.push(...(await open(response.data)).filter((item) => item.path.toLowerCase().includes(needle)))
+      last = response.meta?.last_page ?? 1
+    }
+    return { data: matches, meta: { current_page: 1, last_page: 1, per_page: Math.max(matches.length, 1), total: matches.length } }
   }
 
   async restoreBackupNote(
@@ -364,15 +507,17 @@ export class CloudSyncApiClient {
     snapshotItemId: number,
     body: CloudBackupNoteRestoreRequest
   ): Promise<CloudBackupNoteRestoreResponse> {
-    return this.http.request({
+    const cipher = await this.vaultCipher(vaultId)
+    const response = await this.send<CloudBackupNoteRestoreResponse>({
       method: 'POST',
       path: `${this.backupPath(vaultId, backupId)}/items/${encodeURIComponent(String(snapshotItemId))}/restore`,
       body
     })
+    return cipher ? { data: await cipher.openNoteRestore(response.data) } : response
   }
 
   async createBackup(vaultId: string, label?: string): Promise<CloudBackupSnapshotResponse> {
-    return this.http.request({
+    return this.send({
       method: 'POST',
       path: `/api/v1/vaults/${encodeURIComponent(vaultId)}/backups`,
       body: label === undefined ? {} : { label }
@@ -380,7 +525,7 @@ export class CloudSyncApiClient {
   }
 
   async deleteBackup(vaultId: string, backupId: string): Promise<void> {
-    await this.http.request({
+    await this.send({
       method: 'DELETE',
       path: this.backupPath(vaultId, backupId)
     })
@@ -391,7 +536,7 @@ export class CloudSyncApiClient {
     backupId: string,
     body: CloudBackupRestoreRequest
   ): Promise<CloudBackupRestoreResponse> {
-    return this.http.request({
+    return this.send({
       method: 'POST',
       path: `${this.backupPath(vaultId, backupId)}/restores`,
       body
@@ -403,7 +548,7 @@ export class CloudSyncApiClient {
     backupId: string,
     restoreId: string
   ): Promise<CloudBackupRestoreResponse> {
-    return this.http.request({
+    return this.send({
       method: 'GET',
       path: `${this.backupPath(vaultId, backupId)}/restores/${encodeURIComponent(restoreId)}`
     })

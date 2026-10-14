@@ -699,7 +699,7 @@ class LocalPdfWidget extends WidgetType {
       button.type = 'button'
       button.className = 'local-asset-pinned-ref-button'
       button.title = this.pinnedAsRef
-        ? 'Showing in the reference pane — click to focus'
+        ? 'Showing in the reference pane (click to focus)'
         : 'Open this PDF in the reference pane'
       button.addEventListener('click', (event) => {
         event.preventDefault()

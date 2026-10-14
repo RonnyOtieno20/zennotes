@@ -74,6 +74,7 @@ describe('shouldSyncVaultPath', () => {
     'assets/diagram.png',
     '.zennotes/vault.json',
     '.zennotes/comments/inbox/Note.md.comments.json',
+    '.zennotes/agent-edits/inbox/Note.md.json',
     '.zennotes/note-metadata/inbox/Note.md.metadata.json',
     '.zennotes/templates/meeting.md',
     '.zennotes/workflows/review.json'
@@ -87,6 +88,7 @@ describe('shouldSyncVaultPath', () => {
     'inbox/Note.md.tmp',
     'inbox/2026-08-26 Wed.md.3252272.1787800172047252.tmp',
     'inbox/Note.md.bak',
+    '.zennotes/agent-edits/inbox/Note.md.json.6f1c2a.tmp',
     '.zennotes/workspace.json',
     '.zennotes/mobile-note-meta-cache-v1.json',
     '.zennotes/deleted-assets/token/file.png',

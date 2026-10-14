@@ -46,6 +46,7 @@ import {
   systemFolderForDirName,
   type SystemFolderPaths
 } from './system-folder-paths'
+import { randomUUID } from './random-uuid'
 
 /** Where the vault keeps its system folders on disk. Both halves matter to
  *  path composition, and the server honors both, so getting either wrong
@@ -93,7 +94,7 @@ const SCHEMA_SAMPLE_ROWS = 50
 const DB_TITLE_BAD = /[\\/:*?"<>|]/g
 
 function dbGenId(): string {
-  return globalThis.crypto.randomUUID()
+  return randomUUID()
 }
 function dbToPosix(p: string): string {
   return p.replace(/\\/g, '/')

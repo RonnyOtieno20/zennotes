@@ -20,6 +20,7 @@ import {
 
 import { resolveInstructions } from './instructions-store.js'
 import { createBackend, type VaultBackend } from '../cli/backend.js'
+import { runRecordingAgentEdit } from './agent-edit-recorder.js'
 import { resolveDefaultTarget, sameVault, type VaultTarget } from '../cli/vault-target.js'
 import { RemoteRequestError } from '../main/remote/connection.js'
 import type { NoteFolder } from './vault-ops.js'
@@ -186,7 +187,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'list_notes',
       description:
-        "List notes in the vault with metadata (title, folder, tags, wikilinks, excerpt, timestamps). Optional filters narrow by folder, tag, or wikilink target. Use this before editing to pick the right note. Trashed notes are included only when folder='trash' is explicit. The returned `path` field is the canonical reference — pass it back verbatim to read_note / write_note / move_note. In `primaryNotesLocation: root` vaults, inbox notes have a path WITHOUT an `inbox/` prefix (e.g. `MyNote.md`); never add one. Each note also carries `link`, a clickable zennotes:// URL that opens it in the app; use it verbatim when rendering note titles as markdown links for the user.",
+        "List notes in the vault with metadata (title, folder, tags, wikilinks, excerpt, timestamps). Optional filters narrow by folder, tag, or wikilink target. Use this before editing to pick the right note. Trashed notes are included only when folder='trash' is explicit. The returned `path` field is the canonical reference: pass it back verbatim to read_note / write_note / move_note. In `primaryNotesLocation: root` vaults, inbox notes have a path WITHOUT an `inbox/` prefix (e.g. `MyNote.md`); never add one. Each note also carries `link`, a clickable zennotes:// URL that opens it in the app; use it verbatim when rendering note titles as markdown links for the user.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -262,7 +263,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'read_note',
       description:
-        'Read the full body and metadata of a single note. Always read before you write. Use the path verbatim from list_notes / search_* / create_note — never invent or prefix it.',
+        'Read the full body and metadata of a single note. Always read before you write. Use the path verbatim from list_notes / search_* / create_note. Never invent or prefix it.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -284,7 +285,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'write_note',
       description:
-        'Overwrite the full body of an existing note. Destructive — prefer append_to_note / replace_in_note for incremental edits. Keep frontmatter intact unless the user asked you to change it.',
+        'Overwrite the full body of an existing note. Destructive, so prefer append_to_note / replace_in_note for incremental edits. Keep frontmatter intact unless the user asked you to change it.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -305,7 +306,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'create_note',
       description:
-        'Create a new note. Always picks a non-conflicting filename by appending a counter if needed. Use the `path` from the response to refer to the note in any follow-up tool calls — DO NOT reconstruct it from `folder + title`. In root-mode vaults, `folder: "inbox"` means the note lands directly at the vault root with a path like "MyNote.md" (no inbox/ prefix).',
+        'Create a new note. Always picks a non-conflicting filename by appending a counter if needed. Use the `path` from the response to refer to the note in any follow-up tool calls. DO NOT reconstruct it from `folder + title`. In root-mode vaults, `folder: "inbox"` means the note lands directly at the vault root with a path like "MyNote.md" (no inbox/ prefix).',
       inputSchema: {
         type: 'object',
         properties: {
@@ -423,7 +424,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'empty_trash',
       description:
-        'Permanently delete every note in trash/. Confirm with the user before calling — this is irreversible.',
+        'Permanently delete every note in trash/. Confirm with the user before calling: this is irreversible.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -650,7 +651,7 @@ const TOOLS: ToolDef[] = [
     schema: {
       name: 'backlinks',
       description:
-        'Return every note that links to the given note via [[wikilink]]. Run this before renaming a note — the rename will orphan these links.',
+        'Return every note that links to the given note via [[wikilink]]. Run this before renaming a note: the rename will orphan these links.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -956,7 +957,9 @@ export async function callTool(
 ): Promise<unknown> {
   const tool = TOOLS.find((t) => t.schema.name === name)
   if (!tool) throw new Error(`Unknown tool: ${name}`)
-  return await tool.handler(args, backend)
+  return await runRecordingAgentEdit(name, args, backend, defaultCommentAuthor(), () =>
+    tool.handler(args, backend)
+  )
 }
 
 export function listToolNames(): string[] {
@@ -1125,9 +1128,11 @@ export async function runMcpServer(options: McpServerOptions = {}): Promise<void
     }
     try {
       const { backend, previous } = await vaults.backendFor(name === 'vault_info')
-      const result = await tool.handler((args ?? {}) as Record<string, unknown>, backend, {
-        previous
-      })
+      const toolArgs = (args ?? {}) as Record<string, unknown>
+      // An edit to a note is recorded so the user can review it in the app.
+      const result = await runRecordingAgentEdit(name, toolArgs, backend, defaultCommentAuthor(), () =>
+        tool.handler(toolArgs, backend, { previous })
+      )
       const payload =
         typeof result === 'string' ? result : JSON.stringify(result, null, 2)
       return { content: [{ type: 'text', text: payload }] }

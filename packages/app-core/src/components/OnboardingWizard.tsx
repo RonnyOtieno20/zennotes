@@ -327,7 +327,7 @@ function StepRail({
             }}
             disabled={!reachable || active}
             aria-current={active ? 'step' : undefined}
-            aria-label={`${STEP_LABELS[step]} — step ${i + 1} of ${steps.length}`}
+            aria-label={`${STEP_LABELS[step]}, step ${i + 1} of ${steps.length}`}
             className={[
               'group flex flex-1 flex-col items-stretch gap-1.5 rounded-md p-1 text-left transition-colors',
               reachable && !active
@@ -481,7 +481,7 @@ function VimStep({
       <StepHeading
         eyebrow="Step 1"
         title="Vim mode"
-        subtitle="ZenNotes is built around Vim motions — leader keys, normal/insert, gg/G, hjkl across the sidebar. You can change this any time in Settings."
+        subtitle="ZenNotes is built around Vim motions: leader keys, normal/insert, gg/G, hjkl across the sidebar. You can change this any time in Settings."
       />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <ChoiceCard
@@ -725,7 +725,7 @@ function VaultStep({
         subtitle={
           isServerVaultSetup
             ? 'Pick the folder on the server that ZenNotes should treat as your vault.'
-            : 'Pick a folder on this machine. ZenNotes stores notes as plain .md files — yours to keep, back up, and sync however you like.'
+            : 'Pick a folder on this machine. ZenNotes stores notes as plain .md files, yours to keep, back up, and sync however you like.'
         }
       />
 
@@ -820,7 +820,7 @@ function LayoutStep({
         <StepHeading
           eyebrow="Step 4"
           title="Vault layout"
-          subtitle="Pick a vault first — these settings live inside the vault."
+          subtitle="Pick a vault first: these settings live inside the vault."
         />
         <StepFooter primaryLabel="Back to vault" onPrimary={onBack} hideBack />
       </div>
@@ -931,7 +931,7 @@ function DoneStep({
         subtitle={
           hasVault
             ? "Here are a few shortcuts to get you started. You can revisit any of this from Settings."
-            : 'You skipped the vault step — open the welcome screen any time to pick one.'
+            : 'You skipped the vault step. Open the welcome screen any time to pick one.'
         }
       />
 

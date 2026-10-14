@@ -3142,12 +3142,21 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
   margin: var(--z-prose-block-gap) 0;
   font-size: 0.94em;
 }
-/* A table with persisted column widths (#294): honor the <colgroup> exactly via
-   fixed layout (sizes to the columns' sum) instead of stretching to 100%. */
+/* A table with persisted column widths (#294): fixed layout makes the
+   <colgroup> authoritative, so the table is exactly as wide as its columns
+   instead of stretching to 100%. Wider than the reading column, it scrolls
+   sideways in its wrapper (markdown.ts) as the editor's table does, instead
+   of squeezing every column (#920). */
+.prose-zen .zen-table-scroll {
+  margin: var(--z-prose-block-gap) 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
 .prose-zen table.zen-has-col-widths {
   table-layout: fixed;
-  width: auto;
-  max-width: 100%;
+  width: max-content;
+  margin: 0;
 }
 .prose-zen table.zen-has-col-widths th,
 .prose-zen table.zen-has-col-widths td {
@@ -3165,6 +3174,13 @@ html[data-completed-task-style="gray-strikethrough"] .prose-zen li.task-list-ite
 @media print {
   .prose-zen table {
     max-width: 100%;
+  }
+  /* A page cannot scroll: a table with set widths shrinks to fit it again. */
+  .prose-zen .zen-table-scroll {
+    overflow: visible;
+  }
+  .prose-zen table.zen-has-col-widths {
+    width: auto;
   }
   .prose-zen th,
   .prose-zen td {
@@ -5581,6 +5597,13 @@ span.cm-grammar-diagnostic:empty {
   width: fit-content;
   max-width: 100%;
 }
+/* With set widths the wrapper grows with its table, so the add-column rail
+   stays at the table's edge and the widget scrolls sideways (#920). Capped at
+   the editor's width, as before #294, the table squeezed its columns below the
+   widths it stored, and Preview, which honors them, disagreed with it. */
+.cm-table-wrapper:has(> table.cm-table-fixed) {
+  max-width: none;
+}
 .cm-table-widget table {
   border-collapse: collapse;
   border-spacing: 0;
@@ -5589,6 +5612,7 @@ span.cm-grammar-diagnostic:empty {
    widths authoritative; the table sizes to their sum and scrolls if wide. */
 .cm-table-widget table.cm-table-fixed {
   table-layout: fixed;
+  width: max-content;
 }
 .cm-table-widget table.cm-table-fixed .cm-table-cell {
   overflow-wrap: anywhere;
@@ -6285,4 +6309,66 @@ span.cm-grammar-diagnostic:empty {
 .prose-zen .zen-task-rollup-complete {
   color: rgb(var(--z-green));
   background-color: rgb(var(--z-green) / 0.12);
+}
+
+
+/* Reviewing an assistant's edits (cm-agent-review.ts): the merge view's
+   changes in the theme's own red and green instead of its fixed ones, and its
+   Accept / Reject buttons in the app's button shape. Scoped by the editor's
+   `zen-agent-review` class so they outrank the merge view's injected theme. */
+/* The bands run to the editor's right edge, not just the text column: a
+   border image with `fill`, pushed out to the right by its outset. That is
+   ink overflow, so it adds no horizontal scrolling, and the scroller clips
+   it at the edge of the pane. */
+.cm-editor.zen-agent-review .cm-deletedChunk {
+  background-color: transparent;
+  border-image-source: linear-gradient(rgb(var(--z-red) / 0.07), rgb(var(--z-red) / 0.07));
+  border-image-slice: 0 fill;
+  border-image-outset: 0 100vw 0 0;
+}
+.cm-editor.zen-agent-review .cm-deletedChunk .cm-deletedText {
+  background: rgb(var(--z-red) / 0.24);
+}
+.cm-editor.zen-agent-review .cm-changedLine {
+  background-color: transparent;
+  border-image-source: linear-gradient(rgb(var(--z-green) / 0.08), rgb(var(--z-green) / 0.08));
+  border-image-slice: 0 fill;
+  border-image-outset: 0 100vw 0 0;
+}
+.cm-editor.zen-agent-review .cm-changedText {
+  background: rgb(var(--z-green) / 0.24);
+}
+/* The unchanged stretch folded away between changes. The merge view picks
+   this bar's grey from CodeMirror's dark-theme flag, which ZenNotes never sets
+   (its themes are CSS variables), so every dark theme drew a near-white bar. */
+.cm-editor.zen-agent-review .cm-collapsedLines {
+  background: transparent;
+  border-image-source: linear-gradient(rgb(var(--z-bg-1)), rgb(var(--z-bg-1)));
+  border-image-slice: 0 fill;
+  border-image-outset: 0 100vw 0 0;
+  color: rgb(var(--z-grey-1));
+  font-size: 11px;
+}
+.cm-editor.zen-agent-review .cm-collapsedLines:hover {
+  color: rgb(var(--z-fg-2));
+}
+.cm-editor.zen-agent-review .cm-deletedChunk .zen-review-control {
+  margin: 0 2px;
+  padding: 1px 8px;
+  border: 1px solid theme("colors.paper.300");
+  border-radius: 6px;
+  background: theme("colors.paper.100");
+  color: theme("colors.ink.800");
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.cm-editor.zen-agent-review .cm-deletedChunk .zen-review-accept:hover {
+  border-color: rgb(var(--z-green) / 0.55);
+  background: rgb(var(--z-green) / 0.14);
+}
+.cm-editor.zen-agent-review .cm-deletedChunk .zen-review-reject:hover {
+  border-color: rgb(var(--z-red) / 0.55);
+  background: rgb(var(--z-red) / 0.14);
 }

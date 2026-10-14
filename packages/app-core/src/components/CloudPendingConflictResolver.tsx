@@ -14,6 +14,7 @@ import {
   useCloudSyncStatusStore,
 } from "../lib/cloud-auto-sync";
 import { Button } from "./ui/Button";
+import { randomUUID } from "@zennotes/shared-domain/random-uuid";
 
 type ChangeChoice = "local" | "cloud" | "both";
 type WholeVersionChoice = "local" | "cloud";
@@ -61,7 +62,7 @@ export function CloudPendingConflictResolver({
   const loadedDraft = useRef<string | null>(null);
   const latestDraft = useRef("");
   const resolved = useRef(false);
-  const reviewId = useRef(crypto.randomUUID());
+  const reviewId = useRef(randomUUID());
   const reviewGeneration = useRef(0);
   const finishLaterButton = useRef<HTMLButtonElement>(null);
   const finishLaterDialog = useRef<HTMLDivElement>(null);

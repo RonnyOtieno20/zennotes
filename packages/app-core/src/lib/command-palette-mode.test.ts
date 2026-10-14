@@ -32,7 +32,8 @@ describe('shouldRefocusEditorAfterCommand', () => {
     bufferPaletteOpen: false,
     outlinePaletteOpen: false,
     templatePaletteOpen: false,
-    embedDrawingPaletteOpen: false
+    embedDrawingPaletteOpen: false,
+    whatsNewOpen: false
   }
 
   it('hands focus to the editor when a command lands on it', () => {

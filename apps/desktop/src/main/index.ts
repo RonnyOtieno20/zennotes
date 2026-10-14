@@ -117,6 +117,12 @@ import {
   writeNote,
 } from "./vault";
 import {
+  listAgentEditRecords,
+  readAgentEditRecord,
+  writeAgentEditRecord,
+} from "./agent-edit-files";
+import { parseAgentEditRecord } from "@shared/agent-edits";
+import {
   initAppConfig,
   getPortableConfigSnapshot,
   setPortableConfig,
@@ -186,6 +192,10 @@ import type {
 } from "@zennotes/bridge-contract/workflows";
 import {
   deleteCloudServiceSecret,
+  deleteCloudAccountKeySecrets,
+  getCloudAccountKeySecret,
+  setCloudAccountKeySecret,
+  deleteCloudAccountKeySecret,
   deleteRemoteWorkspaceSecret,
   getCloudServiceSecret,
   getRemoteWorkspaceSecret,
@@ -198,6 +208,11 @@ import { CloudAuthLoopbackServer } from "./cloud-auth-loopback";
 import type { DesktopPublishAssetFiles } from "./cloud-publish-assets";
 import { createCloudSyncClient } from "./cloud-sync-client";
 import { DesktopCloudSyncService } from "./cloud-sync-service";
+import type {
+  CloudAccountKeyStore,
+  CloudEncryptionSecret,
+  StoredCloudAccountKey,
+} from "@zennotes/shared-domain/cloud-e2ee-account";
 import { CloudSyncWindowBarrier } from "./cloud-sync-window-barrier";
 import { scanAllTasks, scanTasksForPath } from "./tasks";
 import {
@@ -259,6 +274,7 @@ import {
   getRaycastExtensionStatus,
   installRaycastExtension,
 } from "./raycast-integration";
+import { sendUsageCount } from "./usage-count";
 import {
   checkForAppUpdates,
   describeInstall,
@@ -282,9 +298,11 @@ import {
 } from "../mcp/instructions-store";
 import { recordBootMark, recordMainPerf } from "./perf";
 import {
+  cloudSignInUsesLoopback,
   parseCloudAuthDeepLink,
   parseOpenNoteDeepLink,
   parseQuickCaptureDeepLink,
+  registersDeepLinkSchemeAtLaunch,
   ZENNOTES_DEEP_LINK_SCHEME,
 } from "./deep-links";
 import {
@@ -447,7 +465,12 @@ function getCloudAuthManager(): CloudAuthManager {
     openExternal: async (url) => await shell.openExternal(url),
     getSecret: getCloudServiceSecret,
     setSecret: setCloudServiceSecret,
-    deleteSecret: deleteCloudServiceSecret,
+    // Signing out also forgets this device's end-to-end encryption keys for
+    // that service; the passphrase or recovery key unlocks it again.
+    deleteSecret: async (baseUrl) => {
+      await deleteCloudServiceSecret(baseUrl);
+      await deleteCloudAccountKeySecrets(baseUrl);
+    },
     allowInsecureLocalDevelopment: !app.isPackaged,
   });
   return cloudAuthManager;
@@ -466,8 +489,51 @@ function getCloudSyncService(): DesktopCloudSyncService {
     createClient: (baseUrl, token, options) =>
       createCloudSyncClient(baseUrl, token, fetch, options),
     withWindowSync: (root, run) => cloudSyncWindowBarrier.run(root, run),
+    accountKeyStore: (account) => cloudAccountKeyStore(account.base_url, account.user.email),
   });
   return cloudSyncService;
+}
+
+/**
+ * This device's unlocked end-to-end encryption key for one account, in the
+ * OS-protected secret store. It never crosses to the renderer.
+ */
+function cloudAccountKeyStore(baseUrl: string, email: string): CloudAccountKeyStore {
+  return {
+    load: async () => {
+      const raw = await getCloudAccountKeySecret(baseUrl, email);
+      if (!raw) return null;
+      try {
+        const value = JSON.parse(raw) as StoredCloudAccountKey;
+        return value?.format === 1 && typeof value.key === "string" && Number.isInteger(value.version)
+          ? value
+          : null;
+      } catch {
+        return null;
+      }
+    },
+    save: async (value) => {
+      if (!(await setCloudAccountKeySecret(baseUrl, email, JSON.stringify(value)))) {
+        throw new Error(
+          "ZenNotes could not store the encryption key securely on this device. Check that the system keychain is available.",
+        );
+      }
+    },
+    clear: () => deleteCloudAccountKeySecret(baseUrl, email),
+  };
+}
+
+/** IPC arguments are untrusted: exactly one of the two secrets, as text. */
+function encryptionSecret(value: unknown): CloudEncryptionSecret {
+  const record =
+    value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+  if (record && typeof record.passphrase === "string" && !("recoveryWords" in record)) {
+    return { passphrase: record.passphrase };
+  }
+  if (record && typeof record.recoveryWords === "string" && !("passphrase" in record)) {
+    return { recoveryWords: record.recoveryWords };
+  }
+  throw new Error("Enter your encryption passphrase or recovery key.");
 }
 
 /**
@@ -589,7 +655,7 @@ function openAllowedExternalUrl(url: string): void {
 }
 
 function registerAppDeepLinkProtocol(): void {
-  if (!isMac()) return;
+  if (!registersDeepLinkSchemeAtLaunch(process.platform)) return;
 
   try {
     const defaultApp =
@@ -3056,11 +3122,11 @@ function registerIpc(): void {
         app.isPackaged,
         process.env["ZENNOTES_CLOUD_BASE_URL"],
       );
-      const callbackUrl = app.isPackaged
-        ? undefined
-        : await getCloudAuthLoopbackServer().start(
+      const callbackUrl = cloudSignInUsesLoopback(app.isPackaged, process.platform)
+        ? await getCloudAuthLoopbackServer().start(
             async (request) => await completeCloudAuthCallback(request),
-          );
+          )
+        : undefined;
       let result;
       try {
         result = await getCloudAuthManager().connect(baseUrl, callbackUrl);
@@ -3109,8 +3175,44 @@ function registerIpc(): void {
   handle(IPC.CLOUD_VAULT_LINK_SET, (_event, vaultId: string) =>
     getCloudSyncService().link(requireLocalCloudVaultRoot(), vaultId),
   );
-  handle(IPC.CLOUD_VAULT_LINK_CREATE, (_event, name: string) =>
-    getCloudSyncService().createAndLink(requireLocalCloudVaultRoot(), name),
+  handle(
+    IPC.CLOUD_VAULT_LINK_CREATE,
+    (_event, name: string, options?: { encrypted?: boolean }) =>
+      getCloudSyncService().createAndLink(requireLocalCloudVaultRoot(), name, {
+        encrypted: options?.encrypted === true,
+      }),
+  );
+  handle(IPC.CLOUD_ENCRYPTION_STATUS, () =>
+    getCloudSyncService().encryptionStatus(),
+  );
+  handle(IPC.CLOUD_ENCRYPTION_SETUP_PREPARE, (_event, passphrase: string) =>
+    getCloudSyncService().prepareEncryptionSetup(String(passphrase ?? "")),
+  );
+  handle(IPC.CLOUD_ENCRYPTION_SETUP_FINISH, (_event, setupId: string) =>
+    getCloudSyncService().finishEncryptionSetup(String(setupId ?? "")),
+  );
+  handle(IPC.CLOUD_ENCRYPTION_UNLOCK, (_event, secret: unknown) =>
+    getCloudSyncService().unlockEncryption(encryptionSecret(secret)),
+  );
+  handle(
+    IPC.CLOUD_ENCRYPTION_PASSPHRASE_CHANGE,
+    (_event, current: unknown, next: string) =>
+      getCloudSyncService().changeEncryptionPassphrase(
+        encryptionSecret(current),
+        String(next ?? ""),
+      ),
+  );
+  handle(IPC.CLOUD_ENCRYPTION_RECOVERY_PREPARE, (_event, current: unknown) =>
+    getCloudSyncService().prepareNewRecoveryKey(encryptionSecret(current)),
+  );
+  handle(IPC.CLOUD_ENCRYPTION_RECOVERY_FINISH, (_event, setupId: string) =>
+    getCloudSyncService().finishNewRecoveryKey(String(setupId ?? "")),
+  );
+  handle(IPC.CLOUD_ENCRYPTION_LOCK, () =>
+    getCloudSyncService().lockEncryption(),
+  );
+  handle(IPC.CLOUD_VAULT_ENCRYPT, () =>
+    getCloudSyncService().encryptLinkedVault(requireLocalCloudVaultRoot()),
   );
   handle(IPC.CLOUD_VAULT_LINK_DELETE, () =>
     getCloudSyncService().unlink(requireLocalCloudVaultRoot()),
@@ -3315,6 +3417,7 @@ function registerIpc(): void {
   });
   handle(IPC.APP_UPDATER_GET_STATE, () => getAppUpdateState());
   handle(IPC.APP_UPDATER_CHECK, async () => await checkForAppUpdates());
+  handle(IPC.APP_USAGE_COUNT, async (_e, event: unknown) => await sendUsageCount(event));
   handle(IPC.APP_UPDATER_CHECK_WITH_UI, async () => {
     await runMenuUpdateCheck();
   });
@@ -3858,6 +3961,35 @@ function registerIpc(): void {
       // stays pristine (they aren't persisted for a temporary browse).
       if (isEphemeralRoot(v.root)) return;
       return await writeNoteComments(v.root, relPath, comments);
+    },
+  );
+
+  // Agent edit records (docs/ideas/agent-edit-review.md), local vaults only: a
+  // remote vault's notes are edited through its server, which does not record
+  // assistant edits yet, so there is nothing to review there.
+  handle(IPC.VAULT_LIST_AGENT_EDITS, async () => {
+    if (isRemoteWorkspaceActive()) return [];
+    return await listAgentEditRecords(requireVault().root);
+  });
+
+  handle(IPC.VAULT_READ_AGENT_EDIT, async (_e, relPath: string) => {
+    if (isRemoteWorkspaceActive() || typeof relPath !== "string") return null;
+    return await readAgentEditRecord(requireVault().root, relPath);
+  });
+
+  handle(
+    IPC.VAULT_WRITE_AGENT_EDIT,
+    async (_e, relPath: string, record: unknown) => {
+      if (isRemoteWorkspaceActive()) return;
+      if (typeof relPath !== "string") throw new Error("A note path is required");
+      const v = requireVault();
+      if (isEphemeralRoot(v.root)) return;
+      // The renderer is not trusted with the shape: only a well-formed record
+      // (or null, which deletes it) reaches the vault, and only inside
+      // .zennotes/agent-edits (agentEditPath refuses anything else).
+      const parsed = record === null ? null : parseAgentEditRecord(record);
+      if (record !== null && !parsed) throw new Error("Not an agent edit record");
+      await writeAgentEditRecord(v.root, relPath, parsed);
     },
   );
 

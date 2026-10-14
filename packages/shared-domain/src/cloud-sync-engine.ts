@@ -4,6 +4,7 @@ import type {
   CloudSyncContentReference,
   CloudSyncContentMetadata,
   CloudSyncItemKind,
+  CloudSyncMoveMutation,
   CloudSyncMutation,
   CloudSyncMutationResponse
 } from '@zennotes/bridge-contract/cloud-sync'
@@ -14,6 +15,22 @@ export interface CloudSyncLocalItem {
   path: string
   kind: CloudSyncItemKind
   content: CloudSyncContent
+}
+
+/**
+ * What an encrypted vault needs to seal a moved file's new metadata; the
+ * client strips it before a readable vault's move goes out.
+ */
+function moveHints(item: CloudSyncLocalItem): Pick<CloudSyncMoveMutation, 'kind' | 'content_metadata'> {
+  return {
+    kind: item.kind,
+    content_metadata: {
+      encoding: item.content.encoding,
+      sha256: item.content.sha256,
+      byte_length: item.content.byte_length,
+      media_type: item.content.media_type
+    }
+  }
 }
 
 export interface CloudSyncTrackedItem {
@@ -130,7 +147,8 @@ export function planCloudSyncMutations(
           operation_id: ids.operationId(),
           item_id: trackedItem.item_id,
           base_revision: trackedItem.revision,
-          path: exactLocalItem.path
+          path: exactLocalItem.path,
+          ...moveHints(exactLocalItem)
         })
       }
 
@@ -150,7 +168,8 @@ export function planCloudSyncMutations(
         operation_id: ids.operationId(),
         item_id: trackedItem.item_id,
         base_revision: trackedItem.revision,
-        path: movedItem.path
+        path: movedItem.path,
+        ...moveHints(movedItem)
       })
     } else {
       mutations.push({

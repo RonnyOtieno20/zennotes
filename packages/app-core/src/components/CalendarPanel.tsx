@@ -840,7 +840,7 @@ export function CalendarPanel({
         }}
         onClick={() => void openTaskAt(task)}
         onContextMenu={(e) => openTaskMenu(e, task)}
-        title={`${task.content} — drag to a day to reschedule, right-click for more`}
+        title={`${task.content} · drag to a day to reschedule, right-click for more`}
         className={[
           'flex w-full cursor-grab items-center gap-2 rounded px-1.5 py-1 text-left text-xs text-ink-700 transition-colors active:cursor-grabbing',
           opts?.isActive
@@ -1034,7 +1034,7 @@ export function CalendarPanel({
                     if (dragged) openDropMenu(e.clientX, e.clientY, dragged, iso, day)
                   }}
                   disabled={!dailyEnabled}
-                  title={`${iso} — click to view, double-click to open`}
+                  title={`${iso} · click to view, double-click to open`}
                   className={[
                     'relative flex flex-col items-center rounded py-1 text-xs leading-tight transition-colors',
                     !dailyEnabled
@@ -1082,7 +1082,7 @@ export function CalendarPanel({
         <div className="flex min-h-0 flex-1 flex-col border-t border-paper-300/60 px-3 py-3">
           {grabbedTask && (
             <div className="mb-2 rounded bg-accent/10 px-2 py-1 text-2xs text-accent">
-              Moving “{grabbedTask.content || 'task'}” — h/j/k/l pick a day · Enter place · Esc cancel
+              Moving “{grabbedTask.content || 'task'}”: h/j/k/l pick a day · Enter place · Esc cancel
             </div>
           )}
           <div className="mb-2 flex items-center justify-between gap-2">

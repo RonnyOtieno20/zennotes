@@ -29,6 +29,12 @@ export async function stageDesktopCloudContent(
   options: DesktopCloudDownloadOptions = {}
 ): Promise<CloudSyncStagedFile> {
   const reference = validateCloudSyncContentReference(source.reference)
+  // An encrypted vault's download is ciphertext: it is checked against
+  // `encrypted`, decrypted while it streams, and only then checked against the
+  // plaintext metadata like any other download.
+  const encrypted = reference.encrypted
+  const decryptor = source.decryptor
+  if (encrypted && !decryptor) throw new Error('This encrypted download has no key to open it.')
   throwIfCloudSyncCancelled(source.signal)
   const directory = await fs.mkdtemp(
     path.join(options.stagingDirectory ?? os.tmpdir(), 'zennotes-download-')
@@ -62,7 +68,7 @@ export async function stageDesktopCloudContent(
         throw Object.assign(new Error('Cloud object download failed.'), { status: response.status })
       }
       const length = response.headers.get('content-length')
-      if (length !== null && Number(length) !== reference.byte_length) {
+      if (length !== null && Number(length) !== (encrypted ?? reference).byte_length) {
         await response.body?.cancel()
         throw new Error('Cloud download length did not match its reference.')
       }
@@ -77,7 +83,14 @@ export async function stageDesktopCloudContent(
         }
       }
       try {
-        await writeVerified(chunks(), destination, reference, signal)
+        await writeVerified(
+          encrypted && decryptor
+            ? decryptor.decryptStream(verifiedCiphertext(chunks(), encrypted))
+            : chunks(),
+          destination,
+          reference,
+          signal
+        )
       } finally {
         await reader?.cancel().catch(() => {})
         reader?.releaseLock()
@@ -107,6 +120,28 @@ export async function stageDesktopCloudContent(
   } catch (error) {
     await fs.rm(directory, { recursive: true, force: true })
     throw error
+  }
+}
+
+/**
+ * Passes ciphertext through while hashing it, and fails at the end unless it
+ * was exactly the object the reference describes. The decryptor downstream
+ * only yields authenticated chunks, so nothing forged reaches the disk either.
+ */
+async function* verifiedCiphertext(
+  chunks: AsyncIterable<Uint8Array>,
+  expected: { sha256: string; byte_length: number }
+): AsyncGenerator<Uint8Array> {
+  const hash = createHash('sha256')
+  let length = 0
+  for await (const chunk of chunks) {
+    length += chunk.byteLength
+    if (length > expected.byte_length) throw new Error('Cloud download exceeded its encrypted length.')
+    hash.update(chunk)
+    yield chunk
+  }
+  if (length !== expected.byte_length || hash.digest('hex') !== expected.sha256) {
+    throw new Error('Cloud download failed length or SHA-256 verification.')
   }
 }
 

@@ -10,6 +10,7 @@ import type {
   CloudSyncVaultCollection
 } from '@zennotes/bridge-contract/cloud-sync'
 import { formatCloudBytes } from './cloud-bytes'
+import { randomUUID } from './random-uuid'
 
 export interface CloudBackupRestoreClient {
   listVaults(): Promise<CloudSyncVaultCollection>
@@ -51,7 +52,7 @@ export async function restoreCloudBackup({
   vaultId,
   backupId,
   sync,
-  idempotencyKey = () => crypto.randomUUID(),
+  idempotencyKey = () => randomUUID(),
   wait = delay,
   pollIntervalMs = 1_000,
   maxPolls = 120

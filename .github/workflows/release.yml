@@ -23,6 +23,7 @@ on:
           - all
           - macOS
           - Windows
+          - Windows arm64
           - Linux x64
           - Linux arm64
       keep:
@@ -66,11 +67,15 @@ jobs:
         env:
           PLATFORM: ${{ inputs.platform || 'all' }}
         # "Linux arm64" is GitHub's free arm64 Linux runner for public repos:
-        # native aarch64 artifacts with no cross-compilation.
+        # native aarch64 artifacts with no cross-compilation. "Windows arm64"
+        # is its Windows counterpart (#928). Its script names the architecture
+        # (dist:win:arm64), so a toolchain that came up emulated as x64 cannot
+        # build an x64 copy that lands on the x64 job's file names.
         run: |
           all='[
             {"name":"macOS","os":"macos-latest","command":"npm run dist:mac"},
             {"name":"Windows","os":"windows-latest","command":"npm run dist:win"},
+            {"name":"Windows arm64","os":"windows-11-arm","command":"npm run dist:win:arm64 --workspace @zennotes/desktop"},
             {"name":"Linux x64","os":"ubuntu-latest","command":"npm run dist:linux"},
             {"name":"Linux arm64","os":"ubuntu-24.04-arm","command":"npm run dist:linux"}
           ]'
@@ -178,6 +183,8 @@ jobs:
       - name: Collect release artifacts
         id: collect
         shell: bash
+        env:
+          PLATFORM_NAME: ${{ matrix.name }}
         run: |
           mkdir -p release-assets
           find dist -maxdepth 1 -type f \
@@ -186,6 +193,28 @@ jobs:
           if [ -z "$(ls -A release-assets)" ]; then
             echo "No release artifacts found in dist/" >&2
             exit 1
+          fi
+          # The two Windows jobs upload to the same release. Each must hold
+          # only its own architecture, or one overwrites the other's files.
+          case "${PLATFORM_NAME}" in
+            Windows) foreign='-win-arm64' ;;
+            "Windows arm64") foreign='-win-x64' ;;
+            *) foreign='' ;;
+          esac
+          if [ -n "${foreign}" ] && ls release-assets | grep -q -- "${foreign}"; then
+            echo "The ${PLATFORM_NAME} build produced ${foreign} files:" >&2
+            ls release-assets >&2
+            exit 1
+          fi
+          if [ "${PLATFORM_NAME}" = "Windows arm64" ]; then
+            # electron-builder names every Windows feed latest.yml whatever the
+            # architecture; that name is the x64 job's. The ARM64 feed goes out
+            # as latest-arm64.yml, which the ARM64 app reads (updater.ts).
+            if [ ! -f release-assets/latest.yml ]; then
+              echo "The Windows arm64 build wrote no latest.yml." >&2
+              exit 1
+            fi
+            mv release-assets/latest.yml release-assets/latest-arm64.yml
           fi
           ls -l release-assets
 

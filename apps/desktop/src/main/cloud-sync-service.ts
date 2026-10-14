@@ -45,6 +45,23 @@ import {
 } from './cloud-publish-assets'
 import { CLOUD_VAULT_REMOVED_MESSAGE, confirmCloudVaultMissing, isCloudResourceMissing, sameCloudVaultLink } from '@zennotes/shared-domain/cloud-vault-availability'
 import { createDesktopCloudSyncCoordinator, DesktopCloudSyncStateStore } from './cloud-sync-filesystem'
+import { rewriteBackupArchive } from './cloud-backup-archive'
+import {
+  CloudE2eeKeyring,
+  changeCloudEncryptionPassphrase,
+  prepareCloudEncryptionSetup,
+  prepareNewCloudRecoveryKey,
+  unlockCloudEncryption,
+  type CloudAccountKeyStore,
+  type CloudEncryptionSecret,
+  type PendingCloudEncryptionSetup
+} from '@zennotes/shared-domain/cloud-e2ee-account'
+import { fromBase64 } from '@zennotes/shared-domain/cloud-e2ee'
+import {
+  CLOUD_E2EE_HEADER,
+  CLOUD_E2EE_HEADER_VALUE,
+  ENCRYPTED_VAULT_PLACEHOLDER_NAME
+} from '@zennotes/shared-domain/cloud-e2ee-vault'
 
 type SyncClient = Pick<
   CloudSyncApiClient,
@@ -57,6 +74,9 @@ type SyncClient = Pick<
   | 'unpublishNote'
   | 'listVaults'
   | 'createVault'
+  | 'createEncryptedVault'
+  | 'supersedeVault'
+  | 'keysetApi'
   | 'deleteVault'
   | 'manifest'
   | 'changes'
@@ -82,6 +102,22 @@ export interface DesktopCloudSyncServiceDependencies {
   fetchImplementation?: typeof fetch
   now?: () => Date
   withWindowSync?(root: string, run: () => Promise<CloudSyncRunSummary>): Promise<CloudSyncRunSummary>
+  /**
+   * Where this device keeps an account's unlocked encryption key. Without it
+   * the service never offers end-to-end encryption and the service refuses
+   * encrypted vaults to this app.
+   */
+  accountKeyStore?(account: NonNullable<CloudAccountStatus['account']>): CloudAccountKeyStore
+}
+
+/** What the Settings page shows about end-to-end encryption for the signed-in account. */
+export interface DesktopCloudEncryptionStatus {
+  /** The service accepts encrypted vaults for this account. */
+  available: boolean
+  /** The account has set up encryption. */
+  keyset: boolean
+  /** This device holds the account key. */
+  unlocked: boolean
 }
 
 /** Main-process orchestration for linking one local vault to one cloud vault. */
@@ -89,6 +125,9 @@ export class DesktopCloudSyncService {
   private readonly runs = new Map<string, Promise<CloudSyncRunSummary>>()
   private readonly operations = new Map<string, Promise<unknown>>()
   private readonly linkUpdates = new Map<string, Promise<unknown>>()
+  private readonly keyrings = new Map<string, CloudE2eeKeyring>()
+  /** Setups and recovery-key changes waiting for the person to confirm their words. */
+  private readonly pendingRecovery = new Map<string, PendingCloudEncryptionSetup>()
   private readonly now: () => Date
   private readonly fetchImplementation: typeof fetch
   private requestController = new AbortController()
@@ -108,8 +147,91 @@ export class DesktopCloudSyncService {
   }
 
   async listVaults(): Promise<CloudSyncVault[]> {
-    const { client } = await this.connection()
-    return (await client.listVaults()).data
+    const { client, keyring } = await this.connection()
+    const vaults = (await client.listVaults()).data
+    // An encrypted vault's real name is sealed; show it when this device is
+    // unlocked, and the placeholder otherwise.
+    return Promise.all(
+      vaults.map(async (vault) => {
+        if (!vault.encryption || !keyring) return vault
+        try {
+          return { ...vault, name: await keyring.vaultName(vault) }
+        } catch {
+          return { ...vault, name: ENCRYPTED_VAULT_PLACEHOLDER_NAME }
+        }
+      })
+    )
+  }
+
+  async encryptionStatus(): Promise<DesktopCloudEncryptionStatus> {
+    const connection = await this.optionalConnection()
+    if (!connection?.keyStore) return { available: false, keyset: false, unlocked: false }
+    const account = (await connection.client.account()).data
+    return {
+      available: account.capabilities?.end_to_end_encryption === true,
+      keyset: account.encryption?.keyset === true,
+      unlocked: (await connection.keyStore.load()) !== null
+    }
+  }
+
+  /**
+   * Derives the keys and returns the recovery words to show. Nothing reaches
+   * ZenNotes Cloud until finishEncryptionSetup runs with the returned id.
+   */
+  async prepareEncryptionSetup(passphrase: string): Promise<{ setupId: string; recoveryWords: string[] }> {
+    const { client, keyStore } = await this.encryptionConnection()
+    const pending = await prepareCloudEncryptionSetup(client.keysetApi(), keyStore, passphrase)
+    const setupId = randomUUID()
+    this.pendingRecovery.set(setupId, pending)
+    return { setupId, recoveryWords: pending.recoveryWords }
+  }
+
+  async finishEncryptionSetup(setupId: string): Promise<void> {
+    await this.finishPending(setupId)
+  }
+
+  async unlockEncryption(secret: CloudEncryptionSecret): Promise<void> {
+    const { client, keyStore, keyring } = await this.encryptionConnection()
+    await unlockCloudEncryption(client.keysetApi(), keyStore, secret)
+    keyring?.forget()
+  }
+
+  async changeEncryptionPassphrase(current: CloudEncryptionSecret, next: string): Promise<void> {
+    const { client, keyStore } = await this.encryptionConnection()
+    await changeCloudEncryptionPassphrase(client.keysetApi(), keyStore, current, next)
+  }
+
+  async prepareNewRecoveryKey(current: CloudEncryptionSecret): Promise<{ setupId: string; recoveryWords: string[] }> {
+    const { client, keyStore } = await this.encryptionConnection()
+    const pending = await prepareNewCloudRecoveryKey(client.keysetApi(), keyStore, current)
+    const setupId = randomUUID()
+    this.pendingRecovery.set(setupId, pending)
+    return { setupId, recoveryWords: pending.recoveryWords }
+  }
+
+  async finishNewRecoveryKey(setupId: string): Promise<void> {
+    await this.finishPending(setupId)
+  }
+
+  /** Forgets this device's account key; encrypted vaults stop syncing until it unlocks again. */
+  async lockEncryption(): Promise<void> {
+    const connection = await this.optionalConnection()
+    if (!connection?.keyStore) return
+    await connection.keyStore.clear()
+    connection.keyring?.forget()
+  }
+
+  private async finishPending(setupId: string): Promise<void> {
+    const pending = this.pendingRecovery.get(setupId)
+    if (!pending) throw new Error('That recovery key is no longer waiting to be confirmed. Start again.')
+    await pending.finish()
+    this.pendingRecovery.delete(setupId)
+  }
+
+  private async encryptionConnection() {
+    const connection = await this.connection()
+    if (!connection.keyStore) throw new Error('End-to-end encryption is not available in this build.')
+    return { ...connection, keyStore: connection.keyStore }
   }
 
   async serviceAccount(): Promise<CloudServiceAccount> {
@@ -156,29 +278,49 @@ export class DesktopCloudSyncService {
   }
 
   async link(localRoot: string, vaultId: string): Promise<CloudVaultLink> {
-    const { account, client } = await this.connection()
+    const { account, client, keyring } = await this.connection()
     const vault = (await client.listVaults()).data.find((candidate) => candidate.id === vaultId)
     if (!vault) throw new Error('That ZenNotes Cloud vault is not available to this account.')
+    if (vault.encryption && !keyring) {
+      throw new Error('This vault is end-to-end encrypted, which this version of ZenNotes cannot open.')
+    }
+    // Opening an encrypted vault's name needs the account key, so linking a
+    // locked device stops here instead of at the first sync.
+    const vaultName = vault.encryption && keyring ? await keyring.vaultName(vault) : vault.name
 
     const link: CloudVaultLink = {
       base_url: account.base_url,
       vault_id: vault.id,
-      vault_name: vault.name,
+      vault_name: vaultName,
       linked_at: this.now().toISOString()
     }
     await this.writeLink(localRoot, link)
     return link
   }
 
-  async createAndLink(localRoot: string, name: string): Promise<CloudVaultLink> {
+  async createAndLink(
+    localRoot: string,
+    name: string,
+    options: { encrypted?: boolean } = {}
+  ): Promise<CloudVaultLink> {
     const normalizedName = name.trim()
     if (!normalizedName) throw new Error('Cloud vault name is required.')
-    const { account, client } = await this.connection()
-    const vault = (await client.createVault(normalizedName)).data
+    const { account, client, keyStore, keyring } = await this.connection()
+    let vault: CloudSyncVault
+    if (options.encrypted) {
+      const stored = await keyStore?.load()
+      if (!stored) throw new Error('Unlock end-to-end encryption on this device first.')
+      vault = (await client.createEncryptedVault(normalizedName, fromBase64(stored.key), stored.version)).data
+      keyring?.remember(vault)
+    } else {
+      vault = (await client.createVault(normalizedName)).data
+    }
     const link: CloudVaultLink = {
       base_url: account.base_url,
       vault_id: vault.id,
-      vault_name: vault.name,
+      // An encrypted vault's stored name is a placeholder; the link is local,
+      // so it keeps the real one.
+      vault_name: options.encrypted ? normalizedName : vault.name,
       linked_at: this.now().toISOString()
     }
     await this.writeLink(localRoot, link)
@@ -237,9 +379,12 @@ export class DesktopCloudSyncService {
   async createBackup(localRoot: string, label?: string): Promise<CloudBackupSnapshot> {
     const summary = await this.sync(localRoot)
     assertBackupReady(summary)
-    const { client, link } = await this.linkedConnection(localRoot)
+    const { client, link, keyring } = await this.linkedConnection(localRoot)
+    // A typed label would reach ZenNotes Cloud readable, so encrypted vaults
+    // keep their backups unlabeled.
+    const encrypted = keyring ? (await keyring.forVault(link.vault_id)) !== null : false
     try {
-      return (await client.createBackup(link.vault_id, label)).data
+      return (await client.createBackup(link.vault_id, encrypted ? undefined : label)).data
     } catch (error) {
       throw cloudBackupCreateError(error)
     }
@@ -255,13 +400,17 @@ export class DesktopCloudSyncService {
     backupId: string,
     destinationPath: string
   ): Promise<void> {
-    const { account, client, link, token } = await this.linkedConnection(localRoot)
+    const { account, client, link, token, keyring } = await this.linkedConnection(localRoot)
+    // An encrypted vault's archive holds ciphertext under path ids; it is
+    // saved readable, decrypted item by item on this device.
+    const cipher = keyring ? await keyring.forVault(link.vault_id) : null
     const response = await this.fetchImplementation(
       `${account.base_url}${client.backupDownloadPath(link.vault_id, backupId)}`,
       {
         headers: {
           Accept: 'application/gzip',
-          Authorization: `Bearer ${token}`
+          Authorization: `Bearer ${token}`,
+          ...(keyring ? { [CLOUD_E2EE_HEADER]: CLOUD_E2EE_HEADER_VALUE } : {})
         },
         signal: AbortSignal.timeout(120_000)
       }
@@ -275,10 +424,11 @@ export class DesktopCloudSyncService {
 
     const target = path.resolve(destinationPath)
     const temporary = `${target}.${process.pid}.${randomUUID()}.tmp`
+    const sealed = cipher ? `${temporary}.sealed` : temporary
     await fs.mkdir(path.dirname(target), { recursive: true })
 
     try {
-      const file = await fs.open(temporary, 'wx', 0o600)
+      const file = await fs.open(sealed, 'wx', 0o600)
       try {
         const reader = response.body.getReader()
         for (;;) {
@@ -296,9 +446,16 @@ export class DesktopCloudSyncService {
       } finally {
         await file.close()
       }
+      if (cipher) {
+        await rewriteBackupArchive(sealed, temporary, (item) =>
+          cipher.openArchiveItem(item as Parameters<typeof cipher.openArchiveItem>[0])
+        )
+        await fs.rm(sealed, { force: true })
+      }
       await fs.rename(temporary, target)
     } catch (error) {
       await fs.rm(temporary, { force: true }).catch(() => {})
+      if (sealed !== temporary) await fs.rm(sealed, { force: true }).catch(() => {})
       throw error
     }
   }
@@ -379,12 +536,80 @@ export class DesktopCloudSyncService {
     }, this.linkUpdates)
   }
 
+  /**
+   * Moves the linked readable Cloud vault into a new end-to-end encrypted one
+   * with the same name: this device's copy, fully synced first, uploads into
+   * the new vault, and only then is the readable vault retired. Until that
+   * last step the readable vault is untouched, and an interrupted move
+   * finishes on the next clean sync.
+   */
+  async encryptLinkedVault(localRoot: string): Promise<CloudVaultLink> {
+    const before = await this.sync(localRoot)
+    if (hasOpenConflicts(before)) {
+      throw new Error('Resolve sync conflicts before encrypting this vault.')
+    }
+    const { client, link, keyStore, keyring } = await this.linkedConnection(localRoot)
+    if (!keyStore || !keyring) throw new Error('End-to-end encryption is not available in this build.')
+    if (link.replaces_vault_id) return this.syncAndRetireReplacedVault(localRoot)
+    if (await keyring.forVault(link.vault_id)) throw new Error('This vault is already end-to-end encrypted.')
+    const stored = await keyStore.load()
+    if (!stored) throw new Error('Unlock end-to-end encryption on this device first.')
+    const vault = (await client.createEncryptedVault(link.vault_name, fromBase64(stored.key), stored.version)).data
+    keyring.remember(vault)
+    await this.writeLink(localRoot, {
+      ...link,
+      vault_id: vault.id,
+      linked_at: this.now().toISOString(),
+      replaces_vault_id: link.vault_id
+    })
+    return this.syncAndRetireReplacedVault(localRoot)
+  }
+
+  private async syncAndRetireReplacedVault(localRoot: string): Promise<CloudVaultLink> {
+    const summary = await this.sync(localRoot)
+    if (hasOpenConflicts(summary)) {
+      throw new Error('Resolve sync conflicts, then sync again to finish encrypting this vault.')
+    }
+    const link = await this.readLink(localRoot)
+    if (!link) throw new Error('Link this local vault to a ZenNotes Cloud vault first.')
+    return (await this.retireReplacedVault(localRoot, link, summary)) ?? link
+  }
+
+  /**
+   * After a clean sync into a replacement vault, retires the readable vault it
+   * replaces. Returns the updated link, or null when there is nothing to do.
+   */
+  private async retireReplacedVault(
+    localRoot: string,
+    link: CloudVaultLink,
+    summary: CloudSyncRunSummary
+  ): Promise<CloudVaultLink | null> {
+    if (!link.replaces_vault_id || hasOpenConflicts(summary)) return null
+    const { client } = await this.connection()
+    try {
+      await client.supersedeVault(link.replaces_vault_id, link.vault_id)
+    } catch (error) {
+      // A retry after a lost answer finds the old vault already replaced by
+      // this one; that is the outcome this step was after.
+      const successor = (error as { details?: { successor_vault_id?: unknown } | null }).details?.successor_vault_id
+      if (cloudErrorCode(error) !== 'VAULT_SUPERSEDED' || successor !== link.vault_id) throw error
+    }
+    const { replaces_vault_id: _replaced, ...current } = link
+    await this.writeLink(localRoot, current)
+    return current
+  }
+
   sync(localRoot: string): Promise<CloudSyncRunSummary> {
     const runKey = path.resolve(localRoot)
     const existing = this.runs.get(runKey)
     if (existing) return existing
 
-    const run = () => this.exclusive(runKey, () => this.run(localRoot))
+    const run = () => this.exclusive(runKey, async () => {
+      const summary = await this.run(localRoot)
+      const link = await this.readLink(localRoot)
+      if (link?.replaces_vault_id) await this.retireReplacedVault(localRoot, link, summary)
+      return summary
+    })
     const running = (this.dependencies.withWindowSync?.(runKey, run) ?? run()).finally(() => {
       this.runs.delete(runKey)
     })
@@ -424,6 +649,11 @@ export class DesktopCloudSyncService {
         legacy_conflict_copies: result.legacyConflictCopies
       }
     } catch (error) {
+      if (cloudErrorCode(error) === 'VAULT_SUPERSEDED' && await this.retireMissingLink(localRoot, link)) {
+        throw new Error(
+          'This Cloud vault is now end-to-end encrypted. Unlock encryption in Settings, then open the encrypted vault on this device.'
+        )
+      }
       if (await confirmCloudVaultMissing(client, link.vault_id, error) &&
           await this.retireMissingLink(localRoot, link)) {
         throw new Error(CLOUD_VAULT_REMOVED_MESSAGE)
@@ -594,6 +824,8 @@ export class DesktopCloudSyncService {
     account: NonNullable<CloudAccountStatus['account']>
     client: SyncClient
     token: string
+    keyStore?: CloudAccountKeyStore
+    keyring?: CloudE2eeKeyring
   }> {
     const connection = await this.optionalConnection()
     if (!connection) throw new Error('Connect ZenNotes Cloud before using sync.')
@@ -604,23 +836,59 @@ export class DesktopCloudSyncService {
     account: NonNullable<CloudAccountStatus['account']>
     client: SyncClient
     token: string
+    keyStore?: CloudAccountKeyStore
+    keyring?: CloudE2eeKeyring
   } | null> {
     const signal = this.requestController.signal
     signal.throwIfAborted()
     const status = await this.dependencies.accountStatus()
     if (status.state !== 'connected' || !status.account) return null
-    const token = await this.dependencies.getSecret(status.account.base_url)
+    const account = status.account
+    const token = await this.dependencies.getSecret(account.base_url)
     signal.throwIfAborted()
     if (!token) throw new Error('The ZenNotes Cloud credential is unavailable. Sign in again.')
+    const keyStore = this.dependencies.accountKeyStore?.(account)
+    const keyring = keyStore ? this.keyringFor(account, token, keyStore) : undefined
     return {
-      account: status.account,
-      client: this.dependencies.createClient(status.account.base_url, token, {
-        accountId: status.account.user.email,
+      account,
+      client: this.dependencies.createClient(account.base_url, token, {
+        accountId: account.user.email,
         signal,
-        contentReferences: true
+        contentReferences: true,
+        ...(keyring ? { endToEndEncryption: true, vaultCiphers: keyring } : {})
       }),
-      token
+      token,
+      ...(keyStore && keyring ? { keyStore, keyring } : {})
     }
+  }
+
+  /**
+   * One keyring per signed-in credential, so the "is this vault encrypted"
+   * answers and opened ciphers last across calls but never across accounts.
+   */
+  private keyringFor(
+    account: NonNullable<CloudAccountStatus['account']>,
+    token: string,
+    store: CloudAccountKeyStore
+  ): CloudE2eeKeyring {
+    const scope = fingerprint(JSON.stringify([account.base_url, account.user.email, token]))
+    let keyring = this.keyrings.get(scope)
+    if (!keyring) {
+      for (const [key, stale] of this.keyrings) {
+        stale.forget()
+        this.keyrings.delete(key)
+      }
+      keyring = new CloudE2eeKeyring({
+        listVaults: async () =>
+          (await this.dependencies.createClient(account.base_url, token, {
+            accountId: account.user.email,
+            signal: this.requestController.signal
+          }).listVaults()).data,
+        store
+      })
+      this.keyrings.set(scope, keyring)
+    }
+    return keyring
   }
 
   private async linkedConnection(localRoot: string): Promise<{
@@ -628,6 +896,8 @@ export class DesktopCloudSyncService {
     client: SyncClient
     link: CloudVaultLink
     token: string
+    keyStore?: CloudAccountKeyStore
+    keyring?: CloudE2eeKeyring
   }> {
     const link = await this.readLink(localRoot)
     if (!link) throw new Error('Link this local vault to a ZenNotes Cloud vault first.')
@@ -706,6 +976,19 @@ function isCloudVaultLink(value: unknown): value is CloudVaultLink {
     typeof link.vault_name === 'string' &&
     typeof link.linked_at === 'string'
   )
+}
+
+function hasOpenConflicts(summary: CloudSyncRunSummary): boolean {
+  return (
+    summary.conflicts.length > 0 ||
+    summary.bootstrap_conflicts.length > 0 ||
+    (summary.pending_conflicts?.length ?? 0) > 0
+  )
+}
+
+function cloudErrorCode(error: unknown): string | null {
+  const code = (error as { code?: unknown } | null)?.code
+  return typeof code === 'string' ? code : null
 }
 
 function assertBackupReady(summary: CloudSyncRunSummary): void {

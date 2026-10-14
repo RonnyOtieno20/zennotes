@@ -35,6 +35,9 @@ import type {
   CloudSyncSettingsChoice,
   CloudSyncSettingsConflict,
   CloudSyncVault,
+  CloudEncryptionRecoveryPrompt,
+  CloudEncryptionSecretInput,
+  CloudEncryptionStatus,
   CloudVaultLink
 } from '@zennotes/bridge-contract/cloud-sync'
 import type {
@@ -83,6 +86,8 @@ import type {
   ListNotesPageResponse,
   NoteComment,
   NoteCommentInput,
+  AgentEditRecord,
+  AgentEditSummary,
   NoteContent,
   NoteFolder,
   NoteMeta,
@@ -133,6 +138,7 @@ const DESKTOP_CAPABILITIES: ZenCapabilities = {
   supportsCustomCodeLanguages: true,
   supportsWorkflows: true,
   supportsUndoFile: true,
+  supportsAgentEditReview: true,
   supportsGrammarProviderTransport: true
 }
 
@@ -261,6 +267,7 @@ const api: ZenBridge = {
   resetAppZoom: (): Promise<number> => ipcRenderer.invoke(IPC.APP_ZOOM_RESET),
   getAppUpdateState: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_GET_STATE),
   checkForAppUpdates: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_CHECK),
+  sendUsageCount: (event: 'install' | 'update'): Promise<void> => ipcRenderer.invoke(IPC.APP_USAGE_COUNT, event),
   checkForAppUpdatesWithUi: (): Promise<void> =>
     ipcRenderer.invoke(IPC.APP_UPDATER_CHECK_WITH_UI),
   downloadAppUpdate: (): Promise<AppUpdateState> => ipcRenderer.invoke(IPC.APP_UPDATER_DOWNLOAD),
@@ -294,8 +301,24 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_GET),
   linkCloudVault: (vaultId: string): Promise<CloudVaultLink> =>
     ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_SET, vaultId),
-  createAndLinkCloudVault: (name: string): Promise<CloudVaultLink> =>
-    ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_CREATE, name),
+  createAndLinkCloudVault: (name: string, options?: { encrypted?: boolean }): Promise<CloudVaultLink> =>
+    ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_CREATE, name, options),
+  getCloudEncryptionStatus: (): Promise<CloudEncryptionStatus> =>
+    ipcRenderer.invoke(IPC.CLOUD_ENCRYPTION_STATUS),
+  prepareCloudEncryptionSetup: (passphrase: string): Promise<CloudEncryptionRecoveryPrompt> =>
+    ipcRenderer.invoke(IPC.CLOUD_ENCRYPTION_SETUP_PREPARE, passphrase),
+  finishCloudEncryptionSetup: (setupId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.CLOUD_ENCRYPTION_SETUP_FINISH, setupId),
+  unlockCloudEncryption: (secret: CloudEncryptionSecretInput): Promise<void> =>
+    ipcRenderer.invoke(IPC.CLOUD_ENCRYPTION_UNLOCK, secret),
+  changeCloudEncryptionPassphrase: (current: CloudEncryptionSecretInput, next: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.CLOUD_ENCRYPTION_PASSPHRASE_CHANGE, current, next),
+  prepareNewCloudRecoveryKey: (current: CloudEncryptionSecretInput): Promise<CloudEncryptionRecoveryPrompt> =>
+    ipcRenderer.invoke(IPC.CLOUD_ENCRYPTION_RECOVERY_PREPARE, current),
+  finishNewCloudRecoveryKey: (setupId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC.CLOUD_ENCRYPTION_RECOVERY_FINISH, setupId),
+  lockCloudEncryption: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_ENCRYPTION_LOCK),
+  encryptCloudVault: (): Promise<CloudVaultLink> => ipcRenderer.invoke(IPC.CLOUD_VAULT_ENCRYPT),
   unlinkCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_LINK_DELETE),
   deleteCloudVault: (): Promise<void> => ipcRenderer.invoke(IPC.CLOUD_VAULT_DELETE),
   syncCloudVault: (): Promise<CloudSyncRunSummary> => ipcRenderer.invoke(IPC.CLOUD_VAULT_SYNC),
@@ -529,6 +552,11 @@ const api: ZenBridge = {
     ipcRenderer.invoke(IPC.VAULT_READ_COMMENTS, relPath),
   writeNoteComments: (relPath: string, comments: NoteCommentInput[]): Promise<NoteComment[]> =>
     ipcRenderer.invoke(IPC.VAULT_WRITE_COMMENTS, relPath, comments),
+  listAgentEdits: (): Promise<AgentEditSummary[]> => ipcRenderer.invoke(IPC.VAULT_LIST_AGENT_EDITS),
+  readAgentEdit: (relPath: string): Promise<AgentEditRecord | null> =>
+    ipcRenderer.invoke(IPC.VAULT_READ_AGENT_EDIT, relPath),
+  writeAgentEdit: (relPath: string, record: AgentEditRecord | null): Promise<void> =>
+    ipcRenderer.invoke(IPC.VAULT_WRITE_AGENT_EDIT, relPath, record),
   scanTasks: (): Promise<VaultTask[]> => ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS),
   scanTasksForPath: (relPath: string): Promise<VaultTask[]> =>
     ipcRenderer.invoke(IPC.VAULT_SCAN_TASKS_FOR, relPath),

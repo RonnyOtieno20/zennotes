@@ -101,6 +101,10 @@ export type KeymapId =
   | "vim.harperSuggest"
   | "vim.harperAddWord"
   | "vim.harperIgnore"
+  | "vim.reviewNextChange"
+  | "vim.reviewPreviousChange"
+  | "vim.reviewAcceptChange"
+  | "vim.reviewRejectChange"
   | "nav.moveDown"
   | "nav.moveUp"
   | "nav.moveLeft"
@@ -132,7 +136,11 @@ export type KeymapId =
   | "editor.foldHeading"
   | "editor.unfoldHeading"
   | "editor.toggleCheckbox"
-  | "editor.reflowParagraph";
+  | "editor.reflowParagraph"
+  | "editor.reviewNextChange"
+  | "editor.reviewPreviousChange"
+  | "editor.reviewAcceptChange"
+  | "editor.reviewRejectChange";
 
 export type KeymapOverrides = Partial<Record<KeymapId, string>>;
 
@@ -272,7 +280,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "global",
     title: "Open file",
     description:
-      "Open a single markdown file from outside the vault. On macOS the File menu also binds ⌘O. In Vim mode on Windows/Linux the editor keeps Ctrl+O for the jumplist and insert-mode i_CTRL-O, so this fires when focus is outside the editor or with Vim off — rebind either to change that.",
+      "Open a single markdown file from outside the vault. On macOS the File menu also binds ⌘O. In Vim mode on Windows/Linux the editor keeps Ctrl+O for the jumplist and insert-mode i_CTRL-O, so this fires when focus is outside the editor or with Vim off. Rebind either to change that.",
     defaultBinding: "Mod+O",
   },
   {
@@ -1023,6 +1031,50 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     maxTokens: 2,
   },
   {
+    id: "vim.reviewNextChange",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Next change to review",
+    description: "While reviewing an assistant's edits, jump to the next change. Vim's own diff-mode key.",
+    defaultBinding: "] c",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.reviewPreviousChange",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Previous change to review",
+    description: "While reviewing an assistant's edits, jump to the previous change.",
+    defaultBinding: "[ c",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.reviewAcceptChange",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Accept change",
+    description: "While reviewing an assistant's edits, keep the change at the cursor (diff put).",
+    defaultBinding: "d p",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
+    id: "vim.reviewRejectChange",
+    kind: "sequence",
+    scope: "vim-editor",
+    group: "vim",
+    title: "Reject change",
+    description: "While reviewing an assistant's edits, put back what the change replaced (diff obtain).",
+    defaultBinding: "d o",
+    vimOnly: true,
+    maxTokens: 2,
+  },
+  {
     id: "vim.harperPrevious",
     kind: "sequence",
     scope: "vim-editor",
@@ -1301,7 +1353,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "view-actions",
     title: "Hop before previous marker",
     description:
-      "Move the cursor to the near side of the previous inline marker on the line — `**bold**|` becomes `**bold|**`, and again to land before the opening `**`. Works with Vim mode on or off.",
+      "Move the cursor to the near side of the previous inline marker on the line: `**bold**|` becomes `**bold|**`, and again to land before the opening `**`. Works with Vim mode on or off.",
     defaultBinding: "Alt+[",
     defaultBindingMac: "Ctrl+,",
   },
@@ -1313,6 +1365,42 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     title: "Fold heading or list item",
     description: "Fold the heading section, the list item or the callout at the cursor; on a line under a list item or inside a foldable callout, fold that.",
     defaultBinding: "Mod+Alt+F",
+  },
+  {
+    id: "editor.reviewNextChange",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Next change to review",
+    description: "While reviewing an assistant's edits, jump to the next change.",
+    defaultBinding: "Mod+Alt+ArrowDown",
+  },
+  {
+    id: "editor.reviewPreviousChange",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Previous change to review",
+    description: "While reviewing an assistant's edits, jump to the previous change.",
+    defaultBinding: "Mod+Alt+ArrowUp",
+  },
+  {
+    id: "editor.reviewAcceptChange",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Accept change",
+    description: "While reviewing an assistant's edits, keep the change at the cursor.",
+    defaultBinding: "Mod+Shift+Enter",
+  },
+  {
+    id: "editor.reviewRejectChange",
+    kind: "shortcut",
+    scope: "vim-editor",
+    group: "view-actions",
+    title: "Reject change",
+    description: "While reviewing an assistant's edits, put back what the change at the cursor replaced.",
+    defaultBinding: "Mod+Shift+Backspace",
   },
   {
     id: "editor.unfoldHeading",
@@ -1330,7 +1418,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "view-actions",
     title: "Move line up",
     description:
-      "Move the current line (or selected lines) up in the note editor — reorders the markdown, so it sticks in the file. Works with Vim mode on or off.",
+      "Move the current line (or selected lines) up in the note editor. It reorders the markdown, so it sticks in the file. Works with Vim mode on or off.",
     defaultBinding: "Alt+ArrowUp",
   },
   {
@@ -1340,7 +1428,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     group: "view-actions",
     title: "Move line down",
     description:
-      "Move the current line (or selected lines) down in the note editor — reorders the markdown, so it sticks in the file. Works with Vim mode on or off.",
+      "Move the current line (or selected lines) down in the note editor. It reorders the markdown, so it sticks in the file. Works with Vim mode on or off.",
     defaultBinding: "Alt+ArrowDown",
   },
   {

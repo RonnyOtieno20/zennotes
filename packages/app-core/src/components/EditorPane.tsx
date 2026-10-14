@@ -151,6 +151,12 @@ import { shouldShowSelectionToolbar } from '../lib/cm-selection-toolbar'
 import { editorCursorPosition } from '../lib/editor-cursor-position'
 import { EditorSelectionToolbar } from './EditorSelectionToolbar'
 import { CloudConflictNoteBanner } from './CloudConflictNoteBanner'
+import {
+  AgentEditNoteBanner,
+  AgentReviewBar,
+  REVIEW_AGENT_EDITS_EVENT,
+  useAgentEditReview
+} from './AgentEditReview'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { LazyDiagramTabView, LazyPreview as Preview } from './LazyPreview'
 import { ConnectionsPanel } from './ConnectionsPanel'
@@ -1149,6 +1155,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   // does not re-run effects, and a deferred hydration mounts the view in a
   // later commit than the one that first ran the grammar binding effect.
   const [editorViewGeneration, setEditorViewGeneration] = useState(0)
+  // Review mode for an assistant's edits (AgentEditReview.tsx): empty until a
+  // review starts.
+  const agentReviewCompartmentRef = useRef<Compartment | null>(null)
   // history() lives in a compartment so we can reset undo history on a note
   // switch — otherwise Cmd+Z crosses notes and overwrites the current one (#247).
   // The outgoing note's history is set aside first and handed back when that
@@ -1183,6 +1192,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
    * sync effect updates it whenever we swap the view's document.
    */
   const viewPathRef = useRef<string | null>(null)
+  // Declared here, ahead of the layout effect that swaps the editor's
+  // document, so a review always ends before the pane shows another note.
+  const agentReviewLivePreview = useCallback(
+    (): Extension => (useStore.getState().livePreview ? currentWysiwygExtensions(viewPathRef.current) : []),
+    []
+  )
+  const agentReview = useAgentEditReview({
+    viewRef,
+    reviewCompartmentRef: agentReviewCompartmentRef,
+    livePreviewCompartmentRef,
+    livePreviewExtensions: agentReviewLivePreview,
+    activePath: activeTab
+  })
   /** The newest entry of the store's `recentPathRewrites` this editor has
    *  accounted for. Only newer ones can explain a path change as a rename, so
    *  an old rename can never make a real note switch look like one. */
@@ -1399,6 +1421,26 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     setActivePane,
     setFocusedPanel
   ])
+
+  // The palette's Review Agent Changes: the active pane opens the review,
+  // leaving Preview first, since the review happens in the editor.
+  const { requestReview: requestAgentReview } = agentReview
+  const reviewAgentChanges = useCallback(
+    (path: string) => {
+      if (modeRef.current === 'preview') applyPaneMode('edit')
+      requestAgentReview(path)
+    },
+    [applyPaneMode, requestAgentReview]
+  )
+  useEffect(() => {
+    if (!isActive) return
+    const handler = (event: Event): void => {
+      const path = (event as CustomEvent<{ path?: string }>).detail?.path
+      if (path) reviewAgentChanges(path)
+    }
+    window.addEventListener(REVIEW_AGENT_EDITS_EVENT, handler)
+    return () => window.removeEventListener(REVIEW_AGENT_EDITS_EVENT, handler)
+  }, [isActive, reviewAgentChanges])
 
   // `zen:toggle-outline` — routed only to the active pane, same pattern
   // as the connections toggle.
@@ -2006,6 +2048,8 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       const drawSelectionCompartment = new Compartment()
       const tabSizeCompartment = new Compartment()
       const historyCompartment = new Compartment()
+      const agentReviewCompartment = new Compartment()
+      agentReviewCompartmentRef.current = agentReviewCompartment
       vimCompartmentRef.current = vimCompartment
       harperCompartmentRef.current = harperCompartment
       editorKeymapCompartmentRef.current = editorKeymapCompartment
@@ -2065,6 +2109,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             void importPastedImagesRef.current?.(files, view)
           }),
           commentDecorationField,
+          agentReviewCompartment.of([]),
           wordWrapCompartment.of(s0.wordWrap ? EditorView.lineWrapping : []),
           scrolloffCompartment.of(scrollOff(s0.editorScrollOff)),
           markdownCompartment.of(
@@ -3695,7 +3740,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
               onDoubleClick={() => {
                 if (tab.preview) promoteTabInPane(paneId, tab.path)
               }}
-              title={tab.preview ? `${tab.title} — preview (double-click to keep open)` : undefined}
+              title={tab.preview ? `${tab.title} · preview (double-click to keep open)` : undefined}
               className="flex min-w-0 flex-1 items-center gap-1.5 truncate px-1.5 text-left"
             >
               {tab.isTasks && (
@@ -4060,6 +4105,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     content?.path ?? null,
     editorHydration
   )
+  const { flushPendingReview } = agentReview
+  useEffect(() => {
+    if (editorReady && mode !== 'preview') flushPendingReview()
+  }, [editorReady, mode, content?.path, flushPendingReview])
   const previewSourceMarkdown = showPreview ? content?.body ?? '' : ''
   const previewSettleKey = showPreview && content ? content.path : ''
   const { settledMarkdown: previewMarkdown, isStale: previewIsStale } = useSettledMarkdown(
@@ -4484,6 +4533,19 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
                   sibling that renders nothing keeps the editor's DOM in place
                   when it comes and goes. */}
               <CloudConflictNoteBanner path={content.path} />
+              <AgentEditNoteBanner
+                path={content.path}
+                reviewing={agentReview.session?.path === content.path}
+                onReview={() => reviewAgentChanges(content.path)}
+              />
+              {agentReview.session?.path === content.path && (
+                <AgentReviewBar
+                  session={agentReview.session}
+                  onAcceptAll={agentReview.acceptAll}
+                  onRejectAll={agentReview.rejectAll}
+                  onDone={agentReview.stopReview}
+                />
+              )}
               <div
                 className={[
                   'min-h-0 min-w-0 flex-1 overflow-hidden',

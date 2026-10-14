@@ -24,6 +24,7 @@ import { normalizeTasksExcludedFolder } from '@shared/tasks-excluded-folders'
 import { cloudSyncPathKey } from '@zennotes/shared-domain/cloud-sync'
 import { useCloudSyncStatusStore } from './lib/cloud-auto-sync'
 import type {
+  AgentEditSummary,
   AssetMeta,
   DateNotePatternSettings,
   DeletedAsset,
@@ -265,6 +266,7 @@ import { normalizeIgnoredKeys } from './lib/ignored-keys'
 import { normalizeApplicationSchemes } from '@shared/application-links'
 import { normalizeEditorTabSize } from './lib/editor-tab-size'
 import { recentNoteToggleTarget } from './lib/recent-note-toggle'
+import { whatsNewAtLaunch, whatsNewOnDemand, type WhatsNewView } from './lib/whats-new'
 
 import type { NoteSortOrder } from './lib/note-order'
 export type { NoteSortOrder } from './lib/note-order'
@@ -455,7 +457,8 @@ async function refreshVaultIndexes(): Promise<void> {
     state.refreshAssets(),
     state.loadCustomTemplates(),
     state.loadWorkflowIndex(),
-    state.refreshRootContentHidden()
+    state.refreshRootContentHidden(),
+    state.refreshAgentEdits()
   ])
   // A run the app died in the middle of left changes nobody was told about,
   // and this is the first moment anyone is back to be told. Dynamically
@@ -613,6 +616,11 @@ interface Prefs {
    *  so the title line stops drifting from the filename. Never adds a heading
    *  to a note that has none. (#455) */
   syncTitleHeadingOnRename: boolean
+  /** Keep what a note said before an assistant edits it through MCP, so the
+   *  edit can be reviewed. The MCP server reads it from config.toml. */
+  reviewAgentEdits: boolean
+  /** Send the anonymous install/update count (desktop). Portable. */
+  usageCount: boolean
   /** Auto-close markdown delimiters while typing: `**`+Space → `**|**`,
    *  ```` ``` ````+Enter expands a fenced block. Off restores plain typing. */
   markdownSnippets: boolean
@@ -779,6 +787,10 @@ interface Prefs {
   kanbanFolderRoot: string
   /** True once the user has dismissed the first-run onboarding wizard. */
   hasCompletedOnboarding: boolean
+  /** The version whose What’s New this device last showed, or on a fresh
+   *  install the version it started on (lib/whats-new.ts). Machine-local, not
+   *  portable: every copy of the app updates on its own. */
+  lastSeenWhatsNewVersion: string | null
 }
 
 export type TasksViewMode = 'list' | 'calendar' | 'kanban'
@@ -1111,6 +1123,8 @@ export const DEFAULT_PREFS: Prefs = {
   persistUndoHistory: false,
   defaultPaneMode: 'edit',
   syncTitleHeadingOnRename: true,
+  reviewAgentEdits: true,
+  usageCount: true,
   markdownSnippets: true,
   textReplacementsEnabled: true,
   textReplacements: { '->': '→' },
@@ -1193,7 +1207,8 @@ export const DEFAULT_PREFS: Prefs = {
   kanbanCardOrder: {},
   kanbanStatuses: [],
   kanbanFolderRoot: '',
-  hasCompletedOnboarding: false
+  hasCompletedOnboarding: false,
+  lastSeenWhatsNewVersion: null
 }
 /** Coerce any loaded prefs blob into a valid Prefs object, dropping
  *  anything unknown (e.g. tokyo-night left over from earlier versions). */
@@ -1312,6 +1327,9 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.syncTitleHeadingOnRename === 'boolean'
         ? p.syncTitleHeadingOnRename
         : DEFAULT_PREFS.syncTitleHeadingOnRename,
+    reviewAgentEdits:
+      typeof p.reviewAgentEdits === 'boolean' ? p.reviewAgentEdits : DEFAULT_PREFS.reviewAgentEdits,
+    usageCount: typeof p.usageCount === 'boolean' ? p.usageCount : DEFAULT_PREFS.usageCount,
     markdownSnippets:
       typeof p.markdownSnippets === 'boolean'
         ? p.markdownSnippets
@@ -1551,7 +1569,11 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
     hasCompletedOnboarding:
       typeof p.hasCompletedOnboarding === 'boolean'
         ? p.hasCompletedOnboarding
-        : DEFAULT_PREFS.hasCompletedOnboarding
+        : DEFAULT_PREFS.hasCompletedOnboarding,
+    lastSeenWhatsNewVersion:
+      typeof p.lastSeenWhatsNewVersion === 'string' && p.lastSeenWhatsNewVersion
+        ? p.lastSeenWhatsNewVersion
+        : DEFAULT_PREFS.lastSeenWhatsNewVersion
   }
 }
 // --- Portable config file integration (desktop) -----------------------------
@@ -1561,6 +1583,10 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
 // and the web fallback. `getConfigSync()` returns null on web (and when the
 // bridge is absent, e.g. tests) — we then behave exactly as before.
 let cachedInitialPrefs: Prefs | null = null
+/** Whether this launch began as a returning user's, read with the first
+ *  prefs load: What's New must not greet a fresh install whose user skips
+ *  the onboarding before the window's check runs. */
+let onboardedAtLaunch: boolean | null = null
 // True when a config file is available on this platform (desktop). Gates
 // whether savePrefs mirrors changes out to the file.
 let configFileEnabled = false
@@ -1625,6 +1651,7 @@ function loadPrefs(): Prefs {
   }
 
   cachedInitialPrefs = hadLocalStorage || configFileHadContent ? normalized : DEFAULT_PREFS
+  onboardedAtLaunch ??= cachedInitialPrefs.hasCompletedOnboarding
   return cachedInitialPrefs
 }
 
@@ -1644,6 +1671,25 @@ function pushPortableConfig(p: Prefs): void {
       /* ignore */
     }
   }, CONFIG_PUSH_DEBOUNCE_MS)
+}
+
+/** What's New belongs to the desktop app: the phones announce through their
+ *  stores, and a self-hosted web app updates with its server. */
+function isDesktopHost(): boolean {
+  if (typeof window === 'undefined' || !window.zen) return false
+  const info = window.zen.getAppInfo()
+  return (info.hostKind ?? info.runtime) === 'desktop'
+}
+
+/** Whether ZenNotes Cloud is connected, for leaving the Cloud card out of
+ *  What's New. Asked before the window opens, so the card never flashes and
+ *  vanishes; an answer that never comes counts as not connected. */
+async function cloudConnected(): Promise<boolean> {
+  try {
+    return (await window.zen.getCloudAccountStatus?.())?.state === 'connected'
+  } catch {
+    return false
+  }
 }
 
 function savePrefs(p: Prefs): void {
@@ -2375,6 +2421,8 @@ function collectPrefs(s: {
   persistUndoHistory: boolean
   defaultPaneMode: PaneMode
   syncTitleHeadingOnRename: boolean
+  reviewAgentEdits: boolean
+  usageCount: boolean
   markdownSnippets: boolean
   textReplacementsEnabled: boolean
   textReplacements: TextReplacements
@@ -2454,6 +2502,7 @@ function collectPrefs(s: {
   /** Folder board root (#730): group by the children of this folder; '' = each note's own folder. */
   kanbanFolderRoot: string
   hasCompletedOnboarding: boolean
+  lastSeenWhatsNewVersion: string | null
 }): Prefs {
   return {
     vimMode: s.vimMode,
@@ -2488,6 +2537,8 @@ function collectPrefs(s: {
     persistUndoHistory: s.persistUndoHistory,
     defaultPaneMode: s.defaultPaneMode,
     syncTitleHeadingOnRename: s.syncTitleHeadingOnRename,
+    reviewAgentEdits: s.reviewAgentEdits,
+    usageCount: s.usageCount,
     markdownSnippets: s.markdownSnippets,
     textReplacementsEnabled: s.textReplacementsEnabled,
     textReplacements: s.textReplacements,
@@ -2562,7 +2613,8 @@ function collectPrefs(s: {
     kanbanCardOrder: s.kanbanCardOrder,
     kanbanStatuses: s.kanbanStatuses,
     kanbanFolderRoot: s.kanbanFolderRoot,
-    hasCompletedOnboarding: s.hasCompletedOnboarding
+    hasCompletedOnboarding: s.hasCompletedOnboarding,
+    lastSeenWhatsNewVersion: s.lastSeenWhatsNewVersion
   }
 }
 
@@ -3025,6 +3077,10 @@ interface Store {
   defaultPaneMode: PaneMode
   /** Renaming a note rewrites its leading `# Heading` to match. Persisted. (#455) */
   syncTitleHeadingOnRename: boolean
+  /** Record assistant edits made through MCP for review. Persisted (portable). */
+  reviewAgentEdits: boolean
+  /** Send the anonymous install/update count (desktop). Persisted (portable). */
+  usageCount: boolean
   /** Auto-close markdown delimiters while typing. Persisted. */
   markdownSnippets: boolean
   textReplacementsEnabled: boolean
@@ -3217,6 +3273,10 @@ interface Store {
   kanbanFolderRoot: string
   /** True once the user has finished or skipped the first-run onboarding. */
   hasCompletedOnboarding: boolean
+  lastSeenWhatsNewVersion: string | null
+  whatsNewOpen: boolean
+  /** What the What’s New window shows while it is open. */
+  whatsNew: WhatsNewView | null
   /** ISO YYYY-MM-DD currently selected in the Calendar view. null = today. */
   tasksCalendarSelectedDate: string | null
   /** First-of-month anchor (ISO YYYY-MM-01) for the Calendar view's grid. */
@@ -3288,6 +3348,10 @@ interface Store {
   noteDirty: Record<string, boolean>
   /** Comment sidecars keyed by note path. Loaded lazily per open note. */
   noteComments: Record<string, NoteComment[]>
+  /** Notes an assistant edited through MCP that the user has not reviewed
+   *  yet, keyed by note path (docs/ideas/agent-edit-review.md). Empty on
+   *  hosts without `supportsAgentEditReview`. */
+  agentEdits: Record<string, AgentEditSummary>
   activeCommentId: string | null
   closedTabStack: ClosedTabEntry[]
 
@@ -3631,6 +3695,8 @@ interface Store {
   setPersistUndoHistory: (on: boolean) => void
   setDefaultPaneMode: (mode: PaneMode) => void
   setSyncTitleHeadingOnRename: (on: boolean) => void
+  setReviewAgentEdits: (on: boolean) => void
+  setUsageCount: (on: boolean) => void
   setMarkdownSnippets: (on: boolean) => void
   setTextReplacementsEnabled: (on: boolean) => void
   setTextReplacements: (replacements: TextReplacements) => void
@@ -3802,6 +3868,12 @@ interface Store {
   }) => Promise<number>
   /** Mark the first-run onboarding as complete (or skipped). Persists. */
   completeOnboarding: () => void
+  /** First launch of a version: record it, send the anonymous count (when
+   *  Settings allows it), and after an update open What’s New. Desktop only. */
+  showWhatsNewAfterUpdate: () => Promise<void>
+  /** The palette's What’s New in ZenNotes. */
+  openWhatsNew: () => Promise<void>
+  closeWhatsNew: () => void
   /** Re-open the first-run onboarding wizard. Persists. */
   restartOnboarding: () => void
   setFocusedPanel: (panel: Panel | null) => void
@@ -3866,6 +3938,10 @@ interface Store {
   /** Persist a specific note to disk. */
   persistNote: (path: string, duringFolderMutation?: boolean) => Promise<void>
   loadNoteComments: (path: string) => Promise<NoteComment[]>
+  /** Re-list every note with assistant edits to review. */
+  refreshAgentEdits: () => Promise<void>
+  /** Re-read one note's record after it changed on disk. */
+  refreshAgentEdit: (path: string) => Promise<void>
   addNoteComment: (input: NoteCommentInput) => Promise<NoteComment | null>
   updateNoteComment: (
     path: string,
@@ -4544,6 +4620,7 @@ function rewriteFolderWorkspace(
         : []
     }),
     tasksLoading: false,
+    agentEdits: remap(s.agentEdits, (summary, notePath) => ({ ...summary, notePath })),
     noteComments: remap(s.noteComments, (comments, notePath) =>
       comments.map((comment) => ({ ...comment, notePath }))
     ),
@@ -5831,6 +5908,8 @@ export const useStore = create<Store>((set, get) => {
   persistUndoHistory: loadPrefs().persistUndoHistory,
   defaultPaneMode: loadPrefs().defaultPaneMode,
   syncTitleHeadingOnRename: loadPrefs().syncTitleHeadingOnRename,
+  reviewAgentEdits: loadPrefs().reviewAgentEdits,
+  usageCount: loadPrefs().usageCount,
   markdownSnippets: loadPrefs().markdownSnippets,
   textReplacementsEnabled: loadPrefs().textReplacementsEnabled,
   textReplacements: loadPrefs().textReplacements,
@@ -5910,6 +5989,9 @@ export const useStore = create<Store>((set, get) => {
   kanbanStatuses: loadPrefs().kanbanStatuses,
   kanbanFolderRoot: loadPrefs().kanbanFolderRoot,
   hasCompletedOnboarding: loadPrefs().hasCompletedOnboarding,
+  lastSeenWhatsNewVersion: loadPrefs().lastSeenWhatsNewVersion,
+  whatsNewOpen: false,
+  whatsNew: null,
   vaultTasks: [],
   customThemes: [],
   customCodeLanguages: [],
@@ -5945,6 +6027,7 @@ export const useStore = create<Store>((set, get) => {
   noteContents: {},
   noteDirty: {},
   noteComments: {},
+  agentEdits: {},
   activeCommentId: null,
   closedTabStack: [],
 
@@ -7746,7 +7829,9 @@ export const useStore = create<Store>((set, get) => {
         tasksSurfaceVisible(get()) ? get().refreshTasks() : Promise.resolve(),
         // Templates ride the feed too (scope 'templates'), so a gap may have
         // swallowed a template saved on another device.
-        get().loadCustomTemplates()
+        get().loadCustomTemplates(),
+        // So do agent edit records (scope 'agent-edits').
+        get().refreshAgentEdits()
       ])
       const stateAfter = get()
       const openTabs = [...new Set(allLeaves(stateAfter.paneLayout).flatMap((leaf) => leaf.tabs))]
@@ -7813,6 +7898,11 @@ export const useStore = create<Store>((set, get) => {
     }
     if (ev.scope === 'comments') {
       await get().loadNoteComments(ev.path)
+      return
+    }
+    if (ev.scope === 'agent-edits') {
+      // An assistant edited the note through MCP, or a review moved on.
+      await get().refreshAgentEdit(ev.path)
       return
     }
     if (ev.scope === 'templates') {
@@ -8094,6 +8184,49 @@ export const useStore = create<Store>((set, get) => {
       await run
     } finally {
       if (pathSaveQueues.get(path) === run) pathSaveQueues.delete(path)
+    }
+  },
+
+  refreshAgentEdits: async () => {
+    const list = window.zen.listAgentEdits
+    if (!list || !window.zen.getCapabilities().supportsAgentEditReview) {
+      set({ agentEdits: {} })
+      return
+    }
+    const isCurrent = captureFolderActionContext(get)
+    try {
+      const summaries = await list()
+      if (!isCurrent()) return
+      set({ agentEdits: Object.fromEntries(summaries.map((summary) => [summary.notePath, summary])) })
+    } catch (err) {
+      console.error('listAgentEdits failed', err)
+    }
+  },
+
+  refreshAgentEdit: async (path) => {
+    const read = window.zen.readAgentEdit
+    if (!read || !window.zen.getCapabilities().supportsAgentEditReview) return
+    const isCurrent = captureFolderActionContext(get)
+    try {
+      const record = await read(path)
+      if (!isCurrent()) return
+      set((s) => {
+        const next = { ...s.agentEdits }
+        if (record) {
+          const latest = record.edits.at(-1)
+          next[path] = {
+            notePath: path,
+            agent: latest?.agent ?? 'Assistant',
+            at: latest?.at ?? 0,
+            edits: record.edits.length
+          }
+        } else {
+          delete next[path]
+        }
+        return { agentEdits: next }
+      })
+    } catch (err) {
+      console.error('readAgentEdit failed', err)
     }
   },
 
@@ -8947,6 +9080,14 @@ export const useStore = create<Store>((set, get) => {
   },
   setSyncTitleHeadingOnRename: (on) => {
     set({ syncTitleHeadingOnRename: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setReviewAgentEdits: (on) => {
+    set({ reviewAgentEdits: on })
+    savePrefs(collectPrefs(get()))
+  },
+  setUsageCount: (on) => {
+    set({ usageCount: on })
     savePrefs(collectPrefs(get()))
   },
   setMarkdownSnippets: (on) => {
@@ -9955,6 +10096,39 @@ export const useStore = create<Store>((set, get) => {
     set({ hasCompletedOnboarding: true })
     savePrefs(collectPrefs(get()))
   },
+  showWhatsNewAfterUpdate: async () => {
+    if (!isDesktopHost()) return
+    const current = window.zen.getAppInfo().version
+    const { updated, entries, record, count } = whatsNewAtLaunch({
+      lastSeen: get().lastSeenWhatsNewVersion,
+      current,
+      returningUser: onboardedAtLaunch ?? get().hasCompletedOnboarding
+    })
+    // Recorded before the window opens, so a second window starting with
+    // this one, or a crash with it open, does not show it twice.
+    if (record) {
+      set({ lastSeenWhatsNewVersion: current })
+      savePrefs(collectPrefs(get()))
+    }
+    // One anonymous count per fresh install and per update, never per launch
+    // (the recorded version above is what makes it once).
+    if (count && get().usageCount) void window.zen.sendUsageCount?.(count)
+    if (!updated) return
+    const showCloud = !(await cloudConnected())
+    if (!entries.length && !showCloud) return
+    set({ whatsNewOpen: true, whatsNew: { version: current, entries, showCloud } })
+  },
+  openWhatsNew: async () => {
+    if (!isDesktopHost()) return
+    const current = window.zen.getAppInfo().version
+    const entries = whatsNewOnDemand(current)
+    const showCloud = !(await cloudConnected())
+    set({
+      whatsNewOpen: true,
+      whatsNew: { version: entries[0]?.version ?? current, entries, showCloud }
+    })
+  },
+  closeWhatsNew: () => set({ whatsNewOpen: false, whatsNew: null }),
   restartOnboarding: () => {
     set({ hasCompletedOnboarding: false, settingsOpen: false })
     savePrefs(collectPrefs(get()))
@@ -10973,7 +11147,7 @@ export const useStore = create<Store>((set, get) => {
 
       const authToken = await promptApp({
         title: 'Auth Token',
-        description: "The server's auth token — leave blank if it doesn't need one.",
+        description: "The server's auth token. Leave blank if it doesn't need one.",
         placeholder: 'Optional',
         okLabel: 'Connect',
         allowEmptySubmit: true,

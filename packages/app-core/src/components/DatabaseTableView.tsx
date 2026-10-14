@@ -1017,7 +1017,7 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
   const chips = (
     <div className="flex flex-wrap gap-1">
       {selected.length === 0 ? (
-        <span className="text-ink-400">—</span>
+        <span className="text-ink-400">None</span>
       ) : (
         selected.map((v) => (
           <span
@@ -1087,9 +1087,9 @@ function SelectCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }:
                 <div className="px-3 py-2 text-xs text-ink-500">
                   {field.optionsSource
                     ? draft
-                      ? 'No matches — Enter adds it as an option.'
+                      ? 'No matches. Enter adds it as an option.'
                       : 'Type to search notes or add an option.'
-                    : 'No options yet — add one below.'}
+                    : 'No options yet. Add one below.'}
                 </div>
               )}
             </div>
@@ -1347,7 +1347,7 @@ function NoteCell({ field, value, editing, onStartEdit, onEndEdit, onCommit }: C
   const chips = (
     <div className="flex flex-wrap gap-1">
       {targets.length === 0 ? (
-        <span className="text-ink-400">—</span>
+        <span className="text-ink-400">None</span>
       ) : (
         targets.map((target) => {
           const note = resolveWikilinkTarget(notes, target)

@@ -43,7 +43,9 @@ import {
   osReleasePrettyName,
   OFFLINE_POLL_MS,
   OFFLINE_RETRY_BASE_MS,
-  OFFLINE_RETRY_MAX_MS
+  OFFLINE_RETRY_MAX_MS,
+  WINDOWS_ARM64_UPDATE_CHANNEL,
+  windowsUpdateChannel
 } from './updater'
 
 describe('installLabel (:version, issue #814)', () => {
@@ -92,6 +94,28 @@ describe('installLabel (:version, issue #814)', () => {
     installLabel({ ...packaged, platform: 'darwin', linuxFormat })
     installLabel({ ...packaged, platform: 'linux', isPackaged: false, linuxFormat })
     expect(linuxFormat).not.toHaveBeenCalled()
+  })
+})
+
+describe('windowsUpdateChannel (#928)', () => {
+  const channel = (platform: NodeJS.Platform, arch: string, runningUnderARM64Translation = false) =>
+    windowsUpdateChannel({ platform, arch, runningUnderARM64Translation })
+
+  it('sends the ARM64 build to the ARM64 feed the release publishes', () => {
+    expect(WINDOWS_ARM64_UPDATE_CHANNEL).toBe('latest-arm64')
+    expect(channel('win32', 'arm64')).toBe('latest-arm64')
+  })
+
+  it('moves an x64 copy under ARM64 emulation to the native build', () => {
+    expect(channel('win32', 'x64', true)).toBe('latest-arm64')
+  })
+
+  it('leaves x64 Windows, macOS and Linux on their default feeds', () => {
+    expect(channel('win32', 'x64')).toBeNull()
+    // electron-updater picks the Mac and Linux arm64 files itself.
+    expect(channel('darwin', 'arm64')).toBeNull()
+    expect(channel('darwin', 'x64', true)).toBeNull()
+    expect(channel('linux', 'arm64')).toBeNull()
   })
 })
 

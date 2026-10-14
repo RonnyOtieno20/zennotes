@@ -25,6 +25,7 @@ import { singleDashParagraphs } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
+import { headingIndentGuard } from '../lib/cm-heading-indent-guard'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { editorTabSize } from '../lib/editor-tab-size'
@@ -142,6 +143,9 @@ export function TemplateEditorModal({
         markdownLinkExtension,
         vimAwareMarkdownKeymap,
         markdownListIndentPlugin,
+        // Templates parse with their own markdown() above, not noteMarkdown(),
+        // so the heading indent guard (#925) is added here by hand.
+        headingIndentGuard(),
         headingFolding({
           showLevelLabels: useStore.getState().showHeadingLevelLabels
         }),

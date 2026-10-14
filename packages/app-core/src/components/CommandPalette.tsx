@@ -382,12 +382,12 @@ export function CommandPalette(): JSX.Element {
             </button>
             <span className="uppercase tracking-wide">
               {mode === 'theme'
-                ? 'Theme preview — ↵ to keep, esc to revert'
+                ? 'Theme preview · ↵ to keep, esc to revert'
                 : mode === 'workflow'
-                  ? 'Run workflow — ↵ to run, esc to return'
+                  ? 'Run workflow · ↵ to run, esc to return'
                   : vaultAction === 'new-window'
-                    ? 'Open vault in new window — ↵ to open, esc to return'
-                    : 'Switch vault — ↵ to open, esc to return'}
+                    ? 'Open vault in new window · ↵ to open, esc to return'
+                    : 'Switch vault · ↵ to open, esc to return'}
             </span>
           </div>
         )}

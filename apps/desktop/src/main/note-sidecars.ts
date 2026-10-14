@@ -1,7 +1,8 @@
-// A note's two app-owned sidecars, and moving a note (or a folder) together
-// with them. Comments live at `.zennotes/comments/<note>.comments.json` and
-// the creation date at `.zennotes/note-metadata/<note>.metadata.json` (see
-// note-creation-metadata.ts). Desktop main, the MCP server and the workflow
+// A note's app-owned sidecars, and moving a note (or a folder) together with
+// them. Comments live at `.zennotes/comments/<note>.comments.json`, the
+// creation date at `.zennotes/note-metadata/<note>.metadata.json` (see
+// note-creation-metadata.ts), and an assistant's unreviewed edit at
+// `.zennotes/agent-edits/<note>.json` (see agent-edit-files.ts). Desktop main, the MCP server and the workflow
 // applier all move notes, and the MCP server cannot import vault.ts (it pulls
 // in Electron), so this stays free of Electron and is the one place that knows
 // how a note's sidecars travel with it.
@@ -10,6 +11,7 @@ import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { NOTE_COMMENTS_DIR, NOTE_COMMENTS_SUFFIX } from '@shared/note-comments'
 import { noteMetadataPath, removeNoteCreation } from './note-creation-metadata'
+import { agentEditPath, removeAgentEditRecord } from './agent-edit-files'
 
 const INTERNAL_VAULT_DIR = '.zennotes'
 
@@ -136,12 +138,16 @@ export async function relocateNote(
   if (!(await pathExists(toAbs))) {
     if (await pathExists(toComments)) throw new Error(leftoverCommentsMessage(root, toAbs))
     await removeNoteCreation(root, toRel)
+    // Like a creation date, an edit record with no note beside it belongs to
+    // nobody, and reviewing it against another note would be wrong.
+    await removeAgentEditRecord(root, toRel)
   }
   await relocateFolderTrees(
     [
       [resolveSafe(root, fromRel), toAbs],
       [noteCommentsPath(root, fromRel), toComments],
-      [await noteMetadataPath(root, fromRel), await noteMetadataPath(root, toRel)]
+      [await noteMetadataPath(root, fromRel), await noteMetadataPath(root, toRel)],
+      [agentEditPath(root, fromRel), agentEditPath(root, toRel)]
     ],
     persistSettings
   )

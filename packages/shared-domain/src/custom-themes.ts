@@ -254,7 +254,7 @@ export function parseThemeManifest(raw: unknown, slug: string): ThemeManifest {
 }
 
 const SCAFFOLD_HEADER = (name: string, slug?: string): string =>
-  `/* ${name} — a ZenNotes theme.
+  `/* ${name}: a ZenNotes theme.
  *
  * Only this file's CSS is active while the theme is selected, so :root is safe
  * to use unscoped. Put dark-mode overrides under [data-theme-mode="dark"].

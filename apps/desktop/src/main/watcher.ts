@@ -2,6 +2,7 @@ import path from 'node:path'
 import chokidar, { FSWatcher } from 'chokidar'
 import type { NoteFolder, VaultChangeEvent, VaultChangeKind, VaultSettings } from '@shared/ipc'
 import { databaseCsvPathFor } from '@shared/databases'
+import { AGENT_EDITS_DIR, AGENT_EDITS_SUFFIX } from '@shared/agent-edits'
 import { folderForRelativePath, getVaultSettings, isAtomicWriteTempPath } from './vault'
 
 const ATTACHMENTS_DIRS = new Set(['assets', 'attachements', '_assets'])
@@ -10,6 +11,7 @@ const VAULT_SETTINGS_RELATIVE_PATH = `${INTERNAL_VAULT_DIR}/vault.json`
 const NOTE_COMMENTS_PREFIX = `${INTERNAL_VAULT_DIR}/comments/`
 const NOTE_COMMENTS_SUFFIX = '.comments.json'
 const TEMPLATES_PREFIX = `${INTERNAL_VAULT_DIR}/templates/`
+const AGENT_EDITS_PREFIX = `${INTERNAL_VAULT_DIR}/${AGENT_EDITS_DIR}/`
 
 function toPosix(p: string): string {
   return p.split(path.sep).join('/')
@@ -35,6 +37,14 @@ function commentsNotePath(root: string, abs: string): string | null {
   const rel = relativeVaultPath(root, abs)
   if (!rel.startsWith(NOTE_COMMENTS_PREFIX) || !rel.endsWith(NOTE_COMMENTS_SUFFIX)) return null
   return rel.slice(NOTE_COMMENTS_PREFIX.length, -NOTE_COMMENTS_SUFFIX.length)
+}
+
+/** The note an agent edit record belongs to. A record being written is a
+ *  `.tmp` beside it and stays out until it is renamed into place. */
+function agentEditNotePath(root: string, abs: string): string | null {
+  const rel = relativeVaultPath(root, abs)
+  if (!rel.startsWith(AGENT_EDITS_PREFIX) || !rel.endsWith(AGENT_EDITS_SUFFIX)) return null
+  return rel.slice(AGENT_EDITS_PREFIX.length, -AGENT_EDITS_SUFFIX.length) || null
 }
 
 /** A custom template: a `.md` file directly inside `.zennotes/templates/`,
@@ -139,6 +149,20 @@ export class VaultWatcher {
             path: commentsPath,
             folder: folderForRelativePath(commentsPath, this.settings) ?? 'inbox',
             scope: 'comments'
+          })
+        )
+        return
+      }
+      // An assistant edited a note through MCP, or a review moved on: the
+      // note's banner and the review list follow the record.
+      const agentEditPath = agentEditNotePath(this.root, absPath)
+      if (agentEditPath) {
+        this.classified(() =>
+          onEvent({
+            kind,
+            path: agentEditPath,
+            folder: folderForRelativePath(agentEditPath, this.settings) ?? 'inbox',
+            scope: 'agent-edits'
           })
         )
         return

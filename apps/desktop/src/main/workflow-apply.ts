@@ -99,6 +99,7 @@ import {
 import { WORKFLOWS_REL_DIR } from '@shared/workflows-view'
 import { isEphemeralRoot } from './ephemeral-vaults'
 import { noteMetadataPath, noteMetadataRoot, prepareNoteCreation } from './note-creation-metadata'
+import { agentEditPath, agentEditsRoot } from './agent-edit-files'
 import {
   leftoverCommentsMessage,
   noteCommentsPath,
@@ -206,15 +207,17 @@ interface NoteJournalEntry extends WorkflowJournalEntry {
   link?: string
 }
 
-/** The two files `.zennotes` keeps for a note. */
-type SidecarKind = 'comments' | 'metadata'
+/** The files `.zennotes` keeps for a note: its comments, its creation date,
+ *  and an assistant's edits waiting for review (agent-edit-files.ts). */
+type SidecarKind = 'comments' | 'metadata' | 'agent-edits'
 
-const SIDECAR_KINDS: readonly SidecarKind[] = ['comments', 'metadata']
+const SIDECAR_KINDS: readonly SidecarKind[] = ['comments', 'metadata', 'agent-edits']
 
 /** How a failure names a sidecar, since the user knows it by what it holds. */
 const SIDECAR_LABELS: Record<SidecarKind, string> = {
   comments: 'comments',
-  metadata: 'creation date'
+  metadata: 'creation date',
+  'agent-edits': 'assistant edits waiting for review'
 }
 
 /**
@@ -322,11 +325,15 @@ export function resolveVaultPath(root: string, rel: string): string {
  */
 async function sidecarPathOf(root: string, note: string, sidecar: SidecarKind): Promise<string> {
   const rel = toPosix(path.relative(path.resolve(root), resolveVaultPath(root, note)))
-  return sidecar === 'comments' ? noteCommentsPath(root, rel) : await noteMetadataPath(root, rel)
+  if (sidecar === 'comments') return noteCommentsPath(root, rel)
+  if (sidecar === 'agent-edits') return agentEditPath(root, rel)
+  return await noteMetadataPath(root, rel)
 }
 
 function sidecarRootOf(root: string, sidecar: SidecarKind): string {
-  return sidecar === 'comments' ? noteCommentsRoot(root) : noteMetadataRoot(root)
+  if (sidecar === 'comments') return noteCommentsRoot(root)
+  if (sidecar === 'agent-edits') return agentEditsRoot(root)
+  return noteMetadataRoot(root)
 }
 
 /** Every vault path an op could touch, for the pre-flight containment check. */
@@ -1892,7 +1899,7 @@ function parseSidecarEntry(value: unknown): LedgerSidecarEntry | null {
   if (!isRecord(value)) return null
   const { note, sidecar, before, after } = value
   if (typeof note !== 'string') return null
-  if (sidecar !== 'comments' && sidecar !== 'metadata') return null
+  if (sidecar !== 'comments' && sidecar !== 'metadata' && sidecar !== 'agent-edits') return null
   if (typeof before !== 'string' && before !== null) return null
   const entry: LedgerSidecarEntry = { note, sidecar, before }
   if (typeof after === 'string' || after === null) entry.after = after

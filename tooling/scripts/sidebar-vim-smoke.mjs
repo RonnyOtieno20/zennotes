@@ -157,6 +157,15 @@ async function until(client, expression, timeoutMs = 4000, intervalMs = 80) {
   }
   return null
 }
+
+// ZenNotes 2.68.0 opens What's New about a second after launch for a returning
+// user, and this profile counts as one (it has a config.toml). The window takes
+// focus and the keys, so close it before driving the app.
+async function dismissWhatsNew(client) {
+  if (!(await until(client, `!!document.querySelector('[data-whats-new]')`, 4000))) return
+  await evaluate(client, `document.querySelector('[data-whats-new-close]')?.click()`)
+  await until(client, `!document.querySelector('[data-whats-new]')`, 2000)
+}
 function pressKey(client, key, shift = false) {
   const code = key.length === 1 ? `Key${key.toUpperCase()}` : key
   return evaluate(client, `(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, code: ${JSON.stringify(code)}, shiftKey: ${shift}, bubbles: true, cancelable: true })); return true; })()`)
@@ -224,6 +233,7 @@ async function main() {
     check('vault loads and notes render in the sidebar', !!ready,
       ready ? '' : `log tail: ${JSON.stringify(log.slice(-300))}`)
     if (!ready) throw new Error('notes never rendered — aborting')
+    await dismissWhatsNew(client)
     await sleep(300)
 
     // 1. Windowing is active: every row present, but most are cheap placeholders.

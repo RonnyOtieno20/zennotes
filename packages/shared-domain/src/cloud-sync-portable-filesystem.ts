@@ -15,6 +15,7 @@ import {
 import type { CloudSyncRepository, CloudSyncRepositoryConflict } from './cloud-sync-coordinator'
 import type { CloudSyncLocalItem, CloudSyncTrackedItem } from './cloud-sync-engine'
 import type { CloudSyncDownloadSource, CloudSyncStagedFile, CloudSyncStagedConflict } from './cloud-sync-content'
+import { randomUUID } from './random-uuid'
 
 const TEXT_EXTENSIONS = new Set([
   '.base',
@@ -394,7 +395,7 @@ export class PortableCloudSyncRepository implements CloudSyncRepository {
     const name = path.slice(slash + 1)
     const entries = await this.fs.readdir(slash < 0 ? '' : path.slice(0, slash))
     if (entries.some((entry) => entry.name.normalize('NFC') === name)) return
-    const id = crypto.randomUUID()
+    const id = randomUUID()
     const detour = `${path}.${id}.tmp`
     const record = `${RESPELLING_RECORDS}/${id}.json`
     await this.fs.writeText(record, JSON.stringify({ path, detour }))

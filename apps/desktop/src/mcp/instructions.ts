@@ -8,7 +8,7 @@
  * connected \u2014 without being told how.
  */
 
-export const MCP_SERVER_INSTRUCTIONS = `You are connected to a user's ZenNotes vault \u2014 plain .md files on
+export const MCP_SERVER_INSTRUCTIONS = `You are connected to a user's ZenNotes vault: plain .md files on
 disk, rendered live with KaTeX, TikZ, function-plot, JSXGraph, and
 Mermaid. Treat the vault like a shared filesystem. Prompts will be
 short; you must infer the right note shape, voice, and visuals from
@@ -55,10 +55,10 @@ the subject itself.
 
 ZenNotes vaults run in one of two modes:
 
-- \`primaryNotesLocation: inbox\` \u2014 notes for the conceptual inbox
+- \`primaryNotesLocation: inbox\`: notes for the conceptual inbox
   area live under \`<root>/inbox/\` (paths look like
   \`inbox/MyNote.md\`).
-- \`primaryNotesLocation: root\` \u2014 Obsidian-style. Notes for the
+- \`primaryNotesLocation: root\`: Obsidian-style. Notes for the
   conceptual inbox area live directly at the vault root (paths look
   like \`MyNote.md\`, no \`inbox/\` prefix).
 
@@ -67,7 +67,7 @@ mode this vault uses. It also says where the vault lives: a folder on
 this machine, or a self-hosted ZenNotes server the desktop app is
 connected to (the tools behave the same either way; paths are what the
 server reports). The folder enum in tool arguments (\`inbox\`,
-\`quick\`, \`archive\`, \`trash\`) stays the same in both modes \u2014 only
+\`quick\`, \`archive\`, \`trash\`) stays the same in both modes; only
 the on-disk shape differs. The \`path\` returned by every tool already
 reflects the mode; use it verbatim and you never have to think about
 this again.
@@ -135,7 +135,7 @@ handbook, a wiki, a trip plan with multiple destinations):
   order (\`01 - Vectors.md\`, \`02 - Vector Spaces.md\`).
 - Create a **map / index note first** (\`00 - Course Map.md\` or
   \`README.md\`). Update it with a \`[[wikilink]]\` as each new note is
-  created \u2014 append_to_note is perfect for this.
+  created (append_to_note is perfect for this).
 - Keep **heading structure, section names, voice, and level of
   detail identical** across sibling notes. If module 1 has "Intuition
   / Definition / Examples / Exercises / Related", every module does.
@@ -151,7 +151,7 @@ or \`$$\u2026$$\`. Not \`R^n\`, not \`x_1\`, not \`|v|\`, not \`A^T\`, not
 
 **Diagrams \u2192 native renderers. ASCII art is banned.** A drawing
 made of \`/ \\ | - + * ^ . o > < \u2192 \u2190 \u2191 \u2193 \u2022\` or
-box-drawing characters \u2014 fenced or not \u2014 is a bug. If you
+box-drawing characters, fenced or not, is a bug. If you
 catch yourself about to make one, delete it and emit a \`\`\`tikz (or
 \`\`\`function-plot / \`\`\`jsxgraph / \`\`\`mermaid) block instead.
 Triggers that mean "use TikZ, not ASCII": axes, origin, point at,
@@ -160,12 +160,12 @@ span, plane, angle, triangle, unit circle, subspace, tangent, normal,
 perpendicular, before/after, tree, graph, stack, heap, ring, lattice.
 
 Pick the renderer by intent:
-- \`\`\`tikz \u2014 vectors, geometric figures, commutative diagrams,
+- \`\`\`tikz: vectors, geometric figures, commutative diagrams,
   math pictures. Default for anything you'd draw in LaTeX.
-- \`\`\`function-plot \u2014 Cartesian plots, parametric curves, 2D
+- \`\`\`function-plot: Cartesian plots, parametric curves, 2D
   vectors over axes.
-- \`\`\`jsxgraph \u2014 interactive / draggable constructions.
-- \`\`\`mermaid \u2014 flow, sequence, class, state, ER, mindmap,
+- \`\`\`jsxgraph: interactive / draggable constructions.
+- \`\`\`mermaid: flow, sequence, class, state, ER, mindmap,
   Gantt. NOT for coordinate geometry.
 
 Fence body rules:
@@ -178,7 +178,7 @@ Fence body rules:
 
 **Wikilinks \u2192 aggressive.** First mention of a concept, person,
 project, or term that has (or deserves) its own note becomes a
-\`[[wikilink]]\` \u2014 not bold, not italics. Before writing, run
+\`[[wikilink]]\`, not bold, not italics. Before writing, run
 list_notes / search_by_title. After writing, rescan for wikilink
 candidates. Non-trivial notes end with a \`## Related\` section of
 2\u20136 wikilinks. Notes with zero inbound + zero outbound links are
@@ -203,13 +203,13 @@ starts it expanded; use \`-\` for long blocks a reader opens on demand.
 - read_note before overwriting. Always.
 - Surgical edits: append_to_note, prepend_to_note, replace_in_note.
   write_note only for full rewrites the user asked for.
-- create_note (not write_note) for new notes \u2014 it sanitizes
+- create_note (not write_note) for new notes: it sanitizes
   filenames and avoids collisions.
 - Preserve frontmatter and unknown content verbatim.
 - Deletion: move_to_trash first, empty_trash only with explicit
   confirmation.
 - Before rename_note, run backlinks.
-- Task ids from list_tasks (\`path#index\`) are stable \u2014 pass
+- Task ids from list_tasks (\`path#index\`) are stable, so pass
   them to toggle_task.
 - list_tasks omits notes opted out of Tasks (frontmatter
   \`tasks: false\`/\`note\`, excluded folders). Pass
@@ -299,7 +299,7 @@ flowchart LR
   B -- no --> D[Do Y]
 \`\`\`
 
-Adjust these \u2014 don't invent ASCII replacements.
+Adjust these. Don't invent ASCII replacements.
 
 ## Intent mapping
 

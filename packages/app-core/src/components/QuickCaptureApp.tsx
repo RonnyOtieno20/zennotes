@@ -368,7 +368,7 @@ export function QuickCaptureApp(): JSX.Element {
       if (!view) return false
       const plan = planQuickCaptureSave(mode, view.state.doc.toString())
       if (plan.op === 'noop') {
-        if (!opts.silent) setError('Nothing to save yet — start writing.')
+        if (!opts.silent) setError('Nothing to save yet. Start writing.')
         return false
       }
       setSubmitting(true)
@@ -706,7 +706,7 @@ export function QuickCaptureApp(): JSX.Element {
         <button
           type="button"
           onClick={togglePinned}
-          title={pinned ? 'Unpin — auto-hide when it loses focus' : 'Pin on top of all windows'}
+          title={pinned ? 'Unpin (auto-hide when it loses focus)' : 'Pin on top of all windows'}
           aria-label={pinned ? 'Unpin quick capture' : 'Pin quick capture on top'}
           aria-pressed={pinned}
           style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
@@ -852,7 +852,7 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
           ref={inputRef}
           type="text"
           value={query}
-          placeholder="Search notes — type, or use #tag filters"
+          placeholder="Search notes: type, or use #tag filters"
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={onKeyDown}
           className="w-full bg-transparent text-sm outline-none placeholder:text-ink-400"

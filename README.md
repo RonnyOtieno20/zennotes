@@ -41,7 +41,10 @@ Or download the `.dmg` for your chip, open it, and drag **ZenNotes** to Applicat
 
 ### Windows
 
-Download and run `ZenNotes-<version>-win-x64.exe`.
+Download and run the installer for your PC:
+
+- Intel and AMD: `ZenNotes-<version>-win-x64.exe`
+- ARM (Snapdragon and other Windows on ARM): `ZenNotes-<version>-win-arm64.exe`
 
 ### Linux
 

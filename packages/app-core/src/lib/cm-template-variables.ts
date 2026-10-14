@@ -16,7 +16,7 @@ export const TEMPLATE_VARIABLES: TemplateVariable[] = [
   {
     name: 'date:FORMAT',
     insert: '{{date:YYYY-MM-DD}}',
-    detail: 'Custom date format — yyyy MM dd EEEE ww (same tokens as note patterns)'
+    detail: 'Custom date format: yyyy MM dd EEEE ww (same tokens as note patterns)'
   },
   { name: 'time', insert: '{{time}}', detail: 'Current time (HH:mm)' },
   { name: 'week', insert: '{{week}}', detail: 'ISO week number' },

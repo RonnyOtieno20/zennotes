@@ -11,6 +11,7 @@ import type { CloudAuthDeepLinkRequest } from "./deep-links";
 const PENDING_AUTH_FILE = "cloud-auth-pending.json";
 const CLOUD_ACCOUNT_FILE = "cloud-account.json";
 const AUTH_LIFETIME_MS = 5 * 60 * 1000;
+const REVOKE_TIMEOUT_MS = 5_000;
 const PRODUCTION_CLOUD_BASE_URL = "https://zennotes.org";
 const DEVELOPMENT_CLOUD_BASE_URL = PRODUCTION_CLOUD_BASE_URL;
 /** The Laravel Cloud origin 2.28.0 shipped with. The deployment moved to
@@ -45,6 +46,7 @@ export interface CloudAuthManagerDependencies {
   randomState?: () => string;
   randomVerifier?: () => string;
   allowInsecureLocalDevelopment?: boolean;
+  revokeTimeoutMs?: number;
 }
 
 export class CloudAuthManager {
@@ -197,12 +199,56 @@ export class CloudAuthManager {
   async logout(): Promise<CloudAccountStatus> {
     const storedAccount = await this.readJson<unknown>(CLOUD_ACCOUNT_FILE);
     const account = isCloudAccount(storedAccount) ? storedAccount : null;
-    if (account) await this.dependencies.deleteSecret(account.base_url);
+    if (account) {
+      await this.revokeDevice(account);
+      await this.dependencies.deleteSecret(account.base_url);
+    }
     await Promise.all([
       this.removeFile(CLOUD_ACCOUNT_FILE),
       this.removeFile(PENDING_AUTH_FILE),
     ]);
     return { state: "disconnected", account: null };
+  }
+
+  /** Ask the service to revoke this device and every token it holds, as
+   *  Connected apps on the website does, while the token still exists to ask
+   *  with. Signing out never depends on the answer: offline, after a
+   *  failure, or once the service has kept it waiting a few seconds, it
+   *  signs out anyway, and the device stays listed on the website until it
+   *  is removed there. A legacy account asks the origin its token moved to. */
+  private async revokeDevice(account: CloudAccount): Promise<void> {
+    try {
+      const token = await this.dependencies.getSecret(account.base_url);
+      if (!token) return;
+      const baseUrl = normalizeCloudBaseUrl(
+        account.base_url === LEGACY_CLOUD_BASE_URL
+          ? PRODUCTION_CLOUD_BASE_URL
+          : account.base_url,
+        this.dependencies.allowInsecureLocalDevelopment ?? false,
+      );
+      const response = await this.fetchImplementation(
+        `${baseUrl}/api/v1/devices/current`,
+        {
+          method: "DELETE",
+          headers: {
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          redirect: "error",
+          signal: AbortSignal.timeout(
+            this.dependencies.revokeTimeoutMs ?? REVOKE_TIMEOUT_MS,
+          ),
+        },
+      );
+      // 401 means the token is already gone, which is what was asked for.
+      if (!response.ok && response.status !== 401) {
+        console.warn(
+          `[cloud] sign-out could not revoke this device (HTTP ${response.status})`,
+        );
+      }
+    } catch (error) {
+      console.warn("[cloud] sign-out could not revoke this device", error);
+    }
   }
 
   /** Move a legacy-origin account to the production origin: rewrite the

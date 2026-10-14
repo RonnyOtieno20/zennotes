@@ -17,6 +17,7 @@ import {
   ensureVaultLayout,
   folderForRelativePath,
   forgetLocalVault,
+  generateDemoTour,
   getVaultSettings,
   importFiles,
   importPastedImage,
@@ -38,6 +39,7 @@ import {
   renameLocalVault,
   deleteFolder,
   readNoteComments,
+  removeDemoTour,
   writeNoteComments,
   restoreDeletedAsset,
   restoreFromTrash,
@@ -1302,6 +1304,41 @@ describe('listNotes asset embeds (#185 usage)', () => {
     const note = notes.find((n) => n.path === 'inbox/n.md')
     expect(note?.assetEmbeds.sort()).toEqual(['GreenGrass.jpg', 'assets/doc.pdf', 'photo.png'])
     expect(note?.wikilinks).toEqual(['Some Note']) // note links stay separate
+  })
+})
+
+describe('demo tour under its older note names', () => {
+  // Built from its code point so this file never contains the character itself.
+  const LONG_DASH = String.fromCharCode(0x2014)
+  const olderStart = `inbox/demo/00 ${LONG_DASH} Start Here.md`
+  const olderMath = `inbox/demo/05b ${LONG_DASH} Math Diagrams.md`
+  const ownNote = 'inbox/demo/My own note.md'
+
+  async function vaultWithOlderTour(): Promise<string> {
+    const root = await makeTempDir('zennotes-demo-tour-')
+    await ensureVaultLayout(root)
+    await mkdir(path.join(root, 'inbox', 'demo'), { recursive: true })
+    for (const rel of [olderStart, olderMath, ownNote]) {
+      await writeFile(path.join(root, rel), 'older\n')
+    }
+    return root
+  }
+
+  it('regenerating replaces the older files instead of writing a second tour', async () => {
+    const root = await vaultWithOlderTour()
+    const result = await generateDemoTour(root)
+    const names = await fsPromises.readdir(path.join(root, 'inbox', 'demo'))
+    expect(names.filter((name) => name.includes(LONG_DASH))).toEqual([])
+    expect(names).toContain('00 Start Here.md')
+    expect(names).toContain('My own note.md')
+    expect(result.notePaths).toContain('inbox/demo/00 Start Here.md')
+  })
+
+  it('removing deletes the older files too and reports them', async () => {
+    const root = await vaultWithOlderTour()
+    const result = await removeDemoTour(root)
+    expect(result.notePaths).toEqual(expect.arrayContaining([olderStart, olderMath]))
+    expect(await fsPromises.readdir(path.join(root, 'inbox', 'demo'))).toEqual(['My own note.md'])
   })
 })
 

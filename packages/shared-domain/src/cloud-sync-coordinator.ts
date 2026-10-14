@@ -41,7 +41,7 @@ import { mergeCloudSyncText, resolveCloudSyncMerge } from './cloud-sync-merge'
 import {
   validateCloudSyncContentReference, validateCloudSyncDownloadInstruction,
   cloudSyncStagedHandle, releaseCloudSyncStagedFile, throwIfCloudSyncCancelled,
-  type CloudSyncDownloadSource, type CloudSyncStagedFile, type CloudSyncStagedConflict
+  type CloudContentDecryptor, type CloudSyncDownloadSource, type CloudSyncStagedFile, type CloudSyncStagedConflict
 } from './cloud-sync-content'
 
 const MUTATION_BATCH_SIZE = 100
@@ -66,6 +66,8 @@ export interface CloudSyncRemote {
   readonly requiresContentReferenceHost?: boolean
   negotiateContentReferences?(): Promise<boolean>
   download?(vaultId: string, itemId: string, revision: number): Promise<CloudSyncDownloadResponse>
+  /** The decryptor for an end-to-end encrypted vault, or null for a readable one. */
+  contentDecryptor?(vaultId: string): Promise<CloudContentDecryptor | null>
   /** Host memory budget for estimated bulk responses, capped at the shared
    * default. Hosts must preserve requested manifest page/perPage values. */
   readonly bootstrapContentPageBytes?: number
@@ -1105,9 +1107,14 @@ export class CloudSyncCoordinator {
     }
     const ref = Object.freeze(validateCloudSyncContentReference(reference))
     throwIfCloudSyncCancelled(this.remote.downloadSignal)
+    const decryptor = ref.encrypted ? await this.remote.contentDecryptor?.(this.vaultId) : undefined
+    if (ref.encrypted && !decryptor) {
+      throw new Error('This host cannot decrypt content from an end-to-end encrypted vault.')
+    }
     const file = await this.repository.stageCloudContent({
       reference: ref, signal: this.remote.downloadSignal, previewLimitBytes: CONFLICT_PREVIEW_LIMIT_BYTES,
       allowInsecureLoopback: this.remote.allowInsecureLoopbackDownloads,
+      ...(decryptor ? { decryptor } : {}),
       getInstruction: async () => {
         throwIfCloudSyncCancelled(this.remote.downloadSignal)
         return validateCloudSyncDownloadInstruction(

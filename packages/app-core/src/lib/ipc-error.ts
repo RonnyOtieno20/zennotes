@@ -5,8 +5,9 @@ export function humanIpcError(err: unknown, fallback: string): string {
   const raw = err instanceof Error ? err.message : ''
   const message = raw
     .replace(/^Error invoking remote method '[^']*':\s*/, '')
-    // Custom error classes arrive by name ("CloudServiceRequestError: ...").
-    .replace(/^(?:[A-Z][A-Za-z]*)?Error:\s*/, '')
+    // Custom error classes arrive by name ("CloudServiceRequestError: ...",
+    // "CloudE2eeError: ..."), digits included.
+    .replace(/^(?:[A-Z][A-Za-z0-9]*)?Error:\s*/, '')
     .trim()
   return message || fallback
 }

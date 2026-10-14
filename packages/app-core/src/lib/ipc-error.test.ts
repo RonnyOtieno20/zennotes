@@ -11,6 +11,9 @@ describe('humanIpcError', () => {
     expect(
       humanIpcError(wrapped('CloudServiceRequestError: This backup would exceed your plan limits.'), 'x')
     ).toBe('This backup would exceed your plan limits.')
+    expect(
+      humanIpcError(wrapped('CloudE2eeError: That passphrase does not unlock your encryption.'), 'x')
+    ).toBe('That passphrase does not unlock your encryption.')
     expect(humanIpcError(new TypeError('fetch failed'), 'x')).toBe('fetch failed')
     expect(humanIpcError('not an error', 'Fallback.')).toBe('Fallback.')
   })

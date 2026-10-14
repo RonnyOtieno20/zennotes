@@ -250,6 +250,15 @@ async function until(client, expression, timeoutMs = 4000, intervalMs = 80) {
   return null
 }
 
+// ZenNotes 2.68.0 opens What's New about a second after launch for a returning
+// user, and this profile counts as one (it has a config.toml). The window takes
+// focus and the keys, so close it before driving the app.
+async function dismissWhatsNew(client) {
+  if (!(await until(client, `!!document.querySelector('[data-whats-new]')`, 4000))) return
+  await evaluate(client, `document.querySelector('[data-whats-new-close]')?.click()`)
+  await until(client, `!document.querySelector('[data-whats-new]')`, 2000)
+}
+
 async function press(client, key, options = {}) {
   const code =
     options.code ??
@@ -499,6 +508,7 @@ async function main() {
       JSON.stringify(editorDiagnostic)
     )
     if (!noteReady || !editorReady) throw new Error('Editor did not become ready')
+    await dismissWhatsNew(client)
     await focusEditor(client)
 
     await ensureEditorFocus(client)

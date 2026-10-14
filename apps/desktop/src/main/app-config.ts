@@ -39,12 +39,12 @@ interface ScalarFieldMap {
 }
 
 // Order sections are emitted in. Keeps the file stable across rewrites.
-const SECTION_ORDER = ['vim', 'search', 'editor', 'appearance', 'typography', 'view'] as const
+const SECTION_ORDER = ['vim', 'search', 'editor', 'appearance', 'typography', 'view', 'mcp', 'privacy'] as const
 
 // Scalar (string / number / boolean) portable prefs → [section].key (snake_case).
 const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   // vim
-  vimMode: { section: 'vim', tomlKey: 'enabled', comment: 'true | false — CodeMirror Vim bindings' },
+  vimMode: { section: 'vim', tomlKey: 'enabled', comment: 'true | false: CodeMirror Vim bindings' },
   vimInsertEscape: {
     section: 'vim',
     tomlKey: 'insert_escape',
@@ -63,7 +63,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   vimWrappedLineMotions: {
     section: 'vim',
     tomlKey: 'wrapped_line_motions',
-    comment: 'display | logical — how $, I, A and dependent operators treat soft-wrapped lines'
+    comment: 'display | logical: how $, I, A and dependent operators treat soft-wrapped lines'
   },
   whichKeyHints: {
     section: 'vim',
@@ -116,6 +116,16 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     section: 'editor',
     tomlKey: 'sync_title_heading_on_rename',
     comment: "renaming a note rewrites its leading '# heading' to match"
+  },
+  reviewAgentEdits: {
+    section: 'mcp',
+    tomlKey: 'review_agent_edits',
+    comment: 'keep what a note said before an assistant edits it through MCP, so you can review the change'
+  },
+  usageCount: {
+    section: 'privacy',
+    tomlKey: 'usage_count',
+    comment: 'send an anonymous count when ZenNotes installs or updates: version, OS, architecture, install kind; no identifier'
   },
   markdownSnippets: {
     section: 'editor',
@@ -172,7 +182,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   editorScrollOff: {
     section: 'editor',
     tomlKey: 'scroll_off',
-    comment: 'vim scrolloff — lines kept above/below the cursor (0 = off)'
+    comment: 'vim scrolloff: lines kept above/below the cursor (0 = off)'
   },
   timeFormat: {
     section: 'editor',
@@ -192,7 +202,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   completedTaskStyle: {
     section: 'editor',
     tomlKey: 'completed_task_style',
-    comment: 'none | strikethrough | gray | gray-strikethrough — style checked-task text'
+    comment: 'none | strikethrough | gray | gray-strikethrough: style checked-task text'
   },
   mathRenderer: {
     section: 'editor',
@@ -202,7 +212,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   typstTagPreambles: {
     section: 'editor',
     tomlKey: 'typst_tag_preambles',
-    comment: 'true | false — prepend Typst definitions from notes in a `typst` folder, chosen by a note\'s tags'
+    comment: 'true | false: prepend Typst definitions from notes in a `typst` folder, chosen by a note\'s tags'
   },
   harperEnabled: {
     section: 'editor',
@@ -222,7 +232,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   defaultPaneMode: {
     section: 'editor',
     tomlKey: 'default_view_mode',
-    comment: 'edit | split | preview — the mode a note opens in before it has a remembered one'
+    comment: 'edit | split | preview: the mode a note opens in before it has a remembered one'
   },
   keepViewModeAcrossNotes: {
     section: 'editor',
@@ -263,7 +273,7 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
   pdfExportUseTheme: {
     section: 'appearance',
     tomlKey: 'pdf_export_use_theme',
-    comment: 'true | false — export PDFs using the current theme instead of a clean light print theme'
+    comment: 'true | false: export PDFs using the current theme instead of a clean light print theme'
   },
   themeFamily: {
     section: 'appearance',
@@ -438,12 +448,12 @@ const LIST_FIELDS: Partial<Record<PortablePrefKey, ListFieldMap>> = {
   kanbanStatuses: {
     section: 'view',
     tomlKey: 'kanban_statuses',
-    comment: 'custom-status Kanban columns, in order — e.g. ["backlog", "in_progress", "review", "done"]'
+    comment: 'custom-status Kanban columns in order, e.g. ["backlog", "in_progress", "review", "done"]'
   },
   hiddenWorkflowPresets: {
     section: 'view',
     tomlKey: 'hidden_workflow_presets',
-    comment: 'built-in workflow recipes hidden from the gallery, by id — e.g. ["reading-log"]'
+    comment: 'built-in workflow recipe ids hidden from the gallery, e.g. ["reading-log"]'
   }
 }
 
@@ -462,7 +472,7 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
   keymapOverrides: {
     table: 'keymaps',
     comment: [
-      'Keymap overrides — only list the bindings you want to change.',
+      'Keymap overrides. Only list the bindings you want to change.',
       'Set a binding to "" to remove the key entirely.',
       'Find the full list of action IDs in Settings → Keymaps.'
     ],
@@ -480,7 +490,7 @@ const MAP_TABLE_FIELDS: Partial<Record<PortablePrefKey, MapTableField>> = {
   },
   enabledOverrides: {
     table: 'overrides',
-    comment: ['Enabled CSS overrides — list the filenames you want active.'],
+    comment: ['Enabled CSS overrides. List the filenames you want active.'],
     example: '"focus.css" = "on"'
   },
   themeTweaks: {
@@ -520,10 +530,10 @@ const FILE_HEADER = `# ZenNotes configuration
 #
 # Holds your portable preferences (theme, editor, vim, keymaps, …) so you can
 # sync them across machines with git, stow, chezmoi, and friends. Managed by
-# ZenNotes but safe to hand-edit — changes apply live, no restart needed.
+# ZenNotes but safe to hand-edit: changes apply live, no restart needed.
 #
 # Every available option is listed below with its current value; the inline
-# comment shows the allowed values. Edit a value to customize it — ZenNotes
+# comment shows the allowed values. Edit a value to customize it. ZenNotes
 # keeps this list complete, so a removed option reappears with its default.
 # Note: comments you add yourself may be dropped when the app rewrites the file.
 
@@ -825,7 +835,7 @@ async function readConfigFile(): Promise<{ text: string; portable: AppConfigPort
     const { portable } = deserializeConfig(text)
     return { text, portable }
   } catch (err) {
-    console.warn('Failed to parse config.toml — keeping last good config', err)
+    console.warn('Failed to parse config.toml, keeping last good config', err)
     return null
   }
 }

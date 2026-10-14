@@ -8,7 +8,11 @@ import {
 } from '@zennotes/shared-domain/cloud-sync-api'
 import { createHash } from 'node:crypto'
 import { createReadStream, type ReadStream } from 'node:fs'
-import { stat } from 'node:fs/promises'
+import { chmod, mkdtemp, open, rm, stat } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import { zne1CiphertextLength } from '@zennotes/shared-domain/cloud-e2ee'
+import type { CloudVaultCipher, CloudVaultCipherSource } from '@zennotes/shared-domain/cloud-e2ee-vault'
 import type {
   CloudPublishUploadTarget,
   CloudSyncCapacityConflict,
@@ -56,6 +60,9 @@ export interface DesktopCloudSyncClientOptions {
   signal?: AbortSignal
   rateLimits?: CloudSyncRateLimitCoordinator
   contentReferences?: boolean
+  /** Desktop seals and opens every path an encrypted vault's bytes take. */
+  endToEndEncryption?: boolean
+  vaultCiphers?: CloudVaultCipherSource
 }
 
 /** One staged publish attachment to PUT: a local file streamed from disk, or a
@@ -106,7 +113,9 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     super(http, {
       contentReferences: options.contentReferences, accountScope: { baseUrl: options.baseUrl, accountId: options.accountId },
       signal, allowInsecureLoopbackDownloads: url.protocol === 'http:' &&
-        (url.hostname === 'localhost' || url.hostname === '[::1]' || /^127\./.test(url.hostname))
+        (url.hostname === 'localhost' || url.hostname === '[::1]' || /^127\./.test(url.hostname)),
+      endToEndEncryption: options.endToEndEncryption,
+      vaultCiphers: options.vaultCiphers
     })
   }
 
@@ -114,7 +123,12 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     vaultId: string,
     body: CloudSyncMutationRequest
   ): Promise<CloudSyncMutationResponse> {
-    if (!body.mutations.some(usesDirectUpload)) return super.mutate(vaultId, body)
+    // Encryption adds a header and a tag per chunk, and the service caps inline
+    // bodies, so an encrypted vault decides by the size it will actually send.
+    const encrypted = (await this.vaultCipher(vaultId)) !== null
+    const direct = (mutation: CloudSyncMutation): mutation is CloudSyncUpsertMutation =>
+      usesDirectUpload(mutation, encrypted)
+    if (!body.mutations.some(direct)) return super.mutate(vaultId, body)
 
     const responses: CloudSyncMutationResponse[] = []
     let inlineMutations: CloudSyncMutation[] = []
@@ -125,7 +139,7 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     }
 
     for (const mutation of body.mutations) {
-      if (usesDirectUpload(mutation)) {
+      if (direct(mutation)) {
         await flushInline()
         responses.push(await this.directUpload(vaultId, mutation))
       } else {
@@ -146,20 +160,36 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     mutation: CloudSyncUpsertMutation
   ): Promise<CloudSyncMutationResponse> {
     this.signal?.throwIfAborted()
-    const uploadBody = await prepareDirectUploadBody(mutation)
+    const cipher = await this.vaultCipher(vaultId)
+    const prepared = cipher
+      ? await prepareEncryptedDirectUpload(mutation, cipher, this.signal)
+      : await preparePlainDirectUpload(mutation)
+    try {
+      return await this.sendDirectUpload(vaultId, mutation, prepared, cipher)
+    } finally {
+      await prepared.cleanup()
+    }
+  }
 
+  private async sendDirectUpload(
+    vaultId: string,
+    mutation: CloudSyncUpsertMutation,
+    prepared: PreparedDirectUpload,
+    cipher: CloudVaultCipher | null
+  ): Promise<CloudSyncMutationResponse> {
+    const uploadBody = prepared
     let initiation: CloudSyncUploadInitiationResponse
     try {
-      initiation = await this.initiateUpload(vaultId, uploadRequest(mutation))
+      initiation = await this.initiateUpload(vaultId, prepared.request)
     } catch (error) {
       const conflict = directUploadConflict(error, mutation)
-      if (conflict) return { acknowledged: [], conflicts: [conflict], cursor: 0 }
+      if (conflict) return { acknowledged: [], conflicts: [cipher ? await cipher.openConflict(conflict) : conflict], cursor: 0 }
       throw error
     }
     let instruction: CloudSyncUploadInitiationResponse['data']
     let uploadUrl: string
     try {
-      instruction = directUploadInstruction(initiation, mutation)
+      instruction = directUploadInstruction(initiation, mutation, prepared.contentLength)
       uploadUrl = secureDirectUploadUrl(instruction.upload.url)
     } catch (error) {
       const uploadId = uploadSessionId(initiation)
@@ -178,9 +208,9 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
     // the service reserved.
     const headers = new Headers(upload.headers)
     if (!headers.has('content-length')) {
-      headers.set('content-length', String(mutation.content.byte_length))
+      headers.set('content-length', String(prepared.contentLength))
     }
-    if (!headers.has('content-type')) headers.set('content-type', mutation.content.media_type)
+    if (!headers.has('content-type')) headers.set('content-type', prepared.contentType)
     let response: Response
 
     try {
@@ -213,7 +243,7 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
       )
     }
 
-    return await this.completeDirectUpload(vaultId, instruction.id, mutation)
+    return await this.completeDirectUpload(vaultId, instruction.id, mutation, cipher)
   }
 
   /**
@@ -273,7 +303,8 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
   private async completeDirectUpload(
     vaultId: string,
     uploadId: string,
-    mutation: CloudSyncUpsertMutation
+    mutation: CloudSyncUpsertMutation,
+    cipher: CloudVaultCipher | null
   ): Promise<CloudSyncMutationResponse> {
     for (let attempt = 1; attempt <= DIRECT_UPLOAD_COMPLETION_ATTEMPTS; attempt++) {
       this.signal?.throwIfAborted()
@@ -281,7 +312,7 @@ class DesktopCloudSyncApiClient extends CloudSyncApiClient {
         return (await this.completeUpload(vaultId, uploadId)).data.result
       } catch (error) {
         const conflict = directUploadConflict(error, mutation)
-        if (conflict) return { acknowledged: [], conflicts: [conflict], cursor: 0 }
+        if (conflict) return { acknowledged: [], conflicts: [cipher ? await cipher.openConflict(conflict) : conflict], cursor: 0 }
         if (attempt === DIRECT_UPLOAD_COMPLETION_ATTEMPTS || !retryableCompletionError(error)) {
           throw error
         }
@@ -308,6 +339,7 @@ class BearerFetchTransport implements CloudSyncHttpTransport {
     const response = await this.fetchImplementation(`${this.baseUrl}${request.path}`, {
       method: request.method,
       headers: {
+        ...request.headers,
         Accept: 'application/json',
         Authorization: `Bearer ${this.token}`,
         ...(request.body === undefined || multipart ? {} : { 'Content-Type': 'application/json' })
@@ -397,11 +429,113 @@ function asErrorPayload(payload: unknown): {
   }
 }
 
-function usesDirectUpload(mutation: CloudSyncMutation): mutation is CloudSyncUpsertMutation {
-  return (
-    mutation.type === 'upsert' &&
-    mutation.content.byte_length > CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES
-  )
+function usesDirectUpload(mutation: CloudSyncMutation, encrypted: boolean): mutation is CloudSyncUpsertMutation {
+  if (mutation.type !== 'upsert') return false
+  const bytes = encrypted ? zne1CiphertextLength(mutation.content.byte_length) : mutation.content.byte_length
+  return bytes > CLOUD_SYNC_INLINE_UPLOAD_LIMIT_BYTES
+}
+
+interface PreparedDirectUpload {
+  request: CloudSyncUploadRequest
+  /** The exact bytes the PUT sends: the file, or for an encrypted vault its ciphertext. */
+  contentLength: number
+  contentType: string
+  createBody(): FetchBody
+  dispose(): void
+  stream: boolean
+  cleanup(): Promise<void>
+}
+
+async function preparePlainDirectUpload(mutation: CloudSyncUpsertMutation): Promise<PreparedDirectUpload> {
+  return {
+    ...(await prepareDirectUploadBody(mutation)),
+    request: uploadRequest(mutation),
+    contentLength: mutation.content.byte_length,
+    contentType: mutation.content.media_type,
+    cleanup: async () => {}
+  }
+}
+
+/**
+ * Seals the file into a private temp file first: the service must be told the
+ * ciphertext's length and hash before the PUT starts, and streaming keeps a
+ * 200 MB attachment from ever sitting in memory. The plaintext is hashed on the
+ * way through, so a file that changed since sync hashed it is refused instead
+ * of being sealed under the old hash.
+ */
+async function prepareEncryptedDirectUpload(
+  mutation: CloudSyncUpsertMutation,
+  cipher: CloudVaultCipher,
+  signal: AbortSignal | undefined
+): Promise<PreparedDirectUpload> {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'zennotes-upload-'))
+  const cleanup = () => rm(directory, { recursive: true, force: true })
+  try {
+    await chmod(directory, 0o700)
+    const sealedPath = path.join(directory, 'sealed')
+    const sourcePath = cloudSyncUploadSource(mutation.content)
+    const plaintext: AsyncIterable<Uint8Array> | Iterable<Uint8Array> = sourcePath
+      ? createReadStream(sourcePath)
+      : [uploadBytes(mutation)]
+    const plainHash = createHash('sha256')
+    let plainLength = 0
+    async function* hashed(): AsyncGenerator<Uint8Array> {
+      for await (const chunk of plaintext) {
+        plainLength += chunk.byteLength
+        plainHash.update(chunk)
+        yield chunk
+      }
+    }
+    const sealedHash = createHash('sha256')
+    let sealedLength = 0
+    const file = await open(sealedPath, 'wx', 0o600)
+    try {
+      for await (const piece of cipher.encryptStream(hashed())) {
+        signal?.throwIfAborted()
+        sealedHash.update(piece)
+        sealedLength += piece.byteLength
+        let offset = 0
+        while (offset < piece.byteLength) {
+          const written = await file.write(piece, offset)
+          if (written.bytesWritten === 0) throw new Error('Encrypted upload staging made no progress.')
+          offset += written.bytesWritten
+        }
+      }
+      await file.sync()
+    } finally {
+      await file.close()
+    }
+    if (plainLength !== mutation.content.byte_length || plainHash.digest('hex') !== mutation.content.sha256) {
+      throw directUploadSizeMismatch()
+    }
+    const fields = await cipher.directUploadFields(mutation.path, mutation.kind, mutation.content, {
+      sha256: sealedHash.digest('hex'),
+      byte_length: sealedLength
+    })
+    let reader: ReadStream | undefined
+    return {
+      request: {
+        operation_id: mutation.operation_id,
+        item_id: mutation.item_id,
+        base_revision: mutation.base_revision,
+        path: fields.path,
+        kind: fields.kind,
+        content: fields.content,
+        meta: fields.meta
+      },
+      contentLength: sealedLength,
+      contentType: fields.content.media_type,
+      createBody: () => (reader = createReadStream(sealedPath)) as unknown as FetchBody,
+      dispose: () => {
+        reader?.destroy()
+      },
+      stream: true,
+      cleanup
+    }
+  } catch (error) {
+    await cleanup()
+    throw error
+  }
 }
 
 function uploadRequest(mutation: CloudSyncUpsertMutation): CloudSyncUploadRequest {
@@ -485,7 +619,8 @@ function secureDirectUploadUrl(value: string): string {
 
 function directUploadInstruction(
   initiation: CloudSyncUploadInitiationResponse,
-  mutation: CloudSyncUpsertMutation
+  mutation: CloudSyncUpsertMutation,
+  expectedBytes: number
 ): CloudSyncUploadInitiationResponse['data'] {
   const candidate = initiation as unknown as { data?: unknown }
   if (!isRecord(candidate.data)) throw invalidDirectUploadResponse()
@@ -494,7 +629,7 @@ function directUploadInstruction(
   const upload = data.upload
   if (
     data.operation_id !== mutation.operation_id ||
-    data.expected_bytes !== mutation.content.byte_length ||
+    data.expected_bytes !== expectedBytes ||
     typeof data.id !== 'string' ||
     data.id === '' ||
     upload.method !== 'PUT' ||
@@ -556,6 +691,7 @@ function directUploadConflict(
       typeof error.details?.current_revision === 'number' ? error.details.current_revision : null,
     current_path:
       typeof error.details?.current_path === 'string' ? error.details.current_path : null,
+    ...(typeof error.details?.current_meta === 'string' ? { current_meta: error.details.current_meta } : {}),
     ...(capacity ? { capacity } : {})
   }
 }

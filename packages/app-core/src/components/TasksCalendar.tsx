@@ -640,7 +640,7 @@ export function TasksCalendar({
         </div>
         <div className="text-xs text-current/40">
           {grabbedTask
-            ? `Moving “${grabbedTask.content || 'task'}” — h/j/k/l pick a day · Enter place · Esc cancel`
+            ? `Moving “${grabbedTask.content || 'task'}”: h/j/k/l pick a day · Enter place · Esc cancel`
             : vimMode
               ? 'h/j/k/l day · Tab pick · x toggle · e edit · dd del · m move · < > / T due · a add'
               : '←/→/↑/↓ day · Tab pick · Space toggle · drag to move · right-click actions'}
