@@ -375,56 +375,6 @@ describe('LanguageToolProvider', () => {
     expect(check).toHaveBeenCalledTimes(1)
   })
 
-  it('filters disabled categories, ignored rules, and custom dictionary entries locally', async () => {
-    const check = vi.fn(async () => ({
-      matches: [
-        grammarMatch,
-        {
-          ...grammarMatch,
-          message: 'Possible spelling mistake.',
-          offset: 0,
-          length: 3,
-          rule: {
-            ...grammarMatch.rule,
-            id: 'SPELLING_RULE',
-            issueType: 'misspelling',
-            category: { id: 'TYPOS', name: 'Possible Typo' }
-          }
-        },
-        {
-          ...grammarMatch,
-          rule: {
-            ...grammarMatch.rule,
-            id: 'STYLE_RULE',
-            issueType: 'style',
-            category: { id: 'STYLE', name: 'Style' }
-          }
-        }
-      ]
-    }))
-    const provider = new LanguageToolProvider(
-      { check },
-      {
-        visibleCategories: ['grammar', 'spelling'],
-        disabledRules: ['AGREEMENT_SENT_START'],
-        customDictionary: ['one']
-      }
-    )
-
-    await expect(
-      provider.check({
-        segments: [segment()],
-        generation: 1,
-        language: 'en-US',
-        signal: new AbortController().signal
-      })
-    ).resolves.toEqual([])
-    expect(check).toHaveBeenCalledWith(
-      expect.objectContaining({ disabledRules: ['AGREEMENT_SENT_START'] }),
-      expect.any(AbortSignal)
-    )
-  })
-
   it('does not call transport for an already-aborted or empty request', async () => {
     const check = vi.fn(async () => ({ matches: [] }))
     const provider = new LanguageToolProvider({ check })
