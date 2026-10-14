@@ -70,7 +70,7 @@ import type {
   GrammarCancelResponse,
   GrammarCheckRequest,
   GrammarCheckResponse
-} from './grammar'
+} from './grammar.js'
 import type {
   ApplyWorkflowInput,
   ExportWorkflowInput,
