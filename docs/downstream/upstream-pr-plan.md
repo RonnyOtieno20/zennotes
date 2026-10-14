@@ -59,9 +59,8 @@ the fork:
 - `.github/workflows/grammar-downstream-sync.yml` and
   `.github/workflows/grammar-edition-release.yml`.
 - `docs/grammar-assistant-*.md`. These are internal milestone notes.
-- Version and release bumps in `package.json` files, `package-lock.json`,
-  `packaging/aur`, `packaging/homebrew`, `packaging/nix`, and
-  `apps/desktop/terminal-release.json`. Upstream owns these.
+- Version bumps in the `package.json` files and `package-lock.json`.
+  Upstream owns these; keep only genuinely new dependencies, if any.
 - `apps/desktop/src/main/downstream-edition.ts` and its test, and the
   fork-specific changes to `apps/desktop/src/main/updater.ts` and its Linux
   install test. These point the updater at the Grammar Edition's releases.
