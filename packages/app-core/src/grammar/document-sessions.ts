@@ -5,6 +5,7 @@ import {
   type GrammarCoordinatorOptions,
   type GrammarCoordinatorState
 } from './coordinator'
+import { hashText } from './hash'
 import type { GrammarProvider } from './provider'
 import type { GrammarDiagnostic, ProseSegment, SourceRange } from './types'
 
@@ -93,15 +94,6 @@ export interface GrammarDocumentSessionLease {
   readonly session: GrammarDocumentSession
   /** Idempotently release this view's reference. */
   release(): void
-}
-
-function hashText(value: string): string {
-  let hash = 0x811c9dc5
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 0x01000193)
-  }
-  return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
 /** Stable and collision-free serialization of a vault/note identity tuple. */
