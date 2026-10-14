@@ -1,11 +1,12 @@
 import {
   GRAMMAR_MAX_TEXT_BYTES,
+  isLoopbackHostname,
   type GrammarCancelRequest,
   type GrammarCancelResponse,
   type GrammarCheckRequest,
   type GrammarCheckResponse,
   type GrammarLanguageToolResponse
-} from '@bridge-contract/grammar'
+} from '@zennotes/bridge-contract/grammar'
 
 export const GRAMMAR_DEFAULT_TIMEOUT_MS = 10_000
 export const GRAMMAR_MIN_TIMEOUT_MS = 100
@@ -49,16 +50,6 @@ function assertRequestId(requestId: unknown): asserts requestId is string {
       'Invalid grammar request ID'
     )
   }
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.toLowerCase()
-  if (normalized === 'localhost' || normalized === '[::1]') return true
-  const octets = normalized.split('.')
-  if (octets.length !== 4 || octets[0] !== '127') return false
-  return octets.every(
-    (octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255
-  )
 }
 
 export function resolveLanguageToolCheckUrl(rawEndpoint: unknown): URL {

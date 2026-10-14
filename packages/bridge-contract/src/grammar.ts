@@ -119,3 +119,12 @@ export function utf8ByteLength(text: string): number {
   }
   return bytes
 }
+
+/** Whether `hostname` names the local machine: localhost, IPv6 `[::1]`, or any IPv4 `127.x.x.x`. */
+export function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.toLowerCase()
+  if (normalized === 'localhost' || normalized === '[::1]') return true
+  const octets = normalized.split('.')
+  if (octets.length !== 4 || octets[0] !== '127') return false
+  return octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
+}
