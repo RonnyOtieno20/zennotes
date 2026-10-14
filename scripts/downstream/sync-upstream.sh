@@ -5,8 +5,8 @@ set -euo pipefail
 # The first Grammar Edition migration was intentionally a large tree transplant,
 # so replaying it with rebase would rediscover the same conflicts on every
 # release. A merge uses Git's real common ancestor instead: upstream changes in
-# unrelated hunks are retained, while a conflicting hunk keeps the working
-# Grammar Edition implementation. The result is deterministic and reviewable.
+# unrelated hunks are retained. A conflicting hunk stops the sync for a human to
+# resolve; it is never auto-resolved in either direction.
 
 upstream_remote="${UPSTREAM_REMOTE:-upstream}"
 downstream_branch="${DOWNSTREAM_BRANCH:-grammar-main}"
@@ -43,12 +43,14 @@ if [[ -n "$requested_tag" ]]; then
 else
   upstream_tag="$(
     git ls-remote --tags --refs "$upstream_remote" 'v*' \
-      | awk -F/ '$3 ~ /^v[0-9]/ { print $3 }' \
+      | awk -F/ '{ print $3 }' \
+      | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } \
       | sort -V \
       | tail -n 1
   )"
 fi
-[[ -n "$upstream_tag" ]] || fail 'could not discover an upstream release tag'
+[[ -n "$upstream_tag" ]] || \
+  fail "no release tag matching vX.Y.Z found on remote '$upstream_remote'"
 
 git fetch --quiet "$upstream_remote" "refs/tags/$upstream_tag:refs/tags/$upstream_tag"
 upstream_ref="refs/tags/$upstream_tag"
@@ -60,37 +62,28 @@ git switch --quiet -C "$sync_branch" "$downstream_branch"
 
 # If the release is already part of the downstream branch, there is no code
 # merge to perform; this is the normal case when only the Grammar package
-# version needs to advance. Otherwise merge the release with the downstream
-# branch as ours. Git's -X ours is hunk-level (not whole-file), so
-# non-conflicting upstream improvements still come across automatically.
+# version needs to advance. Otherwise merge the release as a plain merge.
+# Conflicts are never resolved automatically: a conflicting hunk silently
+# dropping either side is how upstream fixes get lost, so the merge is aborted
+# and the conflicted paths are reported for a manual resolution.
 merge_performed=false
 if ! git merge-base --is-ancestor "$upstream_ref" "$sync_branch"; then
   merge_performed=true
   merge_status=0
-  GIT_EDITOR=true git merge --no-edit --no-ff -X ours "$upstream_ref" || merge_status=$?
+  GIT_EDITOR=true git merge --no-edit --no-ff "$upstream_ref" || merge_status=$?
   if [[ "$merge_status" -ne 0 ]]; then
     conflicted_files="$(git diff --name-only --diff-filter=U)"
+    git merge --abort >/dev/null 2>&1 || true
     if [[ -z "$conflicted_files" ]]; then
-      git merge --abort >/dev/null 2>&1 || true
-      fail 'upstream merge failed without conflict paths'
+      fail "merge of $upstream_tag failed without conflict paths"
     fi
 
-    printf 'Auto-resolving remaining upstream conflicts in favor of Grammar Edition files:\n' >&2
+    printf 'grammar downstream sync: merging %s conflicts in these files:\n' "$upstream_tag" >&2
     while IFS= read -r path; do
       [[ -n "$path" ]] || continue
-      if git cat-file -e ":2:$path" 2>/dev/null; then
-        git checkout --ours -- "$path"
-      else
-        # If the downstream side deleted the path, retain an upstream addition.
-        git checkout --theirs -- "$path"
-      fi
-      git add -- "$path"
       printf '  %s\n' "$path" >&2
     done <<< "$conflicted_files"
-    if git diff --name-only --diff-filter=U | grep -q .; then
-      fail 'automatic upstream merge resolution left unmerged paths'
-    fi
-    GIT_EDITOR=true git commit --no-edit
+    fail "$downstream_branch was left unchanged; merge $upstream_tag by hand and resolve these conflicts"
   fi
 fi
 

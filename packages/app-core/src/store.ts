@@ -8997,6 +8997,7 @@ export const useStore = create<Store>((set, get) => {
     set({ hideBuiltinTemplates: hidden })
     savePrefs(collectPrefs(get()))
   },
+
   openAtlasView: async () => {
     const state = get()
     // Single funnel for every entry point (sidebar row, command, leader key),
