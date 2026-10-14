@@ -43,12 +43,14 @@ if [[ -n "$requested_tag" ]]; then
 else
   upstream_tag="$(
     git ls-remote --tags --refs "$upstream_remote" 'v*' \
-      | awk -F/ '$3 ~ /^v[0-9]/ { print $3 }' \
+      | awk -F/ '{ print $3 }' \
+      | { grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true; } \
       | sort -V \
       | tail -n 1
   )"
 fi
-[[ -n "$upstream_tag" ]] || fail 'could not discover an upstream release tag'
+[[ -n "$upstream_tag" ]] || \
+  fail "no release tag matching vX.Y.Z found on remote '$upstream_remote'"
 
 git fetch --quiet "$upstream_remote" "refs/tags/$upstream_tag:refs/tags/$upstream_tag"
 upstream_ref="refs/tags/$upstream_tag"
