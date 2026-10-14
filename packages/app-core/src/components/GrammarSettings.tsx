@@ -10,6 +10,9 @@ import { probeGrammarProvider } from '../grammar/provider-health'
 import type { GrammarCategory } from '../grammar/types'
 import { useStore } from '../store'
 
+const DEBOUNCE_MIN_MS = 250
+const DEBOUNCE_MAX_MS = 5000
+
 interface ToggleSettingProps {
   label: string
   description: string
@@ -77,6 +80,7 @@ export function GrammarSettings(): JSX.Element {
   const [languageDraft, setLanguageDraft] = useState(preferences.language)
   const [rulesDraft, setRulesDraft] = useState(preferences.ignoredRules.join('\n'))
   const [dictionaryDraft, setDictionaryDraft] = useState(preferences.customDictionary.join('\n'))
+  const [debounceDraft, setDebounceDraft] = useState(String(preferences.debounceMs))
   const [health, setHealth] = useState<
     | { phase: 'idle'; message: string }
     | { phase: 'checking'; message: string }
@@ -95,6 +99,7 @@ export function GrammarSettings(): JSX.Element {
     () => setDictionaryDraft(preferences.customDictionary.join('\n')),
     [preferences.customDictionary]
   )
+  useEffect(() => setDebounceDraft(String(preferences.debounceMs)), [preferences.debounceMs])
   useEffect(() => () => healthController.current?.abort(), [])
 
   const providerStatus = useMemo(() => {
@@ -108,6 +113,17 @@ export function GrammarSettings(): JSX.Element {
   const update = (patch: GrammarPreferencesPatch): void => setPreferences(patch)
   const commitLines = (field: 'ignoredRules' | 'customDictionary', value: string): void =>
     update({ [field]: value.split(/\r?\n/u) })
+  // Typing is only a draft. Commit on blur or Enter: clamp to the range, and revert unreadable input.
+  const commitDebounce = (value: string): void => {
+    const parsed = Number(value.trim())
+    if (value.trim() === '' || !Number.isFinite(parsed)) {
+      setDebounceDraft(String(preferences.debounceMs))
+      return
+    }
+    const debounceMs = Math.min(DEBOUNCE_MAX_MS, Math.max(DEBOUNCE_MIN_MS, Math.round(parsed)))
+    setDebounceDraft(String(debounceMs))
+    if (debounceMs !== preferences.debounceMs) update({ debounceMs })
+  }
   const toggleCategory = (category: GrammarCategory, checked: boolean): void => {
     const next = checked
       ? [...preferences.enabledCategories, category]
@@ -246,11 +262,20 @@ export function GrammarSettings(): JSX.Element {
           </span>
           <input
             type="number"
-            min={250}
-            max={5000}
+            min={DEBOUNCE_MIN_MS}
+            max={DEBOUNCE_MAX_MS}
             step={50}
-            value={preferences.debounceMs}
-            onChange={(event) => update({ debounceMs: Number(event.target.value) })}
+            value={debounceDraft}
+            onChange={(event) => setDebounceDraft(event.target.value)}
+            onBlur={(event) => commitDebounce(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') commitDebounce(event.currentTarget.value)
+              // Cancel the edit here, so Escape does not also close the settings dialog.
+              if (event.key === 'Escape') {
+                event.stopPropagation()
+                setDebounceDraft(String(preferences.debounceMs))
+              }
+            }}
             className="w-28 rounded-xl border border-paper-300/70 bg-paper-100 px-3 py-2 text-right text-sm text-ink-800"
           />
         </label>
