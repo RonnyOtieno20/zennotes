@@ -50,15 +50,16 @@ and note paths are excluded.
 ## Personalization
 
 **Ignore rule** is available from both inline suggestion cards and review cards.
-It persists the LanguageTool rule ID and immediately rebuilds the provider
-configuration. **Add word** stores the exact selected word or phrase in the
-local custom dictionary. Dictionary matching is case-insensitive and is applied
-locally after provider normalization; dictionary contents are not sent as
-provider configuration.
+It persists the LanguageTool rule ID. **Add word** stores the exact selected
+word or phrase in the local custom dictionary. Dictionary matching is
+case-insensitive. Neither is sent to the provider: visible categories, ignored
+rules and the dictionary filter the results each open note already has, so a
+change applies to every open note at once without checking any of them again,
+and undoing it brings the hidden issues straight back.
 
-Changing the language, endpoint, visible categories, ignored rules, or custom
-dictionary invalidates the bounded segment cache. Display-only changes such as
-hiding underlines do not discard valid provider results.
+Changing the language or endpoint invalidates the bounded segment cache.
+Personal filters and display-only changes such as hiding underlines do not
+discard valid provider results.
 
 ## Performance and large notes
 

@@ -34,10 +34,6 @@ export interface LanguageToolProviderOptions {
   enabledCategories?: readonly string[]
   enabledRules?: readonly string[]
   disabledRules?: readonly string[]
-  /** Provider-neutral categories kept after normalization. */
-  visibleCategories?: readonly GrammarCategory[]
-  /** Exact source words or phrases suppressed locally and never sent as configuration. */
-  customDictionary?: readonly string[]
 }
 
 export interface LanguageToolNormalizationContext {
@@ -288,26 +284,11 @@ function splitBatchMatches(batch: LanguageToolBatch, matches: readonly unknown[]
 
 export class LanguageToolProvider implements GrammarProvider {
   readonly id = LANGUAGE_TOOL_PROVIDER_ID
-  private readonly visibleCategories: ReadonlySet<GrammarCategory> | null
-  private readonly disabledRules: ReadonlySet<string>
-  private readonly customDictionary: ReadonlySet<string>
 
   constructor(
     private readonly transport: LanguageToolTransport,
     private readonly options: LanguageToolProviderOptions = {}
-  ) {
-    this.visibleCategories = options.visibleCategories ? new Set(options.visibleCategories) : null
-    this.disabledRules = new Set(options.disabledRules ?? [])
-    this.customDictionary = new Set(
-      (options.customDictionary ?? []).map((entry) => entry.trim().toLocaleLowerCase())
-    )
-  }
-
-  private keepsDiagnostic(diagnostic: GrammarDiagnostic): boolean {
-    if (this.visibleCategories && !this.visibleCategories.has(diagnostic.category)) return false
-    if (this.disabledRules.has(diagnostic.ruleId)) return false
-    return !this.customDictionary.has(diagnostic.original.trim().toLocaleLowerCase())
-  }
+  ) {}
 
   async check(request: GrammarCheckRequest): Promise<readonly GrammarDiagnostic[]> {
     const diagnostics: GrammarDiagnostic[] = []
@@ -334,7 +315,7 @@ export class LanguageToolProvider implements GrammarProvider {
           ...normalizeMatchList(matchesBySegment[index], {
             segment,
             generation: request.generation
-          }).filter((diagnostic) => this.keepsDiagnostic(diagnostic))
+          })
         )
       })
     }
