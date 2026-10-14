@@ -2750,11 +2750,12 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
 
   // The review panel and the floating suggestion card are alternate workflows.
   // Keep cards disabled while the panel owns navigation, including after a note
-  // change recreates the grammar extension compartment.
+  // change recreates the grammar extension compartment or a deferred view
+  // mounts. Declared after the binding effect so it runs once that is installed.
   useLayoutEffect(() => {
     const view = viewRef.current
     if (view) setGrammarSuggestionCards(view, !grammarReviewOpen)
-  }, [content?.path, grammarEnabled, grammarReviewOpen, grammarSupported])
+  }, [content?.path, editorViewGeneration, grammarEnabled, grammarReviewOpen, grammarSupported])
 
   const grammarLogSnapshotRef = useRef('')
   useEffect(() => {
