@@ -1459,7 +1459,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     }
     window.addEventListener('zen:toggle-grammar-review', handler)
     return () => window.removeEventListener('zen:toggle-grammar-review', handler)
-  }, [isActive, toggleGrammarReviewPanel])
+  }, [panelShortcutsApply, toggleGrammarReviewPanel])
 
   useEffect(() => {
     if (!isActive) return
