@@ -234,7 +234,11 @@ interface LanguageToolBatch {
   segments: LanguageToolBatchSegment[]
 }
 
-/** Pack non-empty segments, in order, into as few request texts as the byte limit allows. */
+/**
+ * Pack non-empty segments, in order, into as few request texts as the byte limit allows. A segment
+ * that is over the limit on its own is left out: the desktop transport would reject the request,
+ * and with it the check of every other segment.
+ */
 function batchSegments(segments: readonly ProseSegment[]): LanguageToolBatch[] {
   const batches: LanguageToolBatch[] = []
   let current: LanguageToolBatch | null = null
@@ -245,6 +249,7 @@ function batchSegments(segments: readonly ProseSegment[]): LanguageToolBatch[] {
     }
     if (!segment.text) continue
     const bytes = utf8ByteLength(segment.text)
+    if (bytes > GRAMMAR_MAX_TEXT_BYTES) continue
     if (current && current.bytes + BATCH_SEPARATOR_BYTES + bytes <= GRAMMAR_MAX_TEXT_BYTES) {
       current.text += BATCH_SEPARATOR
       current.bytes += BATCH_SEPARATOR_BYTES

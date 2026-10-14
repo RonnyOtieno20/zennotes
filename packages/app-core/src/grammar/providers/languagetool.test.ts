@@ -314,6 +314,24 @@ describe('LanguageToolProvider', () => {
     }
   })
 
+  it('leaves out a segment over the request limit and still checks the others', async () => {
+    const check = vi.fn<LanguageToolTransport['check']>(async () => ({ matches: [] }))
+    const provider = new LanguageToolProvider({ check })
+
+    await provider.check({
+      segments: [
+        segmentFor('paragraph-1', 'é'.repeat(GRAMMAR_MAX_TEXT_BYTES / 2 + 1)),
+        segmentFor('paragraph-2', 'Fine.')
+      ],
+      generation: 1,
+      language: 'en-US',
+      signal: new AbortController().signal
+    })
+
+    expect(check).toHaveBeenCalledOnce()
+    expect(check.mock.calls[0][0].text).toBe('Fine.')
+  })
+
   it('stops between batches when the signal is aborted', async () => {
     const controller = new AbortController()
     const reason = new Error('superseded')
