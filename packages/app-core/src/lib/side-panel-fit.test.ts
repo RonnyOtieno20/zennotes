@@ -67,6 +67,21 @@ describe('fitting the side panels next to the note (#805)', () => {
   })
 })
 
+describe('the grammar review panel', () => {
+  it('shares the row with the other panels and is tucked like them', () => {
+    const grammar = panel('grammar', 340)
+    // 900 px leaves 580 beside the note, less than three panels at their
+    // smallest, so Outline, opened longest ago, goes to the rail.
+    const shown = [grammar, CONNECTIONS, panel('outline', 240)]
+    const fit = fitSidePanels(900, MIN_NOTE_WIDTH, shown, MIN_PANEL)
+    expect(fit.tucked).toEqual(['outline'])
+    expect(fit.widths.grammar).toBeGreaterThanOrEqual(MIN_PANEL)
+    expect(fit.widths.grammar! + fit.widths.connections! + TUCKED_RAIL_WIDTH).toBeLessThanOrEqual(
+      900 - MIN_NOTE_WIDTH
+    )
+  })
+})
+
 describe('which panel was opened last', () => {
   it('moves a panel to the front when it is asked for again', () => {
     expect(bumpSidePanel(['outline', 'comments'], 'comments')).toEqual(['comments', 'outline'])

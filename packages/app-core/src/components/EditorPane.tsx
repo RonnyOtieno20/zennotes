@@ -1333,6 +1333,11 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [revealSidePanel, setOutlineOpen])
 
   const toggleGrammarReviewPanel = useCallback(() => {
+    if (tuckedSidePanelsRef.current.includes('grammar')) {
+      revealSidePanel('grammar')
+      setFocusedPanel('grammar')
+      return
+    }
     setGrammarReviewOpen((open) => {
       const next = !open
       const view = viewRef.current
@@ -1345,7 +1350,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       }
       return next
     })
-  }, [focusedPanel, setFocusedPanel])
+  }, [focusedPanel, revealSidePanel, setFocusedPanel])
 
   const toggleCommentsPanel = useCallback(() => {
     if (tuckedSidePanelsRef.current.includes('comments')) return revealSidePanel('comments')
@@ -1468,6 +1473,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       if (!view) return
       if (grammarReviewOpen) {
         if (!selectAdjacentGrammarDiagnostic(view, 1)) return
+        if (tuckedSidePanelsRef.current.includes('grammar')) revealSidePanel('grammar')
         setFocusedPanel('grammar')
         return
       }
@@ -1480,6 +1486,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       if (!view) return
       if (grammarReviewOpen) {
         if (!selectAdjacentGrammarDiagnostic(view, -1)) return
+        if (tuckedSidePanelsRef.current.includes('grammar')) revealSidePanel('grammar')
         setFocusedPanel('grammar')
         return
       }
@@ -1493,7 +1500,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
       window.removeEventListener('zen:next-grammar-issue', next)
       window.removeEventListener('zen:previous-grammar-issue', previous)
     }
-  }, [grammarReviewOpen, isActive, setFocusedPanel])
+  }, [grammarReviewOpen, isActive, revealSidePanel, setFocusedPanel])
 
   useEffect(() => {
     if (!panelShortcutsApply) return
@@ -4037,6 +4044,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     if (!content || zenMode) return open
     if (connectionsOpen && isActive) open.push('connections')
     if (commentsOpen) open.push('comments')
+    if (grammarReviewOpen) open.push('grammar')
     if (outlineOpen) open.push('outline')
     if (calendarOpen && calendarAvailable) open.push('calendar')
     return open
@@ -4046,6 +4054,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
     commentsOpen,
     connectionsOpen,
     content,
+    grammarReviewOpen,
     isActive,
     outlineOpen,
     zenMode
@@ -4053,14 +4062,10 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   useEffect(() => {
     setSidePanelRecency((recency) => syncSidePanelRecency(recency, openSidePanels))
   }, [openSidePanels])
-  // The grammar review panel is not in the fit (it is never tucked), but it
-  // takes its width from the same row, so the other panels fit what is left.
-  // A row of 0 means "not measured yet", so it is not reduced.
-  const grammarPanelWidth = content && grammarReviewOpen && !zenMode ? sidePanelWidths.grammar : 0
   const sidePanelFit = useMemo(
     () =>
       fitSidePanels(
-        paneRowWidth > 0 ? Math.max(paneRowWidth - grammarPanelWidth, 1) : paneRowWidth,
+        paneRowWidth,
         mode === 'split' ? MIN_SPLIT_NOTE_WIDTH : MIN_NOTE_WIDTH,
         // Synced here as well as in the effect above, so the render in which
         // a panel opens already treats it as the most recent one.
@@ -4070,7 +4075,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
         })),
         MIN_RIGHT_PANEL_WIDTH
       ),
-    [grammarPanelWidth, mode, openSidePanels, paneRowWidth, sidePanelRecency, sidePanelWidths]
+    [mode, openSidePanels, paneRowWidth, sidePanelRecency, sidePanelWidths]
   )
   tuckedSidePanelsRef.current = sidePanelFit.tucked
   const sidePanelShown = (id: SidePanelId): boolean =>
@@ -4128,7 +4133,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             <IconBtn
               title={
                 grammarSupported
-                  ? grammarReviewOpen
+                  ? grammarReviewOpen && !tucked.includes('grammar')
                     ? 'Hide grammar review'
                     : `Show grammar review${grammarSessionState?.diagnostics.length ? ` (${grammarSessionState.diagnostics.length})` : ''} (${getKeymapDisplay(tabNavOverrides, 'global.toggleGrammarReview')})`
                   : 'Grammar review is unavailable in this runtime'
@@ -4850,8 +4855,9 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
             onJump={jumpToComment}
           />
         )}
-        {content && grammarReviewOpen && !zenMode && (
+        {content && sidePanelShown('grammar') && (
           <GrammarReviewPanel
+            fitWidth={sidePanelFit.widths.grammar}
             enabled={grammarEnabled}
             supported={grammarSupported}
             state={grammarSessionState}
