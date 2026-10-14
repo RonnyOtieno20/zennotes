@@ -84,6 +84,13 @@ the fork:
   it.
 - Blank-line whitespace drift in `packages/app-core/src/store.ts` was restored
   in `73d75ed2`. Other whitespace-only changes may still be in the diff.
+- The LanguageTool endpoint is chosen by the renderer and sent with each
+  check request. The main process validates it (HTTPS, or HTTP on loopback
+  only; no credentials or query), but does not own it. Moving it into the
+  main process was considered and left out: the renderer would still need a
+  way to change it, and its CSP already allows `img-src https:`, so it would
+  not stop a compromised renderer from sending text out. A reviewer upstream
+  may still ask for it.
 
 ## Open questions
 
