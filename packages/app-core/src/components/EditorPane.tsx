@@ -1496,7 +1496,7 @@ export function EditorPane({ pane }: { pane: PaneLeaf }): JSX.Element {
   }, [grammarReviewOpen, isActive, setFocusedPanel])
 
   useEffect(() => {
-    if (!isActive) return
+    if (!panelShortcutsApply) return
     const handler = (): void => {
       toggleCommentsPanel()
     }
