@@ -1,3 +1,4 @@
+import { GRAMMAR_MAX_TEXT_BYTES, utf8ByteLength } from '@bridge-contract/grammar'
 import {
   createDiagnosticId,
   isUtf16Boundary,
@@ -194,17 +195,90 @@ export function normalizeLanguageToolResponse(
     throw new TypeError('Grammar check generation must be a non-negative safe integer')
   }
 
-  const body = asRecord(response)
-  if (!body || !Array.isArray(body.matches)) {
-    throw new LanguageToolResponseError('LanguageTool response must contain a matches array')
-  }
+  return normalizeMatchList(responseMatches(response), context)
+}
 
+function normalizeMatchList(
+  matches: readonly unknown[],
+  context: LanguageToolNormalizationContext
+): GrammarDiagnostic[] {
   const diagnostics: GrammarDiagnostic[] = []
-  for (const match of body.matches) {
+  for (const match of matches) {
     const diagnostic = normalizeMatch(match, context)
     if (diagnostic) diagnostics.push(diagnostic)
   }
   return diagnostics
+}
+
+function responseMatches(response: unknown): unknown[] {
+  const body = asRecord(response)
+  if (!body || !Array.isArray(body.matches)) {
+    throw new LanguageToolResponseError('LanguageTool response must contain a matches array')
+  }
+  return body.matches
+}
+
+/** A blank line keeps LanguageTool from treating neighbouring segments as one sentence. */
+const BATCH_SEPARATOR = '\n\n'
+const BATCH_SEPARATOR_BYTES = utf8ByteLength(BATCH_SEPARATOR)
+
+interface LanguageToolBatchSegment {
+  segment: ProseSegment
+  /** UTF-16 offset of the segment's first code unit inside the batch text. */
+  start: number
+}
+
+interface LanguageToolBatch {
+  text: string
+  bytes: number
+  segments: LanguageToolBatchSegment[]
+}
+
+/** Pack non-empty segments, in order, into as few request texts as the byte limit allows. */
+function batchSegments(segments: readonly ProseSegment[]): LanguageToolBatch[] {
+  const batches: LanguageToolBatch[] = []
+  let current: LanguageToolBatch | null = null
+
+  for (const segment of segments) {
+    if (!isValidProseSegment(segment)) {
+      throw new TypeError(`Invalid prose segment mapping for ${segment.id || '<unknown>'}`)
+    }
+    if (!segment.text) continue
+    const bytes = utf8ByteLength(segment.text)
+    if (current && current.bytes + BATCH_SEPARATOR_BYTES + bytes <= GRAMMAR_MAX_TEXT_BYTES) {
+      current.text += BATCH_SEPARATOR
+      current.bytes += BATCH_SEPARATOR_BYTES
+    } else {
+      current = { text: '', bytes: 0, segments: [] }
+      batches.push(current)
+    }
+    current.segments.push({ segment, start: current.text.length })
+    current.text += segment.text
+    current.bytes += bytes
+  }
+  return batches
+}
+
+/**
+ * Give each segment the matches that lie wholly inside it, rebased to segment-relative offsets.
+ * Matches that straddle a separator are dropped because they cannot be attributed to one segment.
+ */
+function splitBatchMatches(batch: LanguageToolBatch, matches: readonly unknown[]): unknown[][] {
+  const perSegment: unknown[][] = batch.segments.map(() => [])
+  for (const match of matches) {
+    const record = asRecord(match)
+    const offset = integer(record?.offset)
+    const length = integer(record?.length)
+    if (!record || offset === null || length === null || length < 0) continue
+
+    const index = batch.segments.findIndex(
+      ({ segment, start }) => offset >= start && offset + length <= start + segment.text.length
+    )
+    if (index !== -1) {
+      perSegment[index].push({ ...record, offset: offset - batch.segments[index].start })
+    }
+  }
+  return perSegment
 }
 
 export class LanguageToolProvider implements GrammarProvider {
@@ -233,15 +307,11 @@ export class LanguageToolProvider implements GrammarProvider {
   async check(request: GrammarCheckRequest): Promise<readonly GrammarDiagnostic[]> {
     const diagnostics: GrammarDiagnostic[] = []
 
-    for (const segment of request.segments) {
+    for (const batch of batchSegments(request.segments)) {
       throwIfAborted(request.signal)
-      if (!isValidProseSegment(segment)) {
-        throw new TypeError(`Invalid prose segment mapping for ${segment.id || '<unknown>'}`)
-      }
-
       const response = await this.transport.check(
         {
-          text: segment.text,
+          text: batch.text,
           language: request.language,
           ...(this.options.enabledCategories
             ? { enabledCategories: this.options.enabledCategories }
@@ -252,12 +322,16 @@ export class LanguageToolProvider implements GrammarProvider {
         request.signal
       )
       throwIfAborted(request.signal)
-      diagnostics.push(
-        ...normalizeLanguageToolResponse(response, {
-          segment,
-          generation: request.generation
-        }).filter((diagnostic) => this.keepsDiagnostic(diagnostic))
-      )
+
+      const matchesBySegment = splitBatchMatches(batch, responseMatches(response))
+      batch.segments.forEach(({ segment }, index) => {
+        diagnostics.push(
+          ...normalizeMatchList(matchesBySegment[index], {
+            segment,
+            generation: request.generation
+          }).filter((diagnostic) => this.keepsDiagnostic(diagnostic))
+        )
+      })
     }
 
     return diagnostics

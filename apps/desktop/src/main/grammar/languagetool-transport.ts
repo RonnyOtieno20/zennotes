@@ -1,15 +1,15 @@
-import type {
-  GrammarCancelRequest,
-  GrammarCancelResponse,
-  GrammarCheckRequest,
-  GrammarCheckResponse,
-  GrammarLanguageToolResponse
+import {
+  GRAMMAR_MAX_TEXT_BYTES,
+  type GrammarCancelRequest,
+  type GrammarCancelResponse,
+  type GrammarCheckRequest,
+  type GrammarCheckResponse,
+  type GrammarLanguageToolResponse
 } from '@bridge-contract/grammar'
 
 export const GRAMMAR_DEFAULT_TIMEOUT_MS = 10_000
 export const GRAMMAR_MIN_TIMEOUT_MS = 100
 export const GRAMMAR_MAX_TIMEOUT_MS = 30_000
-export const GRAMMAR_MAX_TEXT_BYTES = 100_000
 export const GRAMMAR_MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 type GrammarTransportErrorCode =

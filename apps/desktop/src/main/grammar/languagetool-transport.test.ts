@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
+import { GRAMMAR_MAX_TEXT_BYTES } from '@bridge-contract/grammar'
 import {
   GRAMMAR_MAX_RESPONSE_BYTES,
-  GRAMMAR_MAX_TEXT_BYTES,
   GrammarTransportError,
   LanguageToolTransport,
   resolveLanguageToolCheckUrl
