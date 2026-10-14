@@ -296,13 +296,11 @@ export function supportsDefaultGrammarEditor(): boolean {
 }
 
 function getDefaultRegistry(preferences: GrammarPreferences): GrammarDocumentSessionRegistry {
+  // The personal filters are not part of the key: they re-filter results in place.
   const registryKey = JSON.stringify([
     preferences.provider,
     preferences.endpoint,
-    preferences.debounceMs,
-    preferences.enabledCategories,
-    preferences.ignoredRules,
-    preferences.customDictionary
+    preferences.debounceMs
   ])
   if (!defaultRegistry || defaultRegistryKey !== registryKey) {
     // Do not dispose the superseded registry here: bindings still holding its
@@ -313,18 +311,26 @@ function getDefaultRegistry(preferences: GrammarPreferences): GrammarDocumentSes
         new BridgeLanguageToolTransport({
           bridge: window.zen,
           endpoint: preferences.endpoint
-        }),
-        {
-          visibleCategories: preferences.enabledCategories,
-          disabledRules: preferences.ignoredRules,
-          customDictionary: preferences.customDictionary
-        }
+        })
       ),
       { debounceMs: preferences.debounceMs }
     )
     defaultRegistryKey = registryKey
   }
+  updateDefaultGrammarPersonalization(preferences)
   return defaultRegistry
+}
+
+/**
+ * Apply a change to the visible categories, ignored rules or dictionary to every open note's
+ * existing results, without checking any of them again.
+ */
+export function updateDefaultGrammarPersonalization(preferences: GrammarPreferences): void {
+  defaultRegistry?.setPersonalization({
+    visibleCategories: preferences.enabledCategories,
+    ignoredRules: preferences.ignoredRules,
+    customDictionary: preferences.customDictionary
+  })
 }
 
 /** Desktop binding using the host-confined localhost LanguageTool transport. */
