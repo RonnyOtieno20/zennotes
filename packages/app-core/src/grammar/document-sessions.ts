@@ -214,10 +214,60 @@ export function validateGrammarApply(
   }
 }
 
+/** A dismissed issue, identified by its rule, matched text, and position in the note. */
+interface IgnoredIssue {
+  diagnosticId: string
+  ruleId: string
+  original: string
+  range: SourceRange
+}
+
+function isSameIssue(issue: IgnoredIssue, diagnostic: GrammarDiagnostic): boolean {
+  return (
+    issue.ruleId === diagnostic.ruleId &&
+    issue.original === diagnostic.original &&
+    issue.range.from === diagnostic.range.from &&
+    issue.range.to === diagnostic.range.to
+  )
+}
+
+/**
+ * Moves dismissed issues across one text edit. The edit is treated as a single replaced region
+ * between the common prefix and suffix: issues left of it keep their position, issues right of it
+ * shift by the length change, and issues touching it are dropped. An issue whose matched text no
+ * longer reads the same afterwards is dropped too.
+ */
+function mapIgnoredIssues(
+  issues: readonly IgnoredIssue[],
+  previousText: string,
+  nextText: string
+): readonly IgnoredIssue[] {
+  const shortest = Math.min(previousText.length, nextText.length)
+  let prefix = 0
+  while (prefix < shortest && previousText[prefix] === nextText[prefix]) prefix += 1
+  let suffix = 0
+  while (
+    suffix < shortest - prefix &&
+    previousText[previousText.length - 1 - suffix] === nextText[nextText.length - 1 - suffix]
+  ) {
+    suffix += 1
+  }
+  const shift = nextText.length - previousText.length
+  const changedEnd = previousText.length - suffix
+  return issues.flatMap((issue) => {
+    const { from, to } = issue.range
+    if (to > prefix && from < changedEnd) return []
+    const offset = to > prefix ? shift : 0
+    const range = { from: from + offset, to: to + offset }
+    if (nextText.slice(range.from, range.to) !== issue.original) return []
+    return [{ ...issue, range }]
+  })
+}
+
 /** One shared grammar request and review state for a single vault note. */
 export class GrammarDocumentSession {
   private readonly listeners = new Set<(state: GrammarDocumentSessionState) => void>()
-  private readonly ignored = new Set<string>()
+  private ignored: readonly IgnoredIssue[] = []
   private documentText = ''
   private coordinatorState: GrammarCoordinatorState
   private allDiagnostics: readonly GrammarDiagnostic[] = []
@@ -270,11 +320,18 @@ export class GrammarDocumentSession {
   }
 
   ignoreOnce(diagnosticId: string): boolean {
-    if (!this.visibleDiagnostics().some((diagnostic) => diagnostic.id === diagnosticId)) {
-      return false
-    }
+    const issue = this.visibleDiagnostics().find((diagnostic) => diagnostic.id === diagnosticId)
+    if (!issue) return false
     const nextId = nextDiagnosticId(this.visibleDiagnostics(), diagnosticId)
-    this.ignored.add(diagnosticId)
+    this.ignored = [
+      ...this.ignored,
+      {
+        diagnosticId,
+        ruleId: issue.ruleId,
+        original: issue.original,
+        range: { ...issue.range }
+      }
+    ]
     if (this.selectedDiagnosticId === diagnosticId) this.selectedDiagnosticId = nextId
     this.publish()
     return true
@@ -321,7 +378,7 @@ export class GrammarDocumentSession {
     this.inFlight = null
     this.coordinator.dispose()
     this.listeners.clear()
-    this.ignored.clear()
+    this.ignored = []
   }
 
   private check(
@@ -337,10 +394,10 @@ export class GrammarDocumentSession {
     }
 
     if (input.text !== this.documentText || this.generation === 0) {
+      this.ignored = mapIgnoredIssues(this.ignored, this.documentText, input.text)
       this.documentText = input.text
       this.documentFingerprint = fingerprintGrammarDocument(input.text)
       this.generation += 1
-      this.ignored.clear()
       this.selectedDiagnosticId = null
     }
     this.segments = input.segments
@@ -391,7 +448,9 @@ export class GrammarDocumentSession {
   }
 
   private visibleDiagnostics(): readonly GrammarDiagnostic[] {
-    return this.allDiagnostics.filter((diagnostic) => !this.ignored.has(diagnostic.id))
+    return this.allDiagnostics.filter(
+      (diagnostic) => !this.ignored.some((issue) => isSameIssue(issue, diagnostic))
+    )
   }
 
   private buildState(): GrammarDocumentSessionState {
@@ -404,7 +463,7 @@ export class GrammarDocumentSession {
       status: this.coordinatorState.status,
       diagnostics: visible,
       selectedDiagnosticId: this.selectedDiagnosticId,
-      ignoredDiagnosticIds: [...this.ignored],
+      ignoredDiagnosticIds: this.ignored.map((issue) => issue.diagnosticId),
       segments: segmentStates(this.segments),
       ...(this.coordinatorState.error ? { error: this.coordinatorState.error } : {})
     }
