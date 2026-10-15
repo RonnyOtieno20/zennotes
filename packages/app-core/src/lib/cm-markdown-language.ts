@@ -27,10 +27,29 @@
  * through `parseMixed`. The mount hands the previous markdown tree to the
  * inner parser as fragments, so body parsing stays incremental as long as the
  * body keeps its start: edits anywhere in the body or inside the frontmatter
- * reuse the untouched blocks. The two moments the body start moves (the
- * closing fence typed for the first time, or broken) cost one full body
- * parse, the same as opening the note; parseMixed cannot find the old mount
- * across that move. The test file pins both behaviours.
+ * reuse the untouched blocks.
+ *
+ * Two cases read again text that a plain markdown parser would reuse, and
+ * both are kept on purpose. When the body start moves (the closing fence
+ * typed for the first time, or broken), parseMixed cannot find the old mount
+ * and the body is parsed in full, the same as opening the note. And the outer
+ * tree always spans the whole note, so when a parse runs out of its 20 ms
+ * slice, CodeMirror drops the older tree past that point and the parse that
+ * resumes reads the rest again. Reusing the older blocks in those two cases
+ * makes the tree go stale more often, because Lezer's markdown reuse can keep
+ * a block whose meaning changed with text outside it: an indented code block
+ * whose indent was deleted along with the frontmatter, a paragraph whose end
+ * moved when a table row under it broke. Checked against a fresh parse 50,000
+ * times over 100,000 random edits, this grammar was stale 3 times, the same
+ * grammar with that reuse 29 times, and plain `markdown()` 205 times. The
+ * cost is small: a typed character parses well inside its slice even in an
+ * 800 KB note, and reading the rest after a cut costs what opening the note
+ * costs, in background slices. The test file pins both behaviours.
+ *
+ * One consequence: `syntaxTree(state).length` is always the whole note, so it
+ * does not say how far the parse got. Ask `ensureSyntaxTree` or
+ * `syntaxTreeAvailable` instead, as `headingAbove` in table-to-database.ts
+ * does.
  *
  * The frontmatter content is deliberately left untokenized: with Live Preview
  * off a note reads as its raw text (#616), and the card styles it when on.

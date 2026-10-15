@@ -1047,20 +1047,12 @@ function App(): JSX.Element {
         !!document.querySelector('[data-prompt-modal]') ||
         !!document.querySelector('[data-confirm-modal]') ||
         !!document.querySelector('[data-cloud-conflict-dialog]')
-      // Search Notes is a toggle: its own shortcut closes the palette it
-      // opened (#510 moved it here from the bubble handler, which had no
-      // overlay guard at all). A confirm on top of the palette, such as the
-      // Ctrl+D trash confirmation, keeps the key to itself.
-      if (
-        state.searchOpen &&
-        !modalOrMenuOpen &&
-        matchesShortcut(e, overrides, 'global.searchNotes')
-      ) {
-        e.preventDefault()
-        e.stopImmediatePropagation()
-        setSearchOpen(false)
-        return
-      }
+      // `global.searchNotes` is deliberately not a toggle. `Mod+P` resolves to
+      // `Ctrl+P` on Linux and Windows, which is also the Emacs previous-item
+      // chord every palette handles via `isPalettePreviousKey()`. A toggle here
+      // ran capture-phase and called `stopImmediatePropagation()`, making that
+      // branch unreachable while the palette was open (#938). Escape dismisses.
+      // Do not reinstate a toggle above the overlay guard.
       if (
         state.settingsOpen ||
         state.whatsNewOpen ||

@@ -88,7 +88,7 @@ import { PinIcon } from './icons'
 import { headingFolding } from '../lib/cm-heading-fold'
 import { editorTabSize, normalizeEditorTabSize } from '../lib/editor-tab-size'
 import { storedCursorDrawSelection } from '../lib/cm-cursor-blink'
-import { useCloseWindowShortcut } from '../lib/close-shortcut'
+import { useCloseShortcutDisplay, useCloseWindowShortcut } from '../lib/close-shortcut'
 
 const PREFS_KEY = 'zen:prefs:v2'
 
@@ -576,7 +576,8 @@ export function QuickCaptureApp(): JSX.Element {
   // save, the draft stays in this renderer for the next show. The picker and
   // the command palette keep it, as palettes do in the main window.
   const overlayOpen = useCallback(() => overlayRef.current !== 'none', [])
-  useCloseWindowShortcut(overlayOpen)
+  useCloseWindowShortcut(overlayOpen, true)
+  const closeKey = useCloseShortcutDisplay()
   const submitAndCloseRef = useRef(submitAndClose)
   useEffect(() => {
     submitAndCloseRef.current = submitAndClose
@@ -594,21 +595,8 @@ export function QuickCaptureApp(): JSX.Element {
         void submitAndCloseRef.current()
         return
       }
-      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'n') {
-        e.preventDefault()
-        void newNoteRef.current()
-        return
-      }
-      if (mod && e.shiftKey && e.key.toLowerCase() === 'p') {
-        e.preventDefault()
-        setOverlay((current) => (current === 'command' ? 'none' : 'command'))
-        return
-      }
-      if (mod && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'p') {
-        e.preventDefault()
-        setOverlay((current) => (current === 'search' ? 'none' : 'search'))
-        return
-      }
+      // Mod+N, Mod+P and Mod+Shift+P are handled in the capture-phase listener
+      // below, which stands aside while an overlay is open.
       if (e.key === 'Escape') {
         // CodeMirror can consume Esc (e.g. collapsing a visual selection)
         // without stopping propagation. Do not also save and hide. (#765)
@@ -629,6 +617,40 @@ export function QuickCaptureApp(): JSX.Element {
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
+  }, [])
+
+  // codemirror-vim consumes Ctrl+P, Ctrl+N and Ctrl+W as normal-mode chords and
+  // stops propagation, so the bubble handler above never sees them and the
+  // footer advertises shortcuts that only work in insert mode. Capture phase,
+  // the same treatment App.tsx gives its own editor chords (#510, #579).
+  //
+  // Gated on no overlay being open: with one open its input has focus and its
+  // own isPalettePreviousKey branch moves the selection, so standing aside here
+  // is what keeps Ctrl+P navigating instead of closing.
+  //
+  // Escape deliberately stays in the bubble handler, whose branch reads
+  // e.defaultPrevented on the grounds that CodeMirror has already run (#765).
+  useEffect(() => {
+    const overlayChords = (e: KeyboardEvent): void => {
+      if (overlayRef.current !== 'none') return
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      const key = e.key.toLowerCase()
+      if (e.shiftKey && key === 'p') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        setOverlay((current) => (current === 'command' ? 'none' : 'command'))
+      } else if (!e.shiftKey && key === 'n') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        void newNoteRef.current()
+      } else if (!e.shiftKey && key === 'p') {
+        e.preventDefault()
+        e.stopImmediatePropagation()
+        setOverlay((current) => (current === 'search' ? 'none' : 'search'))
+      }
+    }
+    window.addEventListener('keydown', overlayChords, true)
+    return () => window.removeEventListener('keydown', overlayChords, true)
   }, [])
 
   const isMacPlatform = useMemo(() => {
@@ -769,15 +791,40 @@ export function QuickCaptureApp(): JSX.Element {
           <span>
             <kbd className="rounded bg-paper-200 px-1">{modKey}↩</kbd> save
           </span>
-          <span>
-            <kbd className="rounded bg-paper-200 px-1">{modKey}N</kbd> new
-          </span>
-          <span>
-            <kbd className="rounded bg-paper-200 px-1">{modKey}P</kbd> notes
-          </span>
-          <span>
-            <kbd className="rounded bg-paper-200 px-1">{modKey}⇧P</kbd> cmd
-          </span>
+          {overlay === 'none' ? (
+            <>
+              <span>
+                <kbd className="rounded bg-paper-200 px-1">{modKey}N</kbd> new
+              </span>
+              <span>
+                <kbd className="rounded bg-paper-200 px-1">{modKey}P</kbd> notes
+              </span>
+              <span>
+                <kbd className="rounded bg-paper-200 px-1">{modKey}⇧P</kbd> cmd
+              </span>
+              {/* Close active tab follows a rebind here, and an unbound key
+                  is not advertised at all. */}
+              {closeKey && (
+                <span>
+                  <kbd className="rounded bg-paper-200 px-1">{closeKey}</kbd> close
+                </span>
+              )}
+            </>
+          ) : (
+            <>
+              <span>
+                {/* Ctrl, not Mod: isPaletteNextKey/isPalettePreviousKey
+                    accept Ctrl+N/P and Ctrl+J/K only, with no Cmd branch.
+                    Same literal string the other palettes use, so the footer
+                    stays true on macOS where Mod+N/P does not navigate. */}
+                <kbd className="rounded bg-paper-200 px-1">↑↓</kbd>{' '}
+                <kbd className="rounded bg-paper-200 px-1">Ctrl+N/P</kbd> move
+              </span>
+              <span>
+                <kbd className="rounded bg-paper-200 px-1">esc</kbd> close
+              </span>
+            </>
+          )}
         </span>
       </footer>
     </div>
@@ -802,6 +849,17 @@ interface NotePickerOverlayProps {
   onCancel: () => void
 }
 
+/** Where a note sits inside its folder, with neither the folder nor the
+ *  filename repeated. The row already shows the folder on the left and the
+ *  title next to it, so a full path would say the same thing twice and leave
+ *  the title nothing but a truncated stub. */
+function noteSubpath(note: Pick<NoteMeta, 'path' | 'folder'>): string {
+  const within = note.path.startsWith(`${note.folder}/`)
+    ? note.path.slice(note.folder.length + 1)
+    : note.path
+  return within.replace(/[^/]+$/, '').replace(/\/+$/, '')
+}
+
 function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps): JSX.Element {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -810,6 +868,12 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
+
+  const listRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-qc-idx="${active}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [active])
 
   const searchIndex = useMemo(() => buildNoteSearchIndex(notes), [notes])
 
@@ -858,7 +922,7 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
           className="w-full bg-transparent text-sm outline-none placeholder:text-ink-400"
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
         {results.length === 0 ? (
           <div className="px-4 py-3 text-xs text-ink-500">
             No notes match. Esc to dismiss.
@@ -869,6 +933,7 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
             return (
               <button
                 key={note.path}
+                data-qc-idx={idx}
                 type="button"
                 onMouseEnter={() => setActive(idx)}
                 onClick={() => onPick(note)}
@@ -880,8 +945,21 @@ function NotePickerOverlay({ notes, onPick, onCancel }: NotePickerOverlayProps):
                 <span className="shrink-0 text-2xs uppercase tracking-wide text-ink-400">
                   {note.folder}
                 </span>
-                <span className="truncate">{note.title}</span>
-                <span className="ml-auto truncate text-2xs text-ink-400">{note.path}</span>
+                {/* Same shape as the Open Buffers fix for #635: the title is
+                    what the user is picking by, so it takes its natural width
+                    and truncates only when it alone overflows. The path gets
+                    whatever is left (flex-1, basis 0) and collapses first. */}
+                <span className="min-w-0 truncate">{note.title}</span>
+                {/* dir="rtl" moves the ellipsis to the left edge so a subpath
+                    that no longer fits keeps its distinguishing tail. The
+                    LRE/PDF pair keeps it rendering left to right, and
+                    text-right holds it against the row's right edge. */}
+                <span
+                  dir="rtl"
+                  className="min-w-0 flex-1 truncate text-right text-2xs text-ink-400"
+                >
+                  {`\u202A${noteSubpath(note)}\u202C`}
+                </span>
               </button>
             )
           })
@@ -912,6 +990,12 @@ function CommandOverlay({ modKey, mode, vimMode, onAction, onCancel }: CommandOv
     inputRef.current?.focus()
   }, [])
 
+  const listRef = useRef<HTMLDivElement | null>(null)
+  useEffect(() => {
+    const el = listRef.current?.querySelector<HTMLElement>(`[data-qc-idx="${active}"]`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [active])
+
   const all = useMemo(
     () => [
       {
@@ -927,15 +1011,18 @@ function CommandOverlay({ modKey, mode, vimMode, onAction, onCancel }: CommandOv
         keywords: 'save write keep open'
       },
       {
+        // This overlay only mounts while it is open, and while it is open those
+        // two chords move the selection rather than running the command. Mod+Enter
+        // is not a navigation chord, so its hint stays.
         id: 'new' as CommandAction,
         label: 'Save and start a new note',
-        hint: `${modKey}N`,
+        hint: '',
         keywords: 'new fresh next another note save'
       },
       {
         id: 'open' as CommandAction,
         label: 'Open another note…',
-        hint: `${modKey}P`,
+        hint: '',
         keywords: 'open switch picker find search note'
       }
     ],
@@ -986,7 +1073,7 @@ function CommandOverlay({ modKey, mode, vimMode, onAction, onCancel }: CommandOv
           className="w-full bg-transparent text-sm outline-none placeholder:text-ink-400"
         />
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto">
         {results.length === 0 ? (
           <div className="px-4 py-3 text-xs text-ink-500">No commands match.</div>
         ) : (
@@ -995,6 +1082,7 @@ function CommandOverlay({ modKey, mode, vimMode, onAction, onCancel }: CommandOv
             return (
               <button
                 key={cmd.id}
+                data-qc-idx={idx}
                 type="button"
                 onMouseEnter={() => setActive(idx)}
                 onClick={() => onAction(cmd.id)}

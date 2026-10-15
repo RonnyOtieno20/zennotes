@@ -135,6 +135,20 @@ const INLINE_WAITING_RE = /(?:^|\s)@waiting\b/i
 // Kanban group-by; `status` is simply the default one. Global so a line can
 // carry several fields. (#354)
 const INLINE_FIELD_RE = /(?:^|\s)@([a-z][a-z0-9_-]*):([\p{L}\d][\p{L}\d/_-]*)/giu
+
+/** The first `@<key>:<value>` that `text` carries for `key`, lower-cased: the
+ *  value the parser below keeps in `fields[key]`. For the grammars that leave
+ *  the fields in a task's text, as the MCP server and `zn` do, so they still
+ *  report the status the app shows (ZenNotes/zennotes#941). */
+export function inlineTaskField(text: string, key: string): string | undefined {
+  const wanted = key.toLowerCase()
+  INLINE_FIELD_RE.lastIndex = 0
+  for (const match of text.matchAll(INLINE_FIELD_RE)) {
+    if (match[1].toLowerCase() === wanted) return match[2].toLowerCase()
+  }
+  return undefined
+}
+
 // Match #tag-like tokens but only when preceded by start-of-string/whitespace.
 // Letters in any script (Cyrillic/CJK/…) plus digits, `_`, `-`, `/` (#205).
 const INLINE_TAG_RE = /(?:^|\s)#([\p{L}\d][\p{L}\d/_-]*)/gu

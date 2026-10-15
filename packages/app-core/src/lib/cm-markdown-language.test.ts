@@ -1,5 +1,5 @@
 import { markdownLanguage } from '@codemirror/lang-markdown'
-import { ensureSyntaxTree, syntaxTree } from '@codemirror/language'
+import { ensureSyntaxTree, syntaxTree, syntaxTreeAvailable } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import type { SyntaxNode, Tree } from '@lezer/common'
 import { describe, expect, it, vi } from 'vitest'
@@ -261,8 +261,10 @@ describe('noteMarkdown: incremental parsing', () => {
     // This one transition reparses the body in full: the Body node moved from
     // position 0 to the closing fence, and parseMixed (through @lezer/common
     // 1.5.2) loses track of the old mount when the mounted node is the first
-    // child covering the new start. It costs one parse, the same as opening
-    // the note, and the very next edit is incremental again.
+    // child covering the new start. Keep it that way: blocks reused across a
+    // moved start can keep a meaning the move changed (the header of
+    // cm-markdown-language.ts has the numbers). It costs one parse, the same
+    // as opening the note, and the very next edit is incremental again.
     expect(blockTreeAt(after, probeAt + 3)).not.toBe(probeTree)
     const settled = blockTreeAt(after, probeAt + 3)
     const editAt = next.doc.toString().indexOf('Paragraph 3 ')
@@ -278,6 +280,34 @@ describe('noteMarkdown: incremental parsing', () => {
     const after = syntaxTree(next)
     expect(names(after)).not.toContain('Frontmatter')
     expect(names(after)).toContain('HorizontalRule')
+  })
+
+  it('reads the text past a parse that ran out of time again', () => {
+    // When an update's 20 ms slice runs out, the whole-note outer tree makes
+    // CodeMirror drop the older tree past that point, so the parse that
+    // resumes reads the rest again instead of reusing blocks parsed before
+    // the edit. That is the safe outcome (the header of
+    // cm-markdown-language.ts says why); a change that starts reusing them
+    // should be a decision, not an accident.
+    const doc = `---\ntitle: x\n---\n${BODY}`
+    const { state, tree } = parse(doc)
+    const probeAt = doc.indexOf(PROBE)
+    const probeTree = blockTreeAt(tree, probeAt)
+
+    const editAt = doc.indexOf('Paragraph 3 ')
+    // A clock that moves 30 ms per read ends the slice after one step.
+    let now = Date.now()
+    const clock = vi.spyOn(Date, 'now').mockImplementation(() => (now += 30))
+    let next: EditorState
+    try {
+      next = state.update({ changes: { from: editAt, to: editAt, insert: 'Edited ' } }).state
+    } finally {
+      clock.mockRestore()
+    }
+    expect(syntaxTreeAvailable(next)).toBe(false)
+    const after = ensureSyntaxTree(next, next.doc.length, 5000)!
+    expect(blockTreeAt(after, probeAt + 'Edited '.length)).not.toBe(probeTree)
+    expect(nodes(after)).toEqual(nodes(parse(next.doc.toString()).tree))
   })
 })
 

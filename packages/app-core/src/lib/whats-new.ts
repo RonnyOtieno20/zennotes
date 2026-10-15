@@ -40,6 +40,27 @@ export const CLOUD_ANNOUNCEMENT = {
 
 export const WHATS_NEW: readonly WhatsNewEntry[] = [
   {
+    version: '2.70.0',
+    highlights: [
+      {
+        title: 'React to task changes',
+        body: 'The zn CLI that ZenNotes bundles on macOS and Linux is now 0.8.0. Its zn task watch prints a line each time a task’s status changes, so a script can act the moment a card moves to another column.'
+      },
+      {
+        title: 'Assistants see the column',
+        body: 'Through MCP, list_tasks now gives each task’s status: the column it sits in when the Kanban board is grouped by Custom status.'
+      },
+      {
+        title: 'Quick capture with Vim',
+        body: 'The Quick capture window’s shortcuts now work while Vim is in normal mode: Ctrl+P and Ctrl+N everywhere, and Ctrl+W on Linux and Windows. Its note picker shows each note’s name first and keeps the selection in view.'
+      },
+      {
+        title: 'Ctrl+P in Search Notes',
+        body: 'On Linux and Windows, Ctrl+P in Search Notes moves the selection up, as in every other list, instead of closing it. Escape closes it.'
+      }
+    ]
+  },
+  {
     version: '2.69.1',
     highlights: [
       {

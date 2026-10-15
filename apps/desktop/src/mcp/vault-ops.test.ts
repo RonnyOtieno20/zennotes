@@ -15,6 +15,7 @@ import {
   toggleTaskInBody
 } from './vault-ops'
 import { TASK_LINE_RE as SHARED_TASK_LINE_RE } from '@shared/tasklists'
+import { parseTasksFromBody as parseAppTasks } from '@shared/tasks'
 
 // Every note-shaped MCP result carries `link`, the zennotes:// deep link a
 // model renders as a markdown link so the user can click from chat straight
@@ -111,6 +112,27 @@ describe('mcp task states', () => {
     expect(tasks.map((t) => t.content)).toHaveLength(body.split('\n').filter((line) => SHARED_TASK_LINE_RE.test(line)).length)
     expect(tasks.find((t) => t.content === 'ordered done')?.checked).toBe(true)
     expect(tasks.find((t) => t.content === 'deeply quoted')?.inProgress).toBe(true)
+  })
+
+  // An assistant sees which column of a status board a task is in, as the app
+  // and `zn mcp` report it, while this grammar keeps the token in the content
+  // (ZenNotes/zennotes#941).
+  it('reports each task’s status column the way the app reads it', async () => {
+    await writeFile(path.join(root, 'inbox', 'Ship it.md'), '---\ntags: [task]\nstatus: Ready\n---\nBuild it.\n')
+    await writeFile(path.join(root, 'inbox', 'Bare task.md'), '---\ntags: [task]\n---\nNo status yet.\n')
+    const sprint = '---\nstatus: backlog\n---\n- [ ] inherits\n- [ ] overrides @status:Review @status:later\n- [x] done here\n'
+    await writeFile(path.join(root, 'inbox', 'Sprint.md'), sprint)
+    const tasks = await scanAllTasks(root)
+    const statusOf = (content: string): string | undefined => tasks.find((t) => t.content === content)?.status
+    expect(statusOf('Ship it')).toBe('ready')
+    expect(statusOf('Bare task')).toBe('open')
+    expect(statusOf('inherits')).toBe('backlog')
+    expect(statusOf('overrides @status:Review @status:later')).toBe('review')
+    expect(statusOf('done here')).toBe('backlog')
+    expect(statusOf('actually do it')).toBeUndefined()
+    expect(JSON.parse(JSON.stringify(tasks.find((t) => t.content === 'actually do it')))).not.toHaveProperty('status')
+    const app = parseAppTasks(sprint, { path: 'inbox/Sprint.md', title: 'Sprint', folder: 'inbox' })
+    expect(tasks.filter((t) => t.sourcePath === 'inbox/Sprint.md').map((t) => t.status)).toEqual(app.map((t) => t.status))
   })
 
   it('toggles an ordered or quoted task in place', () => {

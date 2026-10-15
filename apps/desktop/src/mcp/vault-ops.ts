@@ -21,7 +21,7 @@ import { retitleLeadingHeading } from '@shared/note-heading-sync'
 import { normalizeNoteComments } from '@shared/note-comments'
 import type { NoteComment, NoteCommentInput } from '@shared/ipc'
 export type { NoteComment, NoteCommentInput }
-import { noteTasksMode, type NoteTasksMode } from '@shared/tasks'
+import { inlineTaskField, noteTasksMode, type NoteTasksMode } from '@shared/tasks'
 import {
   isPathExcludedFromTasks,
   normalizeTasksExcludedFolders
@@ -283,6 +283,13 @@ export interface VaultTask {
   due?: string
   priority?: 'high' | 'med' | 'low'
   waiting: boolean
+  /** The column the task sits in on a Kanban board grouped by status, read as
+   *  the app reads it: a task note's frontmatter `status:` (`open` when it has
+   *  none), a checkbox line's `@status:`, or else the frontmatter `status:` of
+   *  the note the line is in. Lower-cased; absent when a line has none. The
+   *  `@status:` token stays in `content`, as every field does in this grammar
+   *  (ZenNotes/zennotes#941). */
+  status?: string
   tags: string[]
   /** How this task is stored. `'file'` is a whole-note task (TaskNotes-style: a
    *  `.md` file tagged `task`, metadata in frontmatter); `'inline'` (the default
@@ -1356,11 +1363,17 @@ function normalizeDueDate(raw: string | undefined): string | undefined {
 function parseNoteDefaults(body: string): {
   due?: string
   priority?: 'high' | 'med' | 'low'
+  status?: string
   tasksMode: NoteTasksMode
 } {
   const m = body.match(FRONTMATTER_RE)
   if (!m) return { tasksMode: 'all' }
-  const out: { due?: string; priority?: 'high' | 'med' | 'low'; tasksMode: NoteTasksMode } = {
+  const out: {
+    due?: string
+    priority?: 'high' | 'med' | 'low'
+    status?: string
+    tasksMode: NoteTasksMode
+  } = {
     tasksMode: 'all'
   }
   for (const rawLine of m[1].split('\n')) {
@@ -1377,6 +1390,8 @@ function parseNoteDefaults(body: string): {
     else if (key === 'priority') {
       const p = normalizePriority(value)
       if (p) out.priority = p
+    } else if (key === 'status') {
+      if (value) out.status = value.toLowerCase()
     } else if (key === 'tasks') out.tasksMode = noteTasksMode(value)
   }
   return out
@@ -1478,6 +1493,7 @@ function parseTasksFromBody(
       due: due ?? defaults.due,
       priority: priority ?? defaults.priority,
       waiting,
+      status: inlineTaskField(tail, 'status') ?? defaults.status,
       tags
     })
     taskIndex += 1
@@ -1603,6 +1619,7 @@ function parseTaskFile(
     due: normalizeDueDate(firstScalar(fm.due)),
     priority: normalizePriority(firstScalar(fm.priority)),
     waiting: status === 'waiting',
+    status,
     tags: tags.filter((t) => t !== TASK_FILE_TAG),
     kind: 'file',
     scheduled: normalizeDueDate(firstScalar(fm.scheduled)),
