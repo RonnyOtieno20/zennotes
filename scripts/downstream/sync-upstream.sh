@@ -71,6 +71,14 @@ if ! git merge-base --is-ancestor "$upstream_ref" "$sync_branch"; then
   merge_performed=true
   merge_status=0
   GIT_EDITOR=true git merge --no-edit --no-ff "$upstream_ref" || merge_status=$?
+  # The one exception: the desktop version line conflicts on every release and
+  # is rewritten by set-grammar-version.mjs below. The resolver refuses (and
+  # touches nothing) unless that field is the only thing in conflict.
+  if [[ "$merge_status" -ne 0 ]] && \
+    node scripts/downstream/resolve-version-conflicts.mjs >&2 && \
+    GIT_EDITOR=true git commit --no-edit >/dev/null; then
+    merge_status=0
+  fi
   if [[ "$merge_status" -ne 0 ]]; then
     conflicted_files="$(git diff --name-only --diff-filter=U)"
     git merge --abort >/dev/null 2>&1 || true
