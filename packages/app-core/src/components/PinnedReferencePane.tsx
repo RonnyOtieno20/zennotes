@@ -31,6 +31,8 @@ import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } f
 import { getKeymapBinding, type KeymapOverrides } from '../lib/keymaps'
 import { keyBindingsFor } from '../lib/vim-half-page-keymap'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
+import { markdownHighlight } from '../lib/cm-syntax-highlight'
+import { markdownSourceHighlight } from '../lib/cm-markdown-source-highlight'
 import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
@@ -39,8 +41,7 @@ import {
   listIndentWidth,
   markdownListIndentPlugin
 } from '../lib/cm-markdown-list-indent'
-import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
-import { tags as t } from '@lezer/highlight'
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import type { LineNumberMode } from '../store'
@@ -69,52 +70,6 @@ const PINNED_REF_PANE_ID = 'pinned-ref'
 export const pinnedRefPaneId = PINNED_REF_PANE_ID
 
 const programmatic = Annotation.define<boolean>()
-
-const paperHighlight = HighlightStyle.define([
-  { tag: t.heading1, class: 'tok-heading1' },
-  { tag: t.heading2, class: 'tok-heading2' },
-  { tag: t.heading3, class: 'tok-heading3' },
-  { tag: t.heading4, class: 'tok-heading4' },
-  { tag: t.heading5, class: 'tok-heading5' },
-  { tag: t.heading6, class: 'tok-heading6' },
-  { tag: t.emphasis, class: 'tok-emphasis' },
-  { tag: t.strong, class: 'tok-strong' },
-  { tag: t.strikethrough, class: 'tok-strikethrough' },
-  { tag: t.url, class: 'tok-url' },
-  { tag: t.monospace, class: 'tok-monospace' },
-  { tag: t.quote, class: 'tok-quote' },
-  { tag: t.list, class: 'tok-list' },
-  { tag: t.meta, class: 'tok-meta' },
-  { tag: t.keyword, class: 'tok-keyword' },
-  { tag: t.controlKeyword, class: 'tok-keyword' },
-  { tag: t.definitionKeyword, class: 'tok-keyword' },
-  { tag: t.modifier, class: 'tok-keyword' },
-  { tag: t.operatorKeyword, class: 'tok-keyword' },
-  { tag: t.string, class: 'tok-string' },
-  { tag: t.special(t.string), class: 'tok-string' },
-  { tag: t.regexp, class: 'tok-string' },
-  { tag: t.comment, class: 'tok-comment' },
-  { tag: t.lineComment, class: 'tok-comment' },
-  { tag: t.blockComment, class: 'tok-comment' },
-  { tag: t.number, class: 'tok-number' },
-  { tag: t.bool, class: 'tok-atom' },
-  { tag: t.atom, class: 'tok-atom' },
-  { tag: t.null, class: 'tok-atom' },
-  { tag: t.self, class: 'tok-atom' },
-  { tag: t.operator, class: 'tok-operator' },
-  { tag: t.typeName, class: 'tok-type' },
-  { tag: t.className, class: 'tok-type' },
-  { tag: t.namespace, class: 'tok-type' },
-  { tag: t.function(t.variableName), class: 'tok-function' },
-  { tag: t.function(t.definition(t.variableName)), class: 'tok-function' },
-  { tag: t.definition(t.variableName), class: 'tok-variable-def' },
-  { tag: t.propertyName, class: 'tok-property' },
-  { tag: t.labelName, class: 'tok-label' },
-  { tag: t.punctuation, class: 'tok-punct' },
-  { tag: t.bracket, class: 'tok-bracket' },
-  { tag: t.tagName, class: 'tok-tag' },
-  { tag: t.attributeName, class: 'tok-attr' }
-])
 
 function lineNumberExtension(mode: LineNumberMode): Extension {
   if (mode === 'off') return []
@@ -261,7 +216,8 @@ export function PinnedReferencePane(): JSX.Element | null {
           headingCompartment.of(
             headingFolding({ showLevelLabels: s0.showHeadingLevelLabels })
           ),
-          syntaxHighlighting(paperHighlight),
+          syntaxHighlighting(markdownHighlight),
+          markdownSourceHighlight((view) => view.plugin(livePreviewPlugin) !== null),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           livePreviewCompartment.of(s0.livePreview ? livePreviewPlugin : []),
           lineNumbersCompartment.of(lineNumberExtension(s0.lineNumberMode)),

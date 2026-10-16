@@ -273,6 +273,16 @@ export const RESERVED_CODE_FENCE_TAGS = [
   "wsf",
   "xjb",
   "xsl",
+  "gradle",
+  "shellscript",
+  "fish",
+  "env",
+  "psql",
+  "pgsql",
+  "tsql",
+  "mssql",
+  "bigquery",
+  "svelte",
 ] as const;
 
 let reservedTagSet: Set<string> | null = null;

@@ -52,13 +52,14 @@ import { registerReflowOperator } from '../lib/cm-vim-reflow'
 import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import { toggleWrap, wrapLink } from '../lib/cm-format'
+import { markdownHighlight } from '../lib/cm-syntax-highlight'
+import { markdownSourceHighlight } from '../lib/cm-markdown-source-highlight'
 import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
-import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
-import { tags as t } from '@lezer/highlight'
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import {
   autocompletion,
   closeCompletion,
@@ -147,22 +148,6 @@ function loadPrefs(): QuickCapturePrefs {
     return fallback
   }
 }
-
-const captureHighlight = HighlightStyle.define([
-  { tag: t.heading1, class: 'tok-heading1' },
-  { tag: t.heading2, class: 'tok-heading2' },
-  { tag: t.heading3, class: 'tok-heading3' },
-  { tag: t.emphasis, class: 'tok-emphasis' },
-  { tag: t.strong, class: 'tok-strong' },
-  { tag: t.strikethrough, class: 'tok-strikethrough' },
-  { tag: t.url, class: 'tok-url' },
-  { tag: t.monospace, class: 'tok-monospace' },
-  { tag: t.quote, class: 'tok-quote' },
-  { tag: t.list, class: 'tok-list' },
-  { tag: t.keyword, class: 'tok-keyword' },
-  { tag: t.string, class: 'tok-string' },
-  { tag: t.comment, class: 'tok-comment' }
-])
 
 function applyTheme(prefs: QuickCapturePrefs): void {
   const html = document.documentElement
@@ -492,7 +477,8 @@ export function QuickCaptureApp(): JSX.Element {
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
           headingFolding({ showLevelLabels: prefs.showHeadingLevelLabels }),
-          syntaxHighlighting(captureHighlight),
+          syntaxHighlighting(markdownHighlight),
+          markdownSourceHighlight(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           placeholder('Start writing…'),
           // Notion-style `/` slash commands — same block inserters as the main

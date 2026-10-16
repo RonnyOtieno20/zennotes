@@ -2269,8 +2269,8 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
  * All content tokens share the primary foreground color — no gray-on-white
  * hierarchy. Headings get explicit sizing + weight to match Obsidian's
  * editor proportions (H1 ≈ 2×, H2 ≈ 1.6×, H3 ≈ 1.3×, …), inheriting the
- * user's Text font rather than falling back to a serif. Only link/URL
- * tokens break color.
+ * user's Text font rather than falling back to a serif. Source mode adds
+ * Android colour roles below; Live Preview retains its own styling.
  */
 .cm-editor .tok-heading,
 .cm-editor .tok-heading1,
@@ -2437,7 +2437,6 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
 .cm-editor .tok-comment {
   color: rgb(var(--z-fg-2));
   font-style: italic;
-  opacity: 0.85;
 }
 .cm-editor .tok-number,
 .cm-editor .tok-atom {
@@ -2463,9 +2462,14 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
 .cm-editor .tok-bracket {
   color: rgb(var(--z-fg-2));
 }
-.cm-editor .tok-attr,
+.cm-editor .tok-attr {
+  color: rgb(var(--z-yellow));
+}
 .cm-editor .tok-label {
   color: rgb(var(--z-purple));
+}
+.cm-editor .tok-variable-special {
+  color: rgb(var(--z-red));
 }
 .cm-editor .tok-variable {
   /* Plain identifier — readable default, not loud.  */
@@ -2474,8 +2478,51 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
 .cm-editor .tok-meta-code {
   /* Decorators (Python @dataclass), annotations (Java/Rust #[derive]),
      preprocessor instructions. Distinctive but not shouty. */
-  color: rgb(var(--z-accent-soft));
+  color: rgb(var(--z-yellow));
+}
+
+/* Raw Markdown roles from the Android editor. These marks are absent while
+   Live Preview is installed. Keep native desktop heading sizes and spacing. */
+.cm-editor .cm-md-heading,
+.cm-editor .cm-md-heading span {
+  color: rgb(var(--z-accent));
+}
+.cm-editor .cm-md-quote,
+.cm-editor .cm-md-quote .tok-quote {
+  font-style: normal;
+}
+.cm-editor .cm-md-heading span.tok-emphasis,
+.cm-editor .cm-md-quote .tok-emphasis {
   font-style: italic;
+}
+.cm-editor .cm-md-delimiter,
+.cm-editor .cm-md-delimiter span {
+  color: inherit;
+}
+.cm-editor .cm-md-marker,
+.cm-editor .cm-md-marker span {
+  color: rgb(var(--z-grey-0));
+  font-weight: 600;
+  font-style: normal;
+}
+.cm-editor .cm-md-muted,
+.cm-editor .cm-md-muted span {
+  color: rgb(var(--z-grey-0));
+}
+.cm-editor .cm-md-code,
+.cm-editor .cm-md-code span {
+  color: rgb(var(--z-blue));
+}
+.cm-editor .cm-md-link,
+.cm-editor .cm-md-link span {
+  color: rgb(var(--z-purple));
+}
+.cm-editor .cm-md-done {
+  text-decoration-line: line-through;
+}
+.cm-editor .cm-md-done,
+.cm-editor .cm-md-done span {
+  color: rgb(var(--z-grey-0));
 }
 
 /* Preview code highlighting (rehype-highlight / highlight.js) mapped onto the
