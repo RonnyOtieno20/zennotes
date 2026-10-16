@@ -1,4 +1,5 @@
 import { syntaxTree } from '@codemirror/language'
+import { sourceTableRanges } from './cm-live-tables'
 import { RangeSetBuilder, StateEffect, type EditorState } from '@codemirror/state'
 import {
   Decoration,
@@ -1304,6 +1305,13 @@ function computeDecorations(view: EditorView): DecorationSet {
     for (let l = fromLine; l <= toLine; l++) activeLines.add(l)
   }
 
+  const editingTables = sourceTableRanges(state)
+  for (const table of editingTables) {
+    const first = state.doc.lineAt(table.from).number
+    const last = state.doc.lineAt(table.to).number
+    for (let line = first; line <= last; line++) activeLines.add(line)
+  }
+
   const pending: PendingDecoration[] = []
   const replacedLines = new Set<number>()
 
@@ -1554,6 +1562,9 @@ function computeDecorations(view: EditorView): DecorationSet {
       from,
       to,
       enter: (node) => {
+        // A selected table is one source-editing unit, including link targets
+        // on rows other than the caret's row.
+        if (editingTables.some((table) => node.from >= table.from && node.to <= table.to)) return false
         const name = node.name
 
         // #316: `[>]` at the start of a list item is a forwarded-task marker.

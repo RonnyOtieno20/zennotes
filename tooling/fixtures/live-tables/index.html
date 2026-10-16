@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ZenNotes live table fixture</title></head>
+<body>
+  <main style="max-width: 1000px; margin: 24px auto; padding: 0 16px">
+    <h1>Live Markdown tables — throwaway fixture</h1>
+    <p>Click a cell to edit source. Move to “After” to render again. No vault or desktop bridge is connected.</p>
+    <button id="theme">Toggle theme</button> <button id="outside">Move outside tables</button>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: 24px; margin-top: 20px">
+      <section><h2>Edit</h2><div id="editor" class="cm-wysiwyg"></div></section>
+      <section><h2>Preview reference</h2><div id="preview" class="prose-zen"></div></section>
+    </div>
+  </main><script type="module" src="/main.ts"></script>
+</body></html>

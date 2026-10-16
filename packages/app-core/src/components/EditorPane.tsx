@@ -105,7 +105,7 @@ import type { PaneEdge, PaneLeaf } from '../lib/pane-layout'
 import { findLeaf, inferPaneDropEdge } from '../lib/pane-layout'
 import { livePreviewPlugin } from '../lib/cm-live-preview'
 import { codeBlockFlairPlugin } from '../lib/cm-code-block-flair'
-import { tablePlugin, tableVimEntry } from '../lib/cm-table'
+import { liveTableField } from '../lib/cm-live-tables'
 import { wysiwygBlocksPlugin } from '../lib/cm-wysiwyg-blocks'
 import { calloutFolding } from '../lib/cm-callout-fold'
 import { hashtagExtension } from '../lib/cm-hashtags'
@@ -493,9 +493,9 @@ function wysiwygExtensions(
     // on; with it off the block reads as plain --- markdown. (#616)
     frontmatterStyle,
     codeBlockFlairPlugin,
-    // Table widgets are gated on a setting — off keeps tables as plain editable
-    // markdown for full keyboard/Vim editing (#232).
-    ...(renderTables ? [tablePlugin, tableVimEntry] : []),
+    // Inactive tables render; selected tables use native Markdown editing.
+    // Keep the saved preference: off always shows source (#232).
+    ...(renderTables ? [liveTableField] : []),
     wysiwygBlocksPlugin,
     // Collapsed callouts (`> [!type]-`) start folded when a note opens (#853).
     calloutFolding(),

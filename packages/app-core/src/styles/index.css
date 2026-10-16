@@ -5553,6 +5553,43 @@ span.cm-grammar-diagnostic:empty {
   color: rgb(var(--z-accent));
 }
 
+/* Selection-aware tables share Preview's prose rules and theme variables.
+   Padding is measured by CodeMirror; vertical margins on widgets are not. */
+.cm-live-table.prose-zen {
+  /* Keep a wide table's intrinsic width out of the editor's flex sizing. */
+  contain: inline-size;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.6em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: normal;
+  color: rgb(var(--z-fg-1));
+}
+.cm-live-table.prose-zen table {
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
+}
+.cm-live-table.prose-zen table.zen-has-col-widths {
+  min-width: 0;
+}
+.cm-live-table.prose-zen :is(.zen-table-scroll, blockquote, ul, ol) {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+.cm-live-table.prose-zen th,
+.cm-live-table.prose-zen td {
+  border-color: rgb(var(--z-bg-2));
+  white-space: nowrap;
+  cursor: text;
+}
+.cm-live-table.prose-zen th {
+  background: rgb(var(--z-bg-1));
+}
+
 /* --- WYSIWYG live table widget (Edit mode) --------------------------- */
 /* A GFM pipe table rendered as a real, editable <table>. Mirrors Obsidian's
    cm-table-widget: rounded bordered grid, header tint, hover add-buttons, and

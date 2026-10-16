@@ -7,6 +7,7 @@
  * WYSIWYG-only: registered via `wysiwygExtensions()`; never loads in Split.
  */
 import { foldEffect, syntaxTree, unfoldEffect } from '@codemirror/language'
+import { sourceTableRanges } from './cm-live-tables'
 import { RangeSetBuilder } from '@codemirror/state'
 import {
   Decoration,
@@ -97,6 +98,11 @@ function activeLineSet(view: EditorView): Set<number> {
     const from = view.state.doc.lineAt(r.from).number
     const to = view.state.doc.lineAt(r.to).number
     for (let l = from; l <= to; l++) lines.add(l)
+  }
+  for (const table of sourceTableRanges(view.state)) {
+    const first = view.state.doc.lineAt(table.from).number
+    const last = view.state.doc.lineAt(table.to).number
+    for (let line = first; line <= last; line++) lines.add(line)
   }
   return lines
 }

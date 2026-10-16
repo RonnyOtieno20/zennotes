@@ -13,7 +13,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { livePreviewPlugin } from './cm-live-preview'
 import { codeBlockFlairPlugin } from './cm-code-block-flair'
-import { tablePlugin } from './cm-table'
+import { liveTableField } from './cm-live-tables'
 import { wysiwygBlocksPlugin } from './cm-wysiwyg-blocks'
 import { hashtagExtension } from './cm-hashtags'
 import { taskMetadataExtension } from './cm-task-metadata'
@@ -75,7 +75,7 @@ describe('wysiwyg plugin composition', () => {
           markdown({ base: markdownLanguage }),
           livePreviewPlugin,
           codeBlockFlairPlugin,
-          tablePlugin,
+          liveTableField,
           wysiwygBlocksPlugin,
           hashtagExtension,
           taskMetadataExtension,
@@ -88,7 +88,7 @@ describe('wysiwyg plugin composition', () => {
     view.dispatch({ changes: { from: RICH_DOC.length, insert: ' ' } })
     view.dispatch({ changes: { from: RICH_DOC.length, to: RICH_DOC.length + 1 } })
 
-    expect(view.dom.querySelectorAll('.cm-table-widget').length).toBeGreaterThanOrEqual(1)
+    expect(view.dom.querySelectorAll('.cm-live-table').length).toBeGreaterThanOrEqual(1)
     expect(view.dom.querySelectorAll('.cm-wq-hr').length).toBeGreaterThanOrEqual(1)
     expect(view.dom.querySelectorAll('.cm-wq-bullet').length).toBeGreaterThanOrEqual(2)
     expect(view.dom.querySelectorAll('.cm-wq-quote').length).toBeGreaterThanOrEqual(1)
