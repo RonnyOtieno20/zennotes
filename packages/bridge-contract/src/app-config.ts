@@ -23,6 +23,7 @@ export const PORTABLE_PREF_KEYS = [
   'ripgrepBinaryPath',
   'fzfBinaryPath',
   // editor
+  'colorfulMarkdown',
   'livePreview',
   'showHeadingLevelLabels',
   'listIndentGuides',

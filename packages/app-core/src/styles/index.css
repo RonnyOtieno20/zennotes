@@ -2270,7 +2270,7 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
  * hierarchy. Headings get explicit sizing + weight to match Obsidian's
  * editor proportions (H1 ≈ 2×, H2 ≈ 1.6×, H3 ≈ 1.3×, …), inheriting the
  * user's Text font rather than falling back to a serif. Source mode adds
- * Android colour roles below; Live Preview retains its own styling.
+ * shared Android colour roles below when enabled.
  */
 .cm-editor .tok-heading,
 .cm-editor .tok-heading1,
@@ -2481,49 +2481,13 @@ html[data-completed-task-style="gray-strikethrough"] .cm-editor .cm-task-done * 
   color: rgb(var(--z-yellow));
 }
 
-/* Raw Markdown roles from the Android editor. These marks are absent while
-   Live Preview is installed. Keep native desktop heading sizes and spacing. */
-.cm-editor .cm-md-heading,
-.cm-editor .cm-md-heading span {
-  color: rgb(var(--z-accent));
-}
-.cm-editor .cm-md-quote,
-.cm-editor .cm-md-quote .tok-quote {
-  font-style: normal;
-}
-.cm-editor .cm-md-heading span.tok-emphasis,
-.cm-editor .cm-md-quote .tok-emphasis {
-  font-style: italic;
-}
-.cm-editor .cm-md-delimiter,
-.cm-editor .cm-md-delimiter span {
-  color: inherit;
-}
-.cm-editor .cm-md-marker,
-.cm-editor .cm-md-marker span {
-  color: rgb(var(--z-grey-0));
-  font-weight: 600;
-  font-style: normal;
-}
+/* Source-only structure; colours below share the rendered Markdown roles. */
+.cm-editor .cm-md-marker { font-weight: 600; font-style: normal; }
 .cm-editor .cm-md-muted,
-.cm-editor .cm-md-muted span {
-  color: rgb(var(--z-grey-0));
-}
-.cm-editor .cm-md-code,
-.cm-editor .cm-md-code span {
-  color: rgb(var(--z-blue));
-}
-.cm-editor .cm-md-link,
-.cm-editor .cm-md-link span {
-  color: rgb(var(--z-purple));
-}
-.cm-editor .cm-md-done {
-  text-decoration-line: line-through;
-}
+.cm-editor .cm-md-muted span { color: rgb(var(--z-grey-0)); }
+.cm-editor .cm-md-done { text-decoration-line: line-through; }
 .cm-editor .cm-md-done,
-.cm-editor .cm-md-done span {
-  color: rgb(var(--z-grey-0));
-}
+.cm-editor .cm-md-done span { color: rgb(var(--z-grey-0)); }
 
 /* Preview code highlighting (rehype-highlight / highlight.js) mapped onto the
    same theme-adaptive palette the editor uses above, so a fenced block reads the
@@ -6418,4 +6382,140 @@ span.cm-grammar-diagnostic:empty {
 .cm-editor.zen-agent-review .cm-deletedChunk .zen-review-reject:hover {
   border-color: rgb(var(--z-red) / 0.55);
   background: rgb(var(--z-red) / 0.14);
+}
+
+/* Android ZenMarkdown.previewTints: shared reading/editing colour roles.
+   Keep this after the live-preview line rules. No table rendering changes.
+   The default is on; an explicit false restores upstream monochrome styling. */
+html:not([data-colorful-markdown="false"]) {
+  --z-md-accent: rgb(var(--z-accent));
+  --z-md-red: rgb(var(--z-red));
+  --z-md-blue: rgb(var(--z-blue));
+  --z-md-purple: rgb(var(--z-purple));
+  --z-md-green: rgb(var(--z-green));
+  --z-md-aqua: rgb(var(--z-aqua));
+  --z-md-yellow: rgb(var(--z-yellow));
+  --z-md-table-header: var(--z-md-blue);
+  --z-md-quote-tint: 10%;
+}
+html[data-theme-mode="light"] { --z-md-quote-tint: 7%; }
+html:not([data-colorful-markdown="false"]) .prose-zen h1,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-heading-line-h1,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-heading1,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-heading-1 { color: var(--z-md-accent); }
+html:not([data-colorful-markdown="false"]) .prose-zen h2,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-heading-line-h2,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-heading2,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-heading-2 { color: var(--z-md-blue); }
+html:not([data-colorful-markdown="false"]) .prose-zen h3,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-heading-line-h3,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-heading3,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-heading-3 { color: var(--z-md-purple); }
+html:not([data-colorful-markdown="false"]) .prose-zen h4,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-heading-line-h4,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-heading4,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-heading-4 { color: var(--z-md-green); }
+html:not([data-colorful-markdown="false"]) .prose-zen h5,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-heading-line-h5,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-heading5,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-heading-5 { color: var(--z-md-aqua); }
+html:not([data-colorful-markdown="false"]) .prose-zen h6,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-heading-line-h6,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-heading6,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-heading-6 { color: var(--z-md-yellow); }
+
+html:not([data-colorful-markdown="false"]) .prose-zen strong,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-strong,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-wq-quote .tok-strong,
+html:not([data-colorful-markdown="false"]) .cm-table-widget .cm-table-cell strong { color: var(--z-md-red); }
+html:not([data-colorful-markdown="false"]) .prose-zen em,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-emphasis,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-wq-quote .tok-emphasis,
+html:not([data-colorful-markdown="false"]) .cm-table-widget .cm-table-cell em { color: var(--z-md-aqua); }
+/* Like Android's recursive STRONG/EMPH annotator, the innermost role wins. */
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-heading-line .tok-emphasis { font-style: italic; }
+html:not([data-colorful-markdown="false"]) .prose-zen blockquote,
+html:not([data-colorful-markdown="false"]) .cm-wysiwyg .cm-editor .cm-wq-quote {
+  color: var(--z-md-green);
+  background: color-mix(in srgb, rgb(var(--z-green)) var(--z-md-quote-tint), transparent);
+  border-left-color: rgb(var(--z-fg));
+  font-style: italic;
+}
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-quote,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-quote:where(:not(.tok-strong, .tok-emphasis, .tok-monospace, .tok-link, .tok-url)) { color: var(--z-md-green); }
+html:not([data-colorful-markdown="false"]) .cm-wysiwyg .cm-editor .cm-wq-quote .tok-quote:where(:not(.tok-strong, .tok-emphasis, .tok-monospace, .tok-link, .tok-url)) { color: inherit; font-style: italic; }
+html:not([data-colorful-markdown="false"]) .prose-zen th,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-table-widget th {
+  color: var(--z-md-table-header);
+  background: color-mix(in srgb, rgb(var(--z-blue)) 12%, color-mix(in srgb, rgb(var(--z-fg)) 9%, rgb(var(--z-bg))));
+}
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-link,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-link span { color: var(--z-md-accent); }
+html:not([data-colorful-markdown="false"]) .prose-zen a:not(.hashtag),
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-link,
+html:not([data-colorful-markdown="false"]) .cm-editor .tok-url,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-wq-quote :is(.tok-link, .tok-url),
+html:not([data-colorful-markdown="false"]) .cm-wysiwyg .cm-editor .cm-wikilink { color: var(--z-md-accent); }
+/* Android tags use onTertiaryContainer (fg) on tertiaryContainer (24% purple). */
+html:not([data-colorful-markdown="false"]) .prose-zen .hashtag,
+html:not([data-colorful-markdown="false"]) .cm-wysiwyg .cm-editor .cm-hashtag,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-tag {
+  color: rgb(var(--z-fg));
+  background: color-mix(in srgb, rgb(var(--z-purple)) 24%, rgb(var(--z-bg)));
+}
+html:not([data-colorful-markdown="false"]) .prose-zen :not(pre) > code,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-line:not(.cm-code-block-line) .tok-monospace {
+  color: rgb(var(--z-fg));
+  background: color-mix(in srgb, rgb(var(--z-fg)) 13%, rgb(var(--z-bg)));
+}
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-code { color: rgb(var(--z-fg)); }
+/* Lists retain Android's body colour; only checked tasks use the accent. */
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-marker,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-marker span { color: rgb(var(--z-fg)); }
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-task { color: var(--z-md-accent); }
+html:not([data-colorful-markdown="false"]) .prose-zen hr,
+html:not([data-colorful-markdown="false"]) .cm-wysiwyg .cm-editor .cm-wq-hr { border-color: rgb(var(--z-fg) / 0.16); }
+
+/* Some palette syntax swatches (notably Apple light yellow/aqua) were designed
+   for code, not paragraph text. Bound lightness on the note surface; scale
+   light-mode chroma with it to avoid clipping orange accents to red. Overrides
+   still flow from the user's --z-* tokens. */
+html[data-theme-mode="light"]:not([data-colorful-markdown="false"]) {
+  --z-md-accent: oklch(from rgb(var(--z-accent)) min(l, 0.47) calc(c * min(l, 0.47) / max(l, 0.001)) h);
+  --z-md-red: oklch(from rgb(var(--z-red)) min(l, 0.47) calc(c * min(l, 0.47) / max(l, 0.001)) h);
+  --z-md-blue: oklch(from rgb(var(--z-blue)) min(l, 0.47) calc(c * min(l, 0.47) / max(l, 0.001)) h);
+  --z-md-purple: oklch(from rgb(var(--z-purple)) min(l, 0.47) calc(c * min(l, 0.47) / max(l, 0.001)) h);
+  --z-md-green: oklch(from rgb(var(--z-green)) min(l, 0.47) calc(c * min(l, 0.47) / max(l, 0.001)) h);
+  --z-md-aqua: oklch(from rgb(var(--z-aqua)) min(l, 0.47) calc(c * min(l, 0.47) / max(l, 0.001)) h);
+  --z-md-yellow: oklch(from rgb(var(--z-yellow)) min(l, 0.47) calc(c * min(l, 0.47) / max(l, 0.001)) h);
+  --z-md-table-header: oklch(from rgb(var(--z-blue)) min(l, 0.43) calc(c * min(l, 0.43) / max(l, 0.001)) h);
+}
+html[data-theme-mode="dark"]:not([data-colorful-markdown="false"]) {
+  --z-md-accent: oklch(from rgb(var(--z-accent)) max(l, 0.78) c h);
+  --z-md-red: oklch(from rgb(var(--z-red)) max(l, 0.78) c h);
+  --z-md-blue: oklch(from rgb(var(--z-blue)) max(l, 0.78) c h);
+  --z-md-purple: oklch(from rgb(var(--z-purple)) max(l, 0.78) c h);
+  --z-md-green: oklch(from rgb(var(--z-green)) max(l, 0.78) c h);
+  --z-md-aqua: oklch(from rgb(var(--z-aqua)) max(l, 0.78) c h);
+  --z-md-yellow: oklch(from rgb(var(--z-yellow)) max(l, 0.78) c h);
+  --z-md-table-header: oklch(from rgb(var(--z-blue)) max(l, 0.83) c h);
+}
+
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-table-header {
+  color: var(--z-md-table-header);
+}
+html:not([data-colorful-markdown="false"]) .cm-wysiwyg .cm-editor .cm-wq-bullet,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-markdown-list-line .tok-meta-code {
+  color: rgb(var(--z-fg));
+}
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-marker.cm-md-task,
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-md-marker.cm-md-task span {
+  color: var(--z-md-accent);
+}
+
+/* ==highlight== is a desktop extension; retain its shared Preview/Edit
+   treatment while taking the default yellow from the active theme. */
+html:not([data-colorful-markdown="false"]) .prose-zen mark:not([class*="hl-"]),
+html:not([data-colorful-markdown="false"]) .cm-editor .cm-hl:not([class*="cm-hl-"]) {
+  background-color: rgb(var(--z-yellow) / 0.34);
 }

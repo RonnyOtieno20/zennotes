@@ -31,6 +31,9 @@ describe('Android Markdown styles in source mode', () => {
     const doc = '# Heading\n\n## Second\n\n### Third\n\n#### Fourth\n\n##### Fifth\n\n###### Sixth\n\n**bold** and __bold too__, *italic* and _also italic_, ~~deleted~~'
     const view = editor(doc)
     expect(texts(view, '.cm-md-heading')).toContain('###### Sixth')
+    for (let level = 1; level <= 6; level++) {
+      expect(view.dom.querySelector(`.cm-md-heading-${level}`)).not.toBeNull()
+    }
     expect(texts(view, '.tok-strong')).toContain('bold')
     expect(texts(view, '.tok-emphasis')).toContain('italic')
     expect(texts(view, '.tok-strikethrough')).toContain('deleted')
@@ -52,7 +55,7 @@ describe('Android Markdown styles in source mode', () => {
 
   it('colours resolved links, images, wikilinks and tags without colouring ordinary brackets', () => {
     const view = editor('[Link](https://example.test) ![image](fixture.png) [[Wiki link]] [ordinary]\n\n#tag #nested/tag #with-hyphens word#skip /#skip &#skip\n\n[reference][id]\n\n[id]: https://example.test')
-    const links = texts(view, '.cm-md-link')
+    const links = texts(view, '.cm-md-link, .cm-md-tag')
     for (const text of ['[Link]', '![image]', '[[Wiki link]]', '#tag', '#nested/tag', '#with-hyphens', '[reference]']) expect(links).toContain(text)
     for (const text of ['ordinary', '#skip']) expect(links).not.toContain(text)
   })
@@ -62,9 +65,14 @@ describe('Android Markdown styles in source mode', () => {
     expect(texts(view, '.cm-md-muted')).toContain('title: Fixture')
     expect(texts(view, '.cm-md-muted')).toContain('```python')
     expect(texts(view, '.cm-md-code')).toContain('`#not-tag **not bold**`')
-    expect(texts(view, '.cm-md-link')).toBe('')
+    expect(texts(view, '.cm-md-link, .cm-md-tag')).toBe('')
     expect(texts(view, '.tok-string')).toBe('"hello"')
     expect(texts(view, '.tok-strong')).toBe('')
+  })
+
+  it('marks table headers without decorating body cells or fenced pipes', () => {
+    const view = editor('| Name | Value |\n| --- | --- |\n| body | cell |\n\n```text\n| not a header |\n```')
+    expect(texts(view, '.cm-md-table-header')).toBe('| Name | Value |')
   })
 
   it('updates task and tag marks as the user types', () => {
@@ -75,17 +83,17 @@ describe('Android Markdown styles in source mode', () => {
     expect(texts(view, '.cm-md-done')).toBe('')
     const from = view.state.doc.toString().indexOf('#')
     view.dispatch({ changes: { from, to: view.state.doc.length, insert: 'plain' } })
-    expect(texts(view, '.cm-md-link')).toBe('')
+    expect(texts(view, '.cm-md-link, .cm-md-tag')).toBe('')
   })
 
   it('limits source decorations to the viewport of a large note', () => {
     const view = editor('# Heading\n\n#tag **bold**\n\n'.repeat(5000))
     expect(view.visibleRanges.at(-1)!.to).toBeLessThan(view.state.doc.length)
-    expect(view.dom.querySelectorAll('.cm-md-link').length).toBeLessThan(100)
+    expect(view.dom.querySelectorAll('.cm-md-link, .cm-md-tag').length).toBeLessThan(100)
     const before = texts(view, '.cm-md-heading')
     view.dispatch({ changes: { from: view.state.doc.length, insert: '#offscreen' } })
     expect(texts(view, '.cm-md-heading')).toBe(before)
-    expect(texts(view, '.cm-md-link')).not.toContain('#offscreen')
+    expect(texts(view, '.cm-md-link, .cm-md-tag')).not.toContain('#offscreen')
   })
 
   it('yields to Live Preview initially and when its compartment is toggled', () => {
@@ -100,7 +108,7 @@ describe('Android Markdown styles in source mode', () => {
     expect(texts(view, '.cm-md-heading')).toContain('# Heading')
     view.dispatch({ effects: compartment.reconfigure(live) })
     expect(texts(view, '.cm-md-heading')).toBe('')
-    expect(texts(view, '.cm-md-link')).toBe('')
+    expect(texts(view, '.cm-md-link, .cm-md-tag')).toBe('')
   })
 
   it('preserves grammar underlines within completed tasks and headings', () => {

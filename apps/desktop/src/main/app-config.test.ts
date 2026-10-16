@@ -113,6 +113,7 @@ describe('TOML serialization', () => {
       vimWrappedLineMotions: 'logical',
       editorFontSize: 18,
       editorLineHeight: 1.6,
+      colorfulMarkdown: false,
       themeFamily: 'nord',
       themeMode: 'dark',
       showWindowTitleBar: false,
@@ -147,6 +148,8 @@ describe('TOML serialization', () => {
     expect(round.vimWrappedLineMotions).toBe('logical')
     expect(round.editorFontSize).toBe(18)
     expect(round.editorLineHeight).toBeCloseTo(1.6)
+    expect(text).toContain('colorful_markdown = false')
+    expect(round.colorfulMarkdown).toBe(false)
     expect(round.themeFamily).toBe('nord')
     expect(text).toContain('show_window_title_bar = false')
     expect(round.showWindowTitleBar).toBe(false)
@@ -216,6 +219,7 @@ describe('TOML serialization', () => {
     const { portable } = deserializeConfig(text)
     expect(portable.themeMode).toBe('dark')
     expect(portable.editorFontSize).toBe(16)
+    expect(portable.colorfulMarkdown).toBe(true)
     expect(portable.ripgrepBinaryPath).toBeNull()
   })
 

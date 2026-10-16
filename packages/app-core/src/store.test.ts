@@ -163,6 +163,22 @@ beforeEach(() => {
   vi.restoreAllMocks()
 })
 
+describe('Markdown colour preference', () => {
+  it('defaults on, persists either choice, and restores it on reload', async () => {
+    installZen()
+    const { useStore } = await loadStore()
+    expect(useStore.getState().colorfulMarkdown).toBe(true)
+    useStore.getState().setColorfulMarkdown(false)
+    expect(JSON.parse(localStorage.getItem('zen:prefs:v2')!).colorfulMarkdown).toBe(false)
+    vi.resetModules()
+    const reloaded = await import('./store')
+    loadedStores.add(reloaded as unknown as LoadedStoreModule)
+    expect(reloaded.useStore.getState().colorfulMarkdown).toBe(false)
+    reloaded.useStore.getState().setColorfulMarkdown(true)
+    expect(JSON.parse(localStorage.getItem('zen:prefs:v2')!).colorfulMarkdown).toBe(true)
+  })
+})
+
 describe('tasks cache freshness', () => {
   it('refreshes tasks when focusing an existing Tasks tab', async () => {
     const freshTasks = [makeTask('new task')]

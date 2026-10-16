@@ -72,6 +72,7 @@ export interface FloatingPrefs {
   vimWrappedLineMotions: VimWrappedLineMotionMode
   vimBlockImeInNormalMode: boolean
   livePreview: boolean
+  colorfulMarkdown: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -94,6 +95,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
     vimWrappedLineMotions: 'display',
     vimBlockImeInNormalMode: true,
     livePreview: true,
+    colorfulMarkdown: true,
     themeId: DEFAULT_THEME_ID,
     themeFamily: 'gruvbox',
     themeMode: 'dark',
@@ -124,6 +126,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
       vimWrappedLineMotions:
         parsed.vimWrappedLineMotions === 'logical' ? 'logical' : 'display',
       vimBlockImeInNormalMode: parsed.vimBlockImeInNormalMode !== false,
+      colorfulMarkdown: parsed.colorfulMarkdown !== false,
       cursorBlink: parsed.cursorBlink !== false,
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
@@ -163,6 +166,8 @@ export function applyTheme(prefs: FloatingPrefs): void {
     id = resolveAuto(prefs.themeFamily, mql.matches, prefs.themeId)
   }
   if (!THEMES.some((t) => t.id === id)) id = DEFAULT_THEME_ID
+  html.dataset.colorfulMarkdown = String(prefs.colorfulMarkdown)
+  html.dataset.themeMode = THEMES.find((theme) => theme.id === id)!.mode
   html.dataset.theme = id
   html.style.setProperty('--z-editor-font-size', `${prefs.editorFontSize}px`)
   html.style.setProperty('--z-editor-line-height', String(prefs.editorLineHeight))

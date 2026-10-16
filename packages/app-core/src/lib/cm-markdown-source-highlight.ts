@@ -9,7 +9,10 @@ import { Decoration, EditorView, ViewPlugin, type DecorationSet, type ViewUpdate
 import { isResolvedMarkdownLink, terminatedLinkTailEnd } from './cm-markdown-links'
 
 const mark = (className: string): Decoration => Decoration.mark({ class: className })
-const heading = mark('cm-md-heading')
+const headings = Array.from({ length: 6 }, (_, i) => mark(`cm-md-heading cm-md-heading-${i + 1}`))
+const tag = mark('cm-md-tag')
+const task = mark('cm-md-task')
+const tableHeader = mark('cm-md-table-header')
 const marker = mark('cm-md-marker')
 const muted = mark('cm-md-muted')
 const link = mark('cm-md-link')
@@ -44,9 +47,11 @@ function build(view: EditorView): DecorationSet {
           return false
         }
         if (node.name === 'CodeBlock') return false
-        if (/^(ATX|Setext)Heading[1-6]$/.test(node.name)) add(heading, node.from, node.to)
+        if (/^(ATX|Setext)Heading[1-6]$/.test(node.name)) add(headings[Number(node.name.slice(-1)) - 1], node.from, node.to)
         if (node.name === 'Blockquote') add(quote, node.from, node.to)
+        if (node.name === 'TableHeader') add(tableHeader, node.from, node.to)
         if (node.name === 'EmphasisMark' || node.name === 'StrikethroughMark') add(delimiter, node.from, node.to)
+        if (node.name === 'TaskMarker') add(task, node.from, node.to)
         if (node.name === 'ListMark' || node.name === 'QuoteMark' || node.name === 'TaskMarker') {
           add(marker, node.from, node.to)
         }
@@ -93,7 +98,7 @@ function build(view: EditorView): DecorationSet {
           if (!node.parent) break
           node = node.parent
         }
-        if (!skipped) add(link, start, scanFrom + match.index + match[0].length)
+        if (!skipped) add(tag, start, scanFrom + match.index + match[0].length)
       }
     }
   }

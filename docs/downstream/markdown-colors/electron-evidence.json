@@ -1,0 +1,1630 @@
+{
+  "electron": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) ZenNotes/2.70.1-grammar.1 Chrome/146.0.7680.216 Electron/41.10.7 Safari/537.36",
+  "fixture": "/tmp/zennotes-rendered-colors-0MeBXg",
+  "checks": [
+    {
+      "id": "catppuccin-mocha",
+      "preview": {
+        "h1": "oklch(0.823679 0.101494 52.6182)",
+        "h2": "oklch(0.78 0.111322 259.9)",
+        "h3": "oklch(0.787138 0.118674 304.788)",
+        "h4": "oklch(0.857699 0.109203 142.697)",
+        "h5": "oklch(0.858481 0.0791661 182.74)",
+        "h6": "oklch(0.919301 0.0704331 86.4943)",
+        "bold": "oklch(0.78 0.129734 2.77158)",
+        "italic": "oklch(0.858481 0.0791661 182.74)",
+        "quote": "oklch(0.857699 0.109203 142.697)",
+        "header": "oklch(0.83 0.111322 259.9)",
+        "body": "rgb(205, 214, 244)",
+        "quoteBold": "oklch(0.78 0.129734 2.77158)",
+        "quoteItalic": "oklch(0.858481 0.0791661 182.74)"
+      },
+      "edit": {
+        "h1": "oklch(0.823679 0.101494 52.6182)",
+        "h2": "oklch(0.78 0.111322 259.9)",
+        "h3": "oklch(0.787138 0.118674 304.788)",
+        "h4": "oklch(0.857699 0.109203 142.697)",
+        "h5": "oklch(0.858481 0.0791661 182.74)",
+        "h6": "oklch(0.919301 0.0704331 86.4943)",
+        "bold": "oklch(0.78 0.129734 2.77158)",
+        "italic": "oklch(0.858481 0.0791661 182.74)",
+        "quote": "oklch(0.857699 0.109203 142.697)",
+        "header": "oklch(0.83 0.111322 259.9)",
+        "quoteBold": "oklch(0.78 0.129734 2.77158)",
+        "quoteItalic": "oklch(0.858481 0.0791661 182.74)"
+      },
+      "source": {
+        "h1": "oklch(0.823679 0.101494 52.6182)",
+        "h2": "oklch(0.78 0.111322 259.9)",
+        "h3": "oklch(0.787138 0.118674 304.788)",
+        "h4": "oklch(0.857699 0.109203 142.697)",
+        "h5": "oklch(0.858481 0.0791661 182.74)",
+        "h6": "oklch(0.919301 0.0704331 86.4943)",
+        "bold": "oklch(0.78 0.129734 2.77158)",
+        "italic": "oklch(0.858481 0.0791661 182.74)",
+        "quote": "oklch(0.857699 0.109203 142.697)",
+        "header": "oklch(0.83 0.111322 259.9)",
+        "quoteBold": "oklch(0.78 0.129734 2.77158)",
+        "quoteItalic": "oklch(0.858481 0.0791661 182.74)"
+      }
+    },
+    {
+      "id": "catppuccin-latte",
+      "preview": {
+        "h1": "oklch(0.47 0.138611 42.4268)",
+        "h2": "oklch(0.47 0.189725 262.09)",
+        "h3": "oklch(0.47 0.212135 297.022)",
+        "h4": "oklch(0.47 0.133197 140.437)",
+        "h5": "oklch(0.47 0.0765456 201.104)",
+        "h6": "oklch(0.47 0.098386 67.7666)",
+        "bold": "oklch(0.47 0.184021 19.8116)",
+        "italic": "oklch(0.47 0.0765456 201.104)",
+        "quote": "oklch(0.47 0.133197 140.437)",
+        "header": "oklch(0.43 0.173578 262.09)",
+        "body": "rgb(76, 79, 105)",
+        "quoteBold": "oklch(0.47 0.184021 19.8116)",
+        "quoteItalic": "oklch(0.47 0.0765456 201.104)"
+      },
+      "edit": {
+        "h1": "oklch(0.47 0.138611 42.4268)",
+        "h2": "oklch(0.47 0.189725 262.09)",
+        "h3": "oklch(0.47 0.212135 297.022)",
+        "h4": "oklch(0.47 0.133197 140.437)",
+        "h5": "oklch(0.47 0.0765456 201.104)",
+        "h6": "oklch(0.47 0.098386 67.7666)",
+        "bold": "oklch(0.47 0.184021 19.8116)",
+        "italic": "oklch(0.47 0.0765456 201.104)",
+        "quote": "oklch(0.47 0.133197 140.437)",
+        "header": "oklch(0.43 0.173578 262.09)",
+        "quoteBold": "oklch(0.47 0.184021 19.8116)",
+        "quoteItalic": "oklch(0.47 0.0765456 201.104)"
+      },
+      "source": {
+        "h1": "oklch(0.47 0.138611 42.4268)",
+        "h2": "oklch(0.47 0.189725 262.09)",
+        "h3": "oklch(0.47 0.212135 297.022)",
+        "h4": "oklch(0.47 0.133197 140.437)",
+        "h5": "oklch(0.47 0.0765456 201.104)",
+        "h6": "oklch(0.47 0.098386 67.7666)",
+        "bold": "oklch(0.47 0.184021 19.8116)",
+        "italic": "oklch(0.47 0.0765456 201.104)",
+        "quote": "oklch(0.47 0.133197 140.437)",
+        "header": "oklch(0.43 0.173578 262.09)",
+        "quoteBold": "oklch(0.47 0.184021 19.8116)",
+        "quoteItalic": "oklch(0.47 0.0765456 201.104)"
+      }
+    }
+  ],
+  "themes": [
+    {
+      "id": "apple-light",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.965416971750472
+        },
+        {
+          "role": "h2",
+          "contrast": 6.965416971750472
+        },
+        {
+          "role": "h3",
+          "contrast": 7.413221726887338
+        },
+        {
+          "role": "h4",
+          "contrast": 6.433456877221807
+        },
+        {
+          "role": "h5",
+          "contrast": 6.712817906564843
+        },
+        {
+          "role": "h6",
+          "contrast": 7.029200481652053
+        },
+        {
+          "role": "strong",
+          "contrast": 7.438525966726187
+        },
+        {
+          "role": "em",
+          "contrast": 6.712817906564843
+        },
+        {
+          "role": "blockquote",
+          "contrast": 6.076013850057267
+        },
+        {
+          "role": "th",
+          "contrast": 6.01961835717536
+        }
+      ]
+    },
+    {
+      "id": "apple-dark",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.744531557184522
+        },
+        {
+          "role": "h2",
+          "contrast": 7.744531557184522
+        },
+        {
+          "role": "h3",
+          "contrast": 7.390618305427307
+        },
+        {
+          "role": "h4",
+          "contrast": 9.144349915627831
+        },
+        {
+          "role": "h5",
+          "contrast": 9.888398881634462
+        },
+        {
+          "role": "h6",
+          "contrast": 12.052112085801946
+        },
+        {
+          "role": "strong",
+          "contrast": 6.267023540205967
+        },
+        {
+          "role": "em",
+          "contrast": 9.888398881634462
+        },
+        {
+          "role": "blockquote",
+          "contrast": 7.676253828635142
+        },
+        {
+          "role": "th",
+          "contrast": 6.18219493654954
+        }
+      ]
+    },
+    {
+      "id": "light-hard",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.5049628241414315
+        },
+        {
+          "role": "h2",
+          "contrast": 6.05111741881987
+        },
+        {
+          "role": "h3",
+          "contrast": 6.482739161256743
+        },
+        {
+          "role": "h4",
+          "contrast": 6.072142205066332
+        },
+        {
+          "role": "h5",
+          "contrast": 6.014575506728918
+        },
+        {
+          "role": "h6",
+          "contrast": 6.369645060915535
+        },
+        {
+          "role": "strong",
+          "contrast": 6.6226108208565515
+        },
+        {
+          "role": "em",
+          "contrast": 6.014575506728918
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.542358266324116
+        },
+        {
+          "role": "th",
+          "contrast": 5.434584864021937
+        }
+      ]
+    },
+    {
+      "id": "light-medium",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.3134311046386244
+        },
+        {
+          "role": "h2",
+          "contrast": 5.872948695112686
+        },
+        {
+          "role": "h3",
+          "contrast": 6.291861793897219
+        },
+        {
+          "role": "h4",
+          "contrast": 5.893354428864794
+        },
+        {
+          "role": "h5",
+          "contrast": 5.837482720801228
+        },
+        {
+          "role": "h6",
+          "contrast": 6.182097629189707
+        },
+        {
+          "role": "strong",
+          "contrast": 6.427615081079365
+        },
+        {
+          "role": "em",
+          "contrast": 5.837482720801228
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.41583377289526
+        },
+        {
+          "role": "th",
+          "contrast": 5.301020538205319
+        }
+      ]
+    },
+    {
+      "id": "light-soft",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 5.699668518611008
+        },
+        {
+          "role": "h2",
+          "contrast": 5.302007772660631
+        },
+        {
+          "role": "h3",
+          "contrast": 5.680196076548466
+        },
+        {
+          "role": "h4",
+          "contrast": 5.320429755309748
+        },
+        {
+          "role": "h5",
+          "contrast": 5.269989636418301
+        },
+        {
+          "role": "h6",
+          "contrast": 5.581102676511935
+        },
+        {
+          "role": "strong",
+          "contrast": 5.802752056716136
+        },
+        {
+          "role": "em",
+          "contrast": 5.269989636418301
+        },
+        {
+          "role": "blockquote",
+          "contrast": 4.872733162047456
+        },
+        {
+          "role": "th",
+          "contrast": 4.855468082152277
+        }
+      ]
+    },
+    {
+      "id": "dark-hard",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.883498468685523
+        },
+        {
+          "role": "h2",
+          "contrast": 8.37001301640642
+        },
+        {
+          "role": "h3",
+          "contrast": 7.832737156945551
+        },
+        {
+          "role": "h4",
+          "contrast": 8.34327666733795
+        },
+        {
+          "role": "h5",
+          "contrast": 8.417985230680191
+        },
+        {
+          "role": "h6",
+          "contrast": 8.111383029535972
+        },
+        {
+          "role": "strong",
+          "contrast": 7.18639133907542
+        },
+        {
+          "role": "em",
+          "contrast": 8.417985230680191
+        },
+        {
+          "role": "blockquote",
+          "contrast": 6.945268069185804
+        },
+        {
+          "role": "th",
+          "contrast": 6.675145575668639
+        }
+      ]
+    },
+    {
+      "id": "dark-medium",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.088871154207942
+        },
+        {
+          "role": "h2",
+          "contrast": 7.526346845633583
+        },
+        {
+          "role": "h3",
+          "contrast": 7.043226393829972
+        },
+        {
+          "role": "h4",
+          "contrast": 7.50230542107656
+        },
+        {
+          "role": "h5",
+          "contrast": 7.569483639192893
+        },
+        {
+          "role": "h6",
+          "contrast": 7.293785799186803
+        },
+        {
+          "role": "strong",
+          "contrast": 6.4620298296215335
+        },
+        {
+          "role": "em",
+          "contrast": 7.569483639192893
+        },
+        {
+          "role": "blockquote",
+          "contrast": 6.243462788814762
+        },
+        {
+          "role": "th",
+          "contrast": 6.02527500968255
+        }
+      ]
+    },
+    {
+      "id": "dark-soft",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.31294956119111
+        },
+        {
+          "role": "h2",
+          "contrast": 6.70254078300051
+        },
+        {
+          "role": "h3",
+          "contrast": 6.27230090730385
+        },
+        {
+          "role": "h4",
+          "contrast": 6.681130843772375
+        },
+        {
+          "role": "h5",
+          "contrast": 6.740955982832403
+        },
+        {
+          "role": "h6",
+          "contrast": 6.495435007739683
+        },
+        {
+          "role": "strong",
+          "contrast": 5.7547199673812095
+        },
+        {
+          "role": "em",
+          "contrast": 6.740955982832403
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.516687765102749
+        },
+        {
+          "role": "th",
+          "contrast": 5.453605484774045
+        }
+      ]
+    },
+    {
+      "id": "catppuccin-latte",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.441820729336131
+        },
+        {
+          "role": "h2",
+          "contrast": 6.320235100832064
+        },
+        {
+          "role": "h3",
+          "contrast": 6.730844522038399
+        },
+        {
+          "role": "h4",
+          "contrast": 5.706667730116364
+        },
+        {
+          "role": "h5",
+          "contrast": 5.851359819603749
+        },
+        {
+          "role": "h6",
+          "contrast": 6.196469590225167
+        },
+        {
+          "role": "strong",
+          "contrast": 6.658589228092184
+        },
+        {
+          "role": "em",
+          "contrast": 5.851359819603749
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.313753078460215
+        },
+        {
+          "role": "th",
+          "contrast": 5.584088576813814
+        }
+      ]
+    },
+    {
+      "id": "catppuccin-frappe",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 5.928133915287344
+        },
+        {
+          "role": "h2",
+          "contrast": 6.109890193525959
+        },
+        {
+          "role": "h3",
+          "contrast": 5.917738821423617
+        },
+        {
+          "role": "h4",
+          "contrast": 7.097126848161248
+        },
+        {
+          "role": "h5",
+          "contrast": 6.414474277540652
+        },
+        {
+          "role": "h6",
+          "contrast": 7.620916282347406
+        },
+        {
+          "role": "strong",
+          "contrast": 5.855786851804365
+        },
+        {
+          "role": "em",
+          "contrast": 6.414474277540652
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.765016861997299
+        },
+        {
+          "role": "th",
+          "contrast": 4.7036964196300115
+        }
+      ]
+    },
+    {
+      "id": "catppuccin-macchiato",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.6169107092158965
+        },
+        {
+          "role": "h2",
+          "contrast": 7.323155394684215
+        },
+        {
+          "role": "h3",
+          "contrast": 7.074357205570932
+        },
+        {
+          "role": "h4",
+          "contrast": 9.1732256693203
+        },
+        {
+          "role": "h5",
+          "contrast": 8.74162660553122
+        },
+        {
+          "role": "h6",
+          "contrast": 10.203512612129591
+        },
+        {
+          "role": "strong",
+          "contrast": 6.943692699532589
+        },
+        {
+          "role": "em",
+          "contrast": 8.74162660553122
+        },
+        {
+          "role": "blockquote",
+          "contrast": 7.281422458509905
+        },
+        {
+          "role": "th",
+          "contrast": 5.494876558275756
+        }
+      ]
+    },
+    {
+      "id": "catppuccin-mocha",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 9.265090004765842
+        },
+        {
+          "role": "h2",
+          "contrast": 8.148257627439355
+        },
+        {
+          "role": "h3",
+          "contrast": 8.07338006064095
+        },
+        {
+          "role": "h4",
+          "contrast": 11.030978948690597
+        },
+        {
+          "role": "h5",
+          "contrast": 11.011349915201148
+        },
+        {
+          "role": "h6",
+          "contrast": 12.906886112468698
+        },
+        {
+          "role": "strong",
+          "contrast": 7.763019420460331
+        },
+        {
+          "role": "em",
+          "contrast": 11.011349915201148
+        },
+        {
+          "role": "blockquote",
+          "contrast": 8.821094499521788
+        },
+        {
+          "role": "th",
+          "contrast": 6.057528229620412
+        }
+      ]
+    },
+    {
+      "id": "github-light",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.985799796014327
+        },
+        {
+          "role": "h2",
+          "contrast": 6.985799796014327
+        },
+        {
+          "role": "h3",
+          "contrast": 7.394713095254226
+        },
+        {
+          "role": "h4",
+          "contrast": 6.444103829716745
+        },
+        {
+          "role": "h5",
+          "contrast": 6.577277508275561
+        },
+        {
+          "role": "h6",
+          "contrast": 6.955571082080665
+        },
+        {
+          "role": "strong",
+          "contrast": 7.517650800208015
+        },
+        {
+          "role": "em",
+          "contrast": 6.577277508275561
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.868008951807936
+        },
+        {
+          "role": "th",
+          "contrast": 5.913159517778669
+        }
+      ]
+    },
+    {
+      "id": "github-light-high-contrast",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 8.027686392378042
+        },
+        {
+          "role": "h2",
+          "contrast": 8.027686392378042
+        },
+        {
+          "role": "h3",
+          "contrast": 9.707291695234632
+        },
+        {
+          "role": "h4",
+          "contrast": 9.624615156004413
+        },
+        {
+          "role": "h5",
+          "contrast": 7.054762039601614
+        },
+        {
+          "role": "h6",
+          "contrast": 7.791110057868458
+        },
+        {
+          "role": "strong",
+          "contrast": 7.973359641602258
+        },
+        {
+          "role": "em",
+          "contrast": 7.054762039601614
+        },
+        {
+          "role": "blockquote",
+          "contrast": 8.561047484958639
+        },
+        {
+          "role": "th",
+          "contrast": 5.704922029240135
+        }
+      ]
+    },
+    {
+      "id": "github-dark",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 8.71047501542947
+        },
+        {
+          "role": "h2",
+          "contrast": 8.71047501542947
+        },
+        {
+          "role": "h3",
+          "contrast": 8.404802866059777
+        },
+        {
+          "role": "h4",
+          "contrast": 10.09849283516234
+        },
+        {
+          "role": "h5",
+          "contrast": 9.88110162168282
+        },
+        {
+          "role": "h6",
+          "contrast": 9.311812885167821
+        },
+        {
+          "role": "strong",
+          "contrast": 7.349182251087476
+        },
+        {
+          "role": "em",
+          "contrast": 9.88110162168282
+        },
+        {
+          "role": "blockquote",
+          "contrast": 8.827656810825392
+        },
+        {
+          "role": "th",
+          "contrast": 7.1575686484318854
+        }
+      ]
+    },
+    {
+      "id": "github-dark-dimmed",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.276157030998707
+        },
+        {
+          "role": "h2",
+          "contrast": 7.276157030998707
+        },
+        {
+          "role": "h3",
+          "contrast": 7.12644211367526
+        },
+        {
+          "role": "h4",
+          "contrast": 7.9014720918503345
+        },
+        {
+          "role": "h5",
+          "contrast": 7.844964588640869
+        },
+        {
+          "role": "h6",
+          "contrast": 7.423116978356635
+        },
+        {
+          "role": "strong",
+          "contrast": 6.229382756398746
+        },
+        {
+          "role": "em",
+          "contrast": 7.844964588640869
+        },
+        {
+          "role": "blockquote",
+          "contrast": 6.802307272562861
+        },
+        {
+          "role": "th",
+          "contrast": 5.857989590709608
+        }
+      ]
+    },
+    {
+      "id": "github-dark-high-contrast",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 10.493348780059376
+        },
+        {
+          "role": "h2",
+          "contrast": 10.493348780059376
+        },
+        {
+          "role": "h3",
+          "contrast": 9.605542467274368
+        },
+        {
+          "role": "h4",
+          "contrast": 11.300904319502422
+        },
+        {
+          "role": "h5",
+          "contrast": 10.96471255145941
+        },
+        {
+          "role": "h6",
+          "contrast": 10.167313760586062
+        },
+        {
+          "role": "strong",
+          "contrast": 8.693374401417216
+        },
+        {
+          "role": "em",
+          "contrast": 10.96471255145941
+        },
+        {
+          "role": "blockquote",
+          "contrast": 10.122873374784884
+        },
+        {
+          "role": "th",
+          "contrast": 8.42443034830121
+        }
+      ]
+    },
+    {
+      "id": "solarized-light",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.303643838903929
+        },
+        {
+          "role": "h2",
+          "contrast": 6.303643838903929
+        },
+        {
+          "role": "h3",
+          "contrast": 6.508718019652045
+        },
+        {
+          "role": "h4",
+          "contrast": 6.139412473997021
+        },
+        {
+          "role": "h5",
+          "contrast": 6.092651746712966
+        },
+        {
+          "role": "h6",
+          "contrast": 6.361934199920494
+        },
+        {
+          "role": "strong",
+          "contrast": 6.8554957545973085
+        },
+        {
+          "role": "em",
+          "contrast": 6.092651746712966
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.718662324851643
+        },
+        {
+          "role": "th",
+          "contrast": 5.9117991043988045
+        }
+      ]
+    },
+    {
+      "id": "solarized-dark",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.44603389668062
+        },
+        {
+          "role": "h2",
+          "contrast": 7.508611020784836
+        },
+        {
+          "role": "h3",
+          "contrast": 7.234544235230649
+        },
+        {
+          "role": "h4",
+          "contrast": 7.711284018021919
+        },
+        {
+          "role": "h5",
+          "contrast": 7.868875721350731
+        },
+        {
+          "role": "h6",
+          "contrast": 7.434502013637458
+        },
+        {
+          "role": "strong",
+          "contrast": 5.826983247051828
+        },
+        {
+          "role": "em",
+          "contrast": 7.868875721350731
+        },
+        {
+          "role": "blockquote",
+          "contrast": 6.788270291507429
+        },
+        {
+          "role": "th",
+          "contrast": 6.594927347206927
+        }
+      ]
+    },
+    {
+      "id": "one-light",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.7468661484512245
+        },
+        {
+          "role": "h2",
+          "contrast": 6.7468661484512245
+        },
+        {
+          "role": "h3",
+          "contrast": 7.304160906159528
+        },
+        {
+          "role": "h4",
+          "contrast": 6.286150361392643
+        },
+        {
+          "role": "h5",
+          "contrast": 6.421828443772122
+        },
+        {
+          "role": "h6",
+          "contrast": 6.630389073715608
+        },
+        {
+          "role": "strong",
+          "contrast": 6.982481172837029
+        },
+        {
+          "role": "em",
+          "contrast": 6.421828443772122
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.839611797235134
+        },
+        {
+          "role": "th",
+          "contrast": 5.988655974942529
+        }
+      ]
+    },
+    {
+      "id": "one-dark",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.065252064995374
+        },
+        {
+          "role": "h2",
+          "contrast": 7.065252064995374
+        },
+        {
+          "role": "h3",
+          "contrast": 6.5463665613349535
+        },
+        {
+          "role": "h4",
+          "contrast": 7.252324690029581
+        },
+        {
+          "role": "h5",
+          "contrast": 7.208305906113879
+        },
+        {
+          "role": "h6",
+          "contrast": 8.104532579077258
+        },
+        {
+          "role": "strong",
+          "contrast": 6.3740497405137075
+        },
+        {
+          "role": "em",
+          "contrast": 7.208305906113879
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.969958044504371
+        },
+        {
+          "role": "th",
+          "contrast": 5.640242133021873
+        }
+      ]
+    },
+    {
+      "id": "nord-light",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 5.876250553692324
+        },
+        {
+          "role": "h2",
+          "contrast": 5.876250553692324
+        },
+        {
+          "role": "h3",
+          "contrast": 6.057683532476688
+        },
+        {
+          "role": "h4",
+          "contrast": 5.843611173585551
+        },
+        {
+          "role": "h5",
+          "contrast": 5.8440849180241115
+        },
+        {
+          "role": "h6",
+          "contrast": 5.9435589113454546
+        },
+        {
+          "role": "strong",
+          "contrast": 6.219855065951463
+        },
+        {
+          "role": "em",
+          "contrast": 5.8440849180241115
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.6103857425742
+        },
+        {
+          "role": "th",
+          "contrast": 5.394681606545095
+        }
+      ]
+    },
+    {
+      "id": "nord-dark",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.380403196901073
+        },
+        {
+          "role": "h2",
+          "contrast": 6.275301889421392
+        },
+        {
+          "role": "h3",
+          "contrast": 6.066722237502197
+        },
+        {
+          "role": "h4",
+          "contrast": 6.400944377799436
+        },
+        {
+          "role": "h5",
+          "contrast": 6.333015178828478
+        },
+        {
+          "role": "h6",
+          "contrast": 7.997882078379623
+        },
+        {
+          "role": "strong",
+          "contrast": 5.9225169480492195
+        },
+        {
+          "role": "em",
+          "contrast": 6.333015178828478
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.309553713369641
+        },
+        {
+          "role": "th",
+          "contrast": 5.258948519343734
+        }
+      ]
+    },
+    {
+      "id": "tokyo-night-day",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 5.381676916354003
+        },
+        {
+          "role": "h2",
+          "contrast": 5.381676916354003
+        },
+        {
+          "role": "h3",
+          "contrast": 5.70071511996098
+        },
+        {
+          "role": "h4",
+          "contrast": 5.129666548489571
+        },
+        {
+          "role": "h5",
+          "contrast": 5.1347939363311825
+        },
+        {
+          "role": "h6",
+          "contrast": 5.300461013715317
+        },
+        {
+          "role": "strong",
+          "contrast": 5.810530211008274
+        },
+        {
+          "role": "em",
+          "contrast": 5.1347939363311825
+        },
+        {
+          "role": "blockquote",
+          "contrast": 4.717753301438868
+        },
+        {
+          "role": "th",
+          "contrast": 5.042274519696507
+        }
+      ]
+    },
+    {
+      "id": "tokyo-night-storm",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.053308030724491
+        },
+        {
+          "role": "h2",
+          "contrast": 7.053308030724491
+        },
+        {
+          "role": "h3",
+          "contrast": 6.957163784609972
+        },
+        {
+          "role": "h4",
+          "contrast": 7.970170113039405
+        },
+        {
+          "role": "h5",
+          "contrast": 8.49085291999248
+        },
+        {
+          "role": "h6",
+          "contrast": 7.284082379094179
+        },
+        {
+          "role": "strong",
+          "contrast": 6.437803846471343
+        },
+        {
+          "role": "em",
+          "contrast": 8.49085291999248
+        },
+        {
+          "role": "blockquote",
+          "contrast": 6.508783737510174
+        },
+        {
+          "role": "th",
+          "contrast": 5.531379430057141
+        }
+      ]
+    },
+    {
+      "id": "kanagawa-wave",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 8.11504443887375
+        },
+        {
+          "role": "h2",
+          "contrast": 8.11504443887375
+        },
+        {
+          "role": "h3",
+          "contrast": 7.96584988841095
+        },
+        {
+          "role": "h4",
+          "contrast": 8.393191088385361
+        },
+        {
+          "role": "h5",
+          "contrast": 8.37871568193635
+        },
+        {
+          "role": "h6",
+          "contrast": 9.731393946012275
+        },
+        {
+          "role": "strong",
+          "contrast": 7.2646065722643
+        },
+        {
+          "role": "em",
+          "contrast": 8.37871568193635
+        },
+        {
+          "role": "blockquote",
+          "contrast": 7.054618998998403
+        },
+        {
+          "role": "th",
+          "contrast": 6.336627746665008
+        }
+      ]
+    },
+    {
+      "id": "kanagawa-dragon",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 9.066002380293817
+        },
+        {
+          "role": "h2",
+          "contrast": 9.066002380293817
+        },
+        {
+          "role": "h3",
+          "contrast": 8.900499922708184
+        },
+        {
+          "role": "h4",
+          "contrast": 9.193433744304958
+        },
+        {
+          "role": "h5",
+          "contrast": 9.112705070499914
+        },
+        {
+          "role": "h6",
+          "contrast": 9.038606325802908
+        },
+        {
+          "role": "strong",
+          "contrast": 8.679348372973815
+        },
+        {
+          "role": "em",
+          "contrast": 9.112705070499914
+        },
+        {
+          "role": "blockquote",
+          "contrast": 7.959769914247539
+        },
+        {
+          "role": "th",
+          "contrast": 7.335047123782336
+        }
+      ]
+    },
+    {
+      "id": "kanagawa-paper-ink",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 9.313894239232862
+        },
+        {
+          "role": "h2",
+          "contrast": 9.303432773012949
+        },
+        {
+          "role": "h3",
+          "contrast": 9.107375725252366
+        },
+        {
+          "role": "h4",
+          "contrast": 9.462363421321056
+        },
+        {
+          "role": "h5",
+          "contrast": 9.313894239232862
+        },
+        {
+          "role": "h6",
+          "contrast": 9.248692158483017
+        },
+        {
+          "role": "strong",
+          "contrast": 8.881083913203241
+        },
+        {
+          "role": "em",
+          "contrast": 9.313894239232862
+        },
+        {
+          "role": "blockquote",
+          "contrast": 8.41631076554707
+        },
+        {
+          "role": "th",
+          "contrast": 8.47632928028143
+        }
+      ]
+    },
+    {
+      "id": "kanagawa-lotus",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 5.685558546511739
+        },
+        {
+          "role": "h2",
+          "contrast": 5.685558546511739
+        },
+        {
+          "role": "h3",
+          "contrast": 6.07452739924259
+        },
+        {
+          "role": "h4",
+          "contrast": 5.555600217312728
+        },
+        {
+          "role": "h5",
+          "contrast": 5.572299052216283
+        },
+        {
+          "role": "h6",
+          "contrast": 5.794813838080495
+        },
+        {
+          "role": "strong",
+          "contrast": 6.139911444256178
+        },
+        {
+          "role": "em",
+          "contrast": 5.572299052216283
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.176648849016778
+        },
+        {
+          "role": "th",
+          "contrast": 5.165309043653664
+        }
+      ]
+    },
+    {
+      "id": "black-metal",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 10.713898670177482
+        },
+        {
+          "role": "h2",
+          "contrast": 10.508752200892065
+        },
+        {
+          "role": "h3",
+          "contrast": 10.356625516382577
+        },
+        {
+          "role": "h4",
+          "contrast": 10.74255551094702
+        },
+        {
+          "role": "h5",
+          "contrast": 10.713898670177482
+        },
+        {
+          "role": "h6",
+          "contrast": 10.459551755286151
+        },
+        {
+          "role": "strong",
+          "contrast": 10.095324049223247
+        },
+        {
+          "role": "em",
+          "contrast": 10.713898670177482
+        },
+        {
+          "role": "blockquote",
+          "contrast": 9.792299032255103
+        },
+        {
+          "role": "th",
+          "contrast": 9.564392611980942
+        }
+      ]
+    },
+    {
+      "id": "black-metal-day",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.1233746002264375
+        },
+        {
+          "role": "h2",
+          "contrast": 6.227477439716278
+        },
+        {
+          "role": "h3",
+          "contrast": 6.337702514173405
+        },
+        {
+          "role": "h4",
+          "contrast": 6.026429491075752
+        },
+        {
+          "role": "h5",
+          "contrast": 6.1233746002264375
+        },
+        {
+          "role": "h6",
+          "contrast": 6.240743527369809
+        },
+        {
+          "role": "strong",
+          "contrast": 6.524953372729356
+        },
+        {
+          "role": "em",
+          "contrast": 6.1233746002264375
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.517009376547971
+        },
+        {
+          "role": "th",
+          "contrast": 5.3401469643203034
+        }
+      ]
+    },
+    {
+      "id": "rose-pine-main",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 8.52583434720819
+        },
+        {
+          "role": "h2",
+          "contrast": 8.99645482584848
+        },
+        {
+          "role": "h3",
+          "contrast": 8.52583434720819
+        },
+        {
+          "role": "h4",
+          "contrast": 10.36709098436039
+        },
+        {
+          "role": "h5",
+          "contrast": 10.36709098436039
+        },
+        {
+          "role": "h6",
+          "contrast": 10.772891909253605
+        },
+        {
+          "role": "strong",
+          "contrast": 7.91875890294527
+        },
+        {
+          "role": "em",
+          "contrast": 10.36709098436039
+        },
+        {
+          "role": "blockquote",
+          "contrast": 8.486921602730092
+        },
+        {
+          "role": "th",
+          "contrast": 7.7118255787968755
+        }
+      ]
+    },
+    {
+      "id": "rose-pine-moon",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 7.554598111784581
+        },
+        {
+          "role": "h2",
+          "contrast": 7.965037243967027
+        },
+        {
+          "role": "h3",
+          "contrast": 7.554598111784581
+        },
+        {
+          "role": "h4",
+          "contrast": 9.186104583511385
+        },
+        {
+          "role": "h5",
+          "contrast": 9.186104583511385
+        },
+        {
+          "role": "h6",
+          "contrast": 9.545677943268556
+        },
+        {
+          "role": "strong",
+          "contrast": 7.016678792903936
+        },
+        {
+          "role": "em",
+          "contrast": 9.186104583511385
+        },
+        {
+          "role": "blockquote",
+          "contrast": 7.403142593289033
+        },
+        {
+          "role": "th",
+          "contrast": 6.54457184761129
+        }
+      ]
+    },
+    {
+      "id": "rose-pine-dawn",
+      "roles": [
+        {
+          "role": "h1",
+          "contrast": 6.390514896259289
+        },
+        {
+          "role": "h2",
+          "contrast": 6.105254728615525
+        },
+        {
+          "role": "h3",
+          "contrast": 6.390514896259289
+        },
+        {
+          "role": "h4",
+          "contrast": 6.093855218461436
+        },
+        {
+          "role": "h5",
+          "contrast": 6.093855218461436
+        },
+        {
+          "role": "h6",
+          "contrast": 6.406669768816386
+        },
+        {
+          "role": "strong",
+          "contrast": 6.587056938830448
+        },
+        {
+          "role": "em",
+          "contrast": 6.093855218461436
+        },
+        {
+          "role": "blockquote",
+          "contrast": 5.6373401744459
+        },
+        {
+          "role": "th",
+          "contrast": 5.442901072569403
+        }
+      ]
+    }
+  ]
+}

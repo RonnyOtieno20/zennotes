@@ -620,6 +620,11 @@ function App(): JSX.Element {
     }
   }, [persistUndoHistory])
 
+  const colorfulMarkdown = useStore((s) => s.colorfulMarkdown)
+  useEffect(() => {
+    document.documentElement.dataset.colorfulMarkdown = String(colorfulMarkdown)
+  }, [colorfulMarkdown])
+
   // Apply theme: set html[data-theme=...] + html[data-theme-mode=...] based on
   // mode/family/id. Custom themes keep one id (`custom-<slug>`) and express
   // light/dark via `data-theme-mode`; built-ins encode mode in their id but we

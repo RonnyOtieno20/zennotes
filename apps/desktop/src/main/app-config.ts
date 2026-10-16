@@ -96,6 +96,11 @@ const SCALAR_FIELDS: Partial<Record<PortablePrefKey, ScalarFieldMap>> = {
     tomlKey: 'fzf_path',
     comment: 'absolute path to fzf; empty = look on $PATH'
   },
+  colorfulMarkdown: {
+    section: 'appearance',
+    tomlKey: 'colorful_markdown',
+    comment: 'colour headings and emphasis using the theme syntax palette'
+  },
   // editor
   livePreview: {
     section: 'editor',

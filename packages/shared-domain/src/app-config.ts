@@ -87,6 +87,7 @@ export const PORTABLE_DEFAULTS: Record<PortablePrefKey, unknown> = {
   vaultTextSearchBackend: 'auto',
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
+  colorfulMarkdown: true,
   livePreview: true,
   showHeadingLevelLabels: false,
   listIndentGuides: true,
