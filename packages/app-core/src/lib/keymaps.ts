@@ -1024,8 +1024,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     kind: "sequence",
     scope: "vim-editor",
     group: "vim",
-    title: "Next Harper suggestion",
-    description: "Jump to the next grammar or spelling problem Harper found. Needs Grammar and spelling with Harper on.",
+    title: "Next grammar issue",
+    description: "Jump to the next issue from LanguageTool and Harper. Wraps around the note.",
     defaultBinding: "] s",
     vimOnly: true,
     maxTokens: 2,
@@ -1079,8 +1079,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     kind: "sequence",
     scope: "vim-editor",
     group: "vim",
-    title: "Previous Harper suggestion",
-    description: "Jump to the previous grammar or spelling problem Harper found.",
+    title: "Previous grammar issue",
+    description: "Jump to the previous issue from LanguageTool and Harper.",
     defaultBinding: "[ s",
     vimOnly: true,
     maxTokens: 2,
@@ -1090,7 +1090,7 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     kind: "sequence",
     scope: "vim-editor",
     group: "vim",
-    title: "Harper suggestions at cursor",
+    title: "Grammar suggestions at cursor",
     description: "Open the list of fixes for the problem under the cursor; a digit or Enter applies one.",
     defaultBinding: "z =",
     vimOnly: true,
@@ -1101,8 +1101,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     kind: "sequence",
     scope: "vim-editor",
     group: "vim",
-    title: "Add word to Harper dictionary",
-    description: "Teach the vault's dictionary the word under the cursor so Harper stops flagging it.",
+    title: "Add word to dictionary",
+    description: "Add the word under the cursor to the active checker’s dictionary.",
     defaultBinding: "z g",
     vimOnly: true,
     maxTokens: 2,
@@ -1112,8 +1112,8 @@ const KEYMAP_DEFINITIONS: KeymapDefinition[] = [
     kind: "sequence",
     scope: "vim-editor",
     group: "vim",
-    title: "Ignore Harper suggestion",
-    description: "Hide this one suggestion here from now on without teaching the dictionary a word.",
+    title: "Ignore grammar issue",
+    description: "Ignore this issue without adding a word to the dictionary.",
     defaultBinding: "z G",
     vimOnly: true,
     maxTokens: 2,
@@ -2069,12 +2069,12 @@ export function describeCurrentBinding(
  */
 export function keymapAvailableOnHost(
   id: KeymapId,
-  capabilities: { supportsAgentEditReview?: boolean; supportsHarper?: boolean },
+  capabilities: { supportsAgentEditReview?: boolean; supportsHarper?: boolean; supportsGrammarProviderTransport?: boolean },
 ): boolean {
   if (id.startsWith("editor.review") || id.startsWith("vim.review")) {
     return capabilities.supportsAgentEditReview === true;
   }
-  if (id.startsWith("vim.harper")) return capabilities.supportsHarper === true;
+  if (id.startsWith("vim.harper")) return capabilities.supportsHarper === true || capabilities.supportsGrammarProviderTransport === true;
   return true;
 }
 

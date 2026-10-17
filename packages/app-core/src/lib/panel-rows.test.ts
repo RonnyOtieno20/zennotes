@@ -180,3 +180,16 @@ describe('panel row cursors (#477 follow-up)', () => {
     expect(storeMock.state.activeCommentId).toBe('c0')
   })
 })
+
+describe('grammar numbered quick apply', () => {
+  it('applies only the requested suggestion in the current row', () => {
+    document.body.innerHTML = '<article data-grammar-idx="0"><button data-grammar-suggestion="1">first</button><button data-grammar-suggestion="2">second</button></article>'
+    layOutRows()
+    const click = vi.fn()
+    document.querySelector('[data-grammar-suggestion="2"]')!.addEventListener('click', click)
+    expect(activatePanelRow('grammar', 2)).toBe(true)
+    expect(click).toHaveBeenCalledOnce()
+    expect(activatePanelRow('grammar', 3)).toBe(false)
+    expect(activatePanelRow('grammar', 0)).toBe(false)
+  })
+})

@@ -1,3 +1,5 @@
+import { SettingsSwitch } from './SettingsSwitch'
+import '../grammar/ui.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { getZenBridge } from '@zennotes/bridge-contract/bridge'
 import {
@@ -29,18 +31,12 @@ function ToggleSetting({
   onChange
 }: ToggleSettingProps): JSX.Element {
   return (
-    <label className="flex items-center justify-between gap-4 px-5 py-4">
+    <label className="grammar-settings-row">
       <span>
         <span className="block text-sm font-medium text-ink-800">{label}</span>
         <span className="mt-1 block text-xs leading-5 text-ink-500">{description}</span>
       </span>
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 shrink-0 accent-accent"
-      />
+      <SettingsSwitch value={checked} disabled={disabled} onChange={onChange} label={label} />
     </label>
   )
 }
@@ -55,12 +51,12 @@ function SettingsGroup({
   children: React.ReactNode
 }): JSX.Element {
   return (
-    <section className="space-y-3">
+    <section className="grammar-settings-group">
       <div>
-        <div className="text-xs font-medium uppercase tracking-[0.2em] text-ink-500">{title}</div>
+        <h3 className="grammar-settings-title">{title}</h3>
         <p className="mt-1 max-w-2xl text-sm leading-6 text-ink-500">{description}</p>
       </div>
-      <div className="divide-y divide-paper-300/45 overflow-hidden rounded-3xl border border-paper-300/60 bg-paper-50/45">
+      <div className="grammar-settings-rows">
         {children}
       </div>
     </section>
@@ -156,43 +152,41 @@ export function GrammarSettings(): JSX.Element {
   }
 
   return (
-    <div className="space-y-6" data-settings-search-id="grammar-provider">
-      <SettingsGroup
-        title="Grammar assistant"
-        description="Check spelling and grammar in Markdown prose with LanguageTool."
-      >
+    <div className="grammar-ui grammar-settings" data-settings-search-id="grammar-provider">
+      <div className="grammar-settings-master grammar-settings-rows">
         <ToggleSetting
           label="Enable grammar assistant"
-          description="Local opt-in for this device. ZenNotes never checks notes until this is enabled."
+          description={!grammarEnabled
+            ? 'Off. Turn on to underline mistakes as you write.'
+            : endpoint.scope === 'local'
+              ? 'On. LanguageTool checks your notes on this device.'
+              : 'On. Note text is sent to your LanguageTool server.'}
           checked={grammarEnabled}
           disabled={!supported}
           onChange={setGrammarEnabled}
         />
+      </div>
+      <SettingsGroup
+        title="LanguageTool"
+        description="Use your own LanguageTool server. Your notes only go to the address you choose."
+      >
         <div className="px-5 py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="text-sm font-medium text-ink-800">LanguageTool provider</div>
-              <div className="mt-1 text-xs text-ink-500">{providerStatus}</div>
+              <div role="status" className="mt-1 text-xs text-ink-500">{providerStatus}</div>
             </div>
-            <span
-              className={[
-                'rounded-full border px-2.5 py-1 text-xs font-medium',
-                endpoint.scope === 'local'
-                  ? 'border-emerald-500/35 bg-emerald-500/10 text-emerald-700'
-                  : endpoint.scope === 'remote'
-                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
-                    : 'border-red-500/40 bg-red-500/10 text-red-700'
-              ].join(' ')}
-            >
+            <span className="grammar-settings-status" data-scope={endpoint.scope}>
               {endpoint.label}
             </span>
           </div>
-          <div className="mt-3 rounded-xl border border-paper-300/60 bg-paper-100/55 px-3 py-2 text-xs leading-5 text-ink-600">
+          <div className="grammar-settings-notice">
             <span className="font-medium">{endpoint.label}:</span> {endpoint.message}
           </div>
         </div>
         <label className="block px-5 py-4">
-          <span className="text-sm font-medium text-ink-800">Endpoint</span>
+          <span className="text-sm font-medium text-ink-800">Server address</span>
+          <span className="mt-1 block text-xs leading-5 text-ink-500">Start your server, enter its full URL (including /v2), then test the connection.</span>
           <input
             value={endpointDraft}
             spellCheck={false}
@@ -212,7 +206,7 @@ export function GrammarSettings(): JSX.Element {
             type="button"
             disabled={!supported || endpoint.scope === 'invalid' || health.phase === 'checking'}
             onClick={() => void testConnection()}
-            className="rounded-xl border border-paper-300/70 px-3 py-2 text-sm font-medium text-ink-700 hover:bg-paper-200 disabled:cursor-default disabled:opacity-45"
+            className="grammar-settings-test"
           >
             Test connection
           </button>
@@ -221,9 +215,9 @@ export function GrammarSettings(): JSX.Element {
 
       <SettingsGroup
         title="Checking"
-        description="Choose when checks run, the language, and which issue types appear."
+        description="Choose your language and when suggestions appear."
       >
-        <label className="flex items-center justify-between gap-4 px-5 py-4">
+        <label className="grammar-settings-row">
           <span>
             <span className="block text-sm font-medium text-ink-800">Language</span>
             <span className="mt-1 block text-xs text-ink-500">
@@ -253,7 +247,7 @@ export function GrammarSettings(): JSX.Element {
           checked={preferences.automaticChecks}
           onChange={(automaticChecks) => update({ automaticChecks })}
         />
-        <label className="flex items-center justify-between gap-4 px-5 py-4">
+        <label className="grammar-settings-row">
           <span>
             <span className="block text-sm font-medium text-ink-800">Typing pause</span>
             <span className="mt-1 block text-xs text-ink-500">
@@ -279,6 +273,12 @@ export function GrammarSettings(): JSX.Element {
             className="w-28 rounded-xl border border-paper-300/70 bg-paper-100 px-3 py-2 text-right text-sm text-ink-800"
           />
         </label>
+      </SettingsGroup>
+
+      <SettingsGroup
+        title="Suggestion types"
+        description="Keep the feedback you find useful. Colours match the marks in your note."
+      >
         {GRAMMAR_CATEGORIES.map((category) => (
           <ToggleSetting
             key={category}
@@ -315,7 +315,7 @@ export function GrammarSettings(): JSX.Element {
 
       <SettingsGroup
         title="Personalization"
-        description="These lists stay in ZenNotes. Dictionary entries are filtered locally."
+        description="Choose Add to dictionary on a spelling issue, or Ignore to skip one finding. Manage your saved words and rules here."
       >
         <label className="block px-5 py-4">
           <span className="text-sm font-medium text-ink-800">Ignored rule IDs</span>

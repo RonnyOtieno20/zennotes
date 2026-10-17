@@ -18,14 +18,7 @@ import {
 } from "../lib/cm-vim-half-page-motion";
 import { registerHeadingMotion } from "../lib/cm-vim-heading-motion";
 import { registerReflowOperator } from "../lib/cm-vim-reflow";
-import {
-  harperAddWordAtCursor,
-  harperIgnoreAtCursor,
-  harperNextSuggestion,
-  harperOpenSuggestions,
-  harperPreviousSuggestion,
-} from "../lib/cm-harper";
-import { harperEditorConfig } from "../lib/harper-runtime";
+import { registerGrammarVimActions } from "../lib/grammar-actions";
 import { moveLineDown, moveLineUp } from "@codemirror/commands";
 import { unfoldAll } from "@codemirror/language";
 import { foldAllOutline, foldAtCursor, unfoldAtCursor } from "../lib/cm-heading-fold";
@@ -472,32 +465,8 @@ function registerVimCommands(): void {
     if (view) copyLinkAtCursor(view);
   });
   Vim.mapCommand("gy", "action", "zenCopyLink", {}, { context: "normal" });
-  // Harper, Vim's spelling keys: `]s` / `[s` walk the problems, `z=` lists the
-  // fixes, `zg` teaches the dictionary a word and `zG`, its temporary sibling
-  // in Vim, ignores this one suggestion without teaching anything. All five
-  // are silent while Harper is off (the extension is not installed).
-  const harperView = (cm: ReturnType<typeof getCM>): EditorView | null =>
-    (cm as unknown as { cm6?: EditorView }).cm6 ?? null;
-  Vim.defineAction("zenHarperNext", (cm: ReturnType<typeof getCM>) => {
-    const view = harperView(cm);
-    if (view) harperNextSuggestion(view);
-  });
-  Vim.defineAction("zenHarperPrevious", (cm: ReturnType<typeof getCM>) => {
-    const view = harperView(cm);
-    if (view) harperPreviousSuggestion(view);
-  });
-  Vim.defineAction("zenHarperSuggest", (cm: ReturnType<typeof getCM>) => {
-    const view = harperView(cm);
-    if (view) harperOpenSuggestions(view);
-  });
-  Vim.defineAction("zenHarperAddWord", (cm: ReturnType<typeof getCM>) => {
-    const view = harperView(cm);
-    if (view) harperAddWordAtCursor(view, harperEditorConfig());
-  });
-  Vim.defineAction("zenHarperIgnore", (cm: ReturnType<typeof getCM>) => {
-    const view = harperView(cm);
-    if (view) harperIgnoreAtCursor(view, harperEditorConfig());
-  });
+  // Keep existing spelling bindings and user overrides for either checker.
+  registerGrammarVimActions();
   Vim.mapCommand(
     "K",
     "action",
