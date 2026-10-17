@@ -18,6 +18,8 @@ import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { mapDefaultHalfPageKeys, registerHalfPageMotion } from '../lib/cm-vim-half-page-motion'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
+import { markdownHighlight } from '../lib/cm-syntax-highlight'
+import { markdownSourceHighlight } from '../lib/cm-markdown-source-highlight'
 import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
@@ -34,8 +36,7 @@ import {
   applyTheme,
   floatingCursorDrawSelection,
   lineNumberExtension,
-  loadFloatingPrefs,
-  paperHighlight
+  loadFloatingPrefs
 } from './FloatingNoteApp'
 import { editorTabSize } from '../lib/editor-tab-size'
 import { useCloseWindowShortcut } from '../lib/close-shortcut'
@@ -176,7 +177,8 @@ export function ExternalFileApp(): JSX.Element {
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
           headingFolding({ showLevelLabels: prefs.showHeadingLevelLabels }),
-          syntaxHighlighting(paperHighlight),
+          syntaxHighlighting(markdownHighlight),
+          markdownSourceHighlight((view) => view.plugin(livePreviewPlugin) !== null),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           prefs.livePreview ? livePreviewPlugin : [],
           lineNumberExtension(prefs.lineNumberMode),

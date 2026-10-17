@@ -697,6 +697,8 @@ export function SettingsModal(): JSX.Element {
   const externalApplicationSchemes = useStore((s) => s.externalApplicationSchemes);
   const setExternalApplicationSchemes = useStore((s) => s.setExternalApplicationSchemes);
   const [externalApplicationIssue, setExternalApplicationIssue] = useState<string | null>(null);
+  const colorfulMarkdown = useStore((s) => s.colorfulMarkdown);
+  const setColorfulMarkdown = useStore((s) => s.setColorfulMarkdown);
   const livePreview = useStore((s) => s.livePreview);
   const setLivePreview = useStore((s) => s.setLivePreview);
   const renderTablesInLivePreview = useStore(
@@ -1535,6 +1537,12 @@ export function SettingsModal(): JSX.Element {
       keywords: ["theme", "mode", "variant", "dark sidebar", "surface", "look"],
       searchItems: [
         {
+          id: "colorful-markdown",
+          title: "Coloured headings and emphasis",
+          description: "Use the theme palette for Markdown headings, emphasis, and quotes in Preview and Edit.",
+          keywords: ["syntax", "colour", "color", "bold", "italic", "monochrome"],
+        },
+        {
           id: "theme-family",
           title: "Theme family",
           description: "Pick the visual system ZenNotes uses across the app.",
@@ -1992,6 +2000,15 @@ export function SettingsModal(): JSX.Element {
             </div>
           </Section>
 
+          <Section title="Markdown colours" description="Use the same theme colours while reading and editing.">
+            <ToggleRow
+              label="Coloured headings and emphasis"
+              description="Colour headings, bold, italic, quotes, and table headers with the theme palette. Turn off for monochrome Markdown."
+              value={colorfulMarkdown}
+              settingId="colorful-markdown"
+              onChange={setColorfulMarkdown}
+            />
+          </Section>
           <Section
             title="Chrome"
             description="Small visual adjustments that change how the shell feels."

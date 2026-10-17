@@ -52,13 +52,14 @@ import { registerReflowOperator } from '../lib/cm-vim-reflow'
 import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import { toggleWrap, wrapLink } from '../lib/cm-format'
+import { markdownHighlight } from '../lib/cm-syntax-highlight'
+import { markdownSourceHighlight } from '../lib/cm-markdown-source-highlight'
 import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
-import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
-import { tags as t } from '@lezer/highlight'
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import {
   autocompletion,
   closeCompletion,
@@ -97,6 +98,7 @@ interface QuickCapturePrefs {
   vimInsertEscape: string
   vimWrappedLineMotions: VimWrappedLineMotionMode
   vimBlockImeInNormalMode: boolean
+  colorfulMarkdown: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -116,6 +118,7 @@ function loadPrefs(): QuickCapturePrefs {
     vimInsertEscape: '',
     vimWrappedLineMotions: 'display',
     vimBlockImeInNormalMode: true,
+    colorfulMarkdown: true,
     themeId: DEFAULT_THEME_ID,
     themeFamily: 'gruvbox',
     themeMode: 'dark',
@@ -138,6 +141,7 @@ function loadPrefs(): QuickCapturePrefs {
       vimWrappedLineMotions:
         parsed.vimWrappedLineMotions === 'logical' ? 'logical' : 'display',
       vimBlockImeInNormalMode: parsed.vimBlockImeInNormalMode !== false,
+      colorfulMarkdown: parsed.colorfulMarkdown !== false,
       cursorBlink: parsed.cursorBlink !== false,
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
@@ -148,28 +152,14 @@ function loadPrefs(): QuickCapturePrefs {
   }
 }
 
-const captureHighlight = HighlightStyle.define([
-  { tag: t.heading1, class: 'tok-heading1' },
-  { tag: t.heading2, class: 'tok-heading2' },
-  { tag: t.heading3, class: 'tok-heading3' },
-  { tag: t.emphasis, class: 'tok-emphasis' },
-  { tag: t.strong, class: 'tok-strong' },
-  { tag: t.strikethrough, class: 'tok-strikethrough' },
-  { tag: t.url, class: 'tok-url' },
-  { tag: t.monospace, class: 'tok-monospace' },
-  { tag: t.quote, class: 'tok-quote' },
-  { tag: t.list, class: 'tok-list' },
-  { tag: t.keyword, class: 'tok-keyword' },
-  { tag: t.string, class: 'tok-string' },
-  { tag: t.comment, class: 'tok-comment' }
-])
-
 function applyTheme(prefs: QuickCapturePrefs): void {
   const html = document.documentElement
   const mql = window.matchMedia('(prefers-color-scheme: dark)')
   let id = prefs.themeId
   if (prefs.themeMode === 'auto') id = resolveAuto(prefs.themeFamily, mql.matches, prefs.themeId)
   if (!THEMES.some((t) => t.id === id)) id = DEFAULT_THEME_ID
+  html.dataset.colorfulMarkdown = String(prefs.colorfulMarkdown)
+  html.dataset.themeMode = THEMES.find((theme) => theme.id === id)!.mode
   html.dataset.theme = id
   html.style.setProperty('--z-editor-font-size', `${prefs.editorFontSize}px`)
   html.style.setProperty('--z-editor-line-height', String(prefs.editorLineHeight))
@@ -492,7 +482,8 @@ export function QuickCaptureApp(): JSX.Element {
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
           headingFolding({ showLevelLabels: prefs.showHeadingLevelLabels }),
-          syntaxHighlighting(captureHighlight),
+          syntaxHighlighting(markdownHighlight),
+          markdownSourceHighlight(),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           placeholder('Start writing…'),
           // Notion-style `/` slash commands — same block inserters as the main

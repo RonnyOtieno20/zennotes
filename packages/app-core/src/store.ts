@@ -572,6 +572,7 @@ interface Prefs {
   ripgrepBinaryPath: string | null
   /** Optional explicit binary path for fzf. Blank uses PATH lookup. */
   fzfBinaryPath: string | null
+  colorfulMarkdown: boolean
   livePreview: boolean      // hide markdown syntax on inactive lines
   /** Show an H1 through H6 badge before Markdown headings in the editor. */
   showHeadingLevelLabels: boolean
@@ -1107,6 +1108,7 @@ export const DEFAULT_PREFS: Prefs = {
   vaultTextSearchBackend: 'auto',
   ripgrepBinaryPath: null,
   fzfBinaryPath: null,
+  colorfulMarkdown: true,
   livePreview: true,
   showHeadingLevelLabels: false,
   listIndentGuides: true,
@@ -1273,6 +1275,8 @@ function normalizePrefs(p: Partial<Prefs>): Prefs {
       typeof p.fzfBinaryPath === 'string' || p.fzfBinaryPath === null
         ? (p.fzfBinaryPath as string | null)
         : DEFAULT_PREFS.fzfBinaryPath,
+    colorfulMarkdown:
+      typeof p.colorfulMarkdown === 'boolean' ? p.colorfulMarkdown : DEFAULT_PREFS.colorfulMarkdown,
     livePreview:
       typeof p.livePreview === 'boolean' ? p.livePreview : DEFAULT_PREFS.livePreview,
     showHeadingLevelLabels:
@@ -2405,6 +2409,7 @@ function collectPrefs(s: {
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
+  colorfulMarkdown: boolean
   livePreview: boolean
   showHeadingLevelLabels: boolean
   listIndentGuides: boolean
@@ -2521,6 +2526,7 @@ function collectPrefs(s: {
     vaultTextSearchBackend: s.vaultTextSearchBackend,
     ripgrepBinaryPath: s.ripgrepBinaryPath,
     fzfBinaryPath: s.fzfBinaryPath,
+    colorfulMarkdown: s.colorfulMarkdown,
     livePreview: s.livePreview,
     showHeadingLevelLabels: s.showHeadingLevelLabels,
     listIndentGuides: s.listIndentGuides,
@@ -3055,6 +3061,7 @@ interface Store {
   vaultTextSearchBackend: VaultTextSearchBackendPreference
   ripgrepBinaryPath: string | null
   fzfBinaryPath: string | null
+  colorfulMarkdown: boolean
   livePreview: boolean
   showHeadingLevelLabels: boolean
   listIndentGuides: boolean
@@ -3676,6 +3683,7 @@ interface Store {
   setVaultTextSearchBackend: (backend: VaultTextSearchBackendPreference) => void
   setRipgrepBinaryPath: (path: string | null) => void
   setFzfBinaryPath: (path: string | null) => void
+  setColorfulMarkdown: (on: boolean) => void
   setLivePreview: (on: boolean) => void
   setShowHeadingLevelLabels: (on: boolean) => void
   setListIndentGuides: (on: boolean) => void
@@ -5892,6 +5900,7 @@ export const useStore = create<Store>((set, get) => {
   vaultTextSearchBackend: loadPrefs().vaultTextSearchBackend,
   ripgrepBinaryPath: loadPrefs().ripgrepBinaryPath,
   fzfBinaryPath: loadPrefs().fzfBinaryPath,
+  colorfulMarkdown: loadPrefs().colorfulMarkdown,
   livePreview: loadPrefs().livePreview,
   showHeadingLevelLabels: loadPrefs().showHeadingLevelLabels,
   listIndentGuides: loadPrefs().listIndentGuides,
@@ -9002,6 +9011,10 @@ export const useStore = create<Store>((set, get) => {
   },
   setFzfBinaryPath: (path) => {
     set({ fzfBinaryPath: path })
+    savePrefs(collectPrefs(get()))
+  },
+  setColorfulMarkdown: (on) => {
+    set({ colorfulMarkdown: on })
     savePrefs(collectPrefs(get()))
   },
   setLivePreview: (on) => {

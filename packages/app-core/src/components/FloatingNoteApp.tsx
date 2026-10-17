@@ -28,6 +28,8 @@ import { Vim, vim } from '@replit/codemirror-vim'
 import { history, historyKeymap, indentWithTab } from '@codemirror/commands'
 import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap, vimAwareSearchKeymap } from '../lib/cm-vim-default-keymap'
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
+import { markdownHighlight } from '../lib/cm-syntax-highlight'
+import { markdownSourceHighlight } from '../lib/cm-markdown-source-highlight'
 import { noteMarkdown } from '../lib/cm-markdown-language'
 import { customCodeFenceHighlightExtension } from '../lib/cm-custom-code-languages'
 import { markdownLinkExtension } from '../lib/cm-markdown-links'
@@ -40,8 +42,7 @@ import { vimHalfPageKeymap } from '../lib/vim-half-page-keymap'
 import { isTouchPrimaryDevice, vimImeGuard } from '../lib/cm-vim-ime-guard'
 import { markdownListIndentPlugin } from '../lib/cm-markdown-list-indent'
 import { appMarkdownSnippetExtension } from '../lib/markdown-snippets-config'
-import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
-import { tags as t } from '@lezer/highlight'
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import type { NoteContent, VaultChangeEvent } from '@shared/ipc'
 import type { VimWrappedLineMotionMode } from '@shared/app-config'
 import type { LineNumberMode } from '../store'
@@ -65,46 +66,13 @@ const SAVE_DEBOUNCE_MS = 350
 
 const programmatic = Annotation.define<boolean>()
 
-export const paperHighlight = HighlightStyle.define([
-  { tag: t.heading1, class: 'tok-heading1' },
-  { tag: t.heading2, class: 'tok-heading2' },
-  { tag: t.heading3, class: 'tok-heading3' },
-  { tag: t.heading4, class: 'tok-heading4' },
-  { tag: t.heading5, class: 'tok-heading5' },
-  { tag: t.heading6, class: 'tok-heading6' },
-  { tag: t.emphasis, class: 'tok-emphasis' },
-  { tag: t.strong, class: 'tok-strong' },
-  { tag: t.strikethrough, class: 'tok-strikethrough' },
-  { tag: t.url, class: 'tok-url' },
-  { tag: t.monospace, class: 'tok-monospace' },
-  { tag: t.quote, class: 'tok-quote' },
-  { tag: t.list, class: 'tok-list' },
-  { tag: t.meta, class: 'tok-meta' },
-  { tag: t.keyword, class: 'tok-keyword' },
-  { tag: t.controlKeyword, class: 'tok-keyword' },
-  { tag: t.definitionKeyword, class: 'tok-keyword' },
-  { tag: t.string, class: 'tok-string' },
-  { tag: t.special(t.string), class: 'tok-string' },
-  { tag: t.regexp, class: 'tok-string' },
-  { tag: t.comment, class: 'tok-comment' },
-  { tag: t.lineComment, class: 'tok-comment' },
-  { tag: t.blockComment, class: 'tok-comment' },
-  { tag: t.number, class: 'tok-number' },
-  { tag: t.bool, class: 'tok-atom' },
-  { tag: t.atom, class: 'tok-atom' },
-  { tag: t.operator, class: 'tok-operator' },
-  { tag: t.typeName, class: 'tok-type' },
-  { tag: t.function(t.variableName), class: 'tok-function' },
-  { tag: t.propertyName, class: 'tok-property' },
-  { tag: t.punctuation, class: 'tok-punct' }
-])
-
 export interface FloatingPrefs {
   vimMode: boolean
   vimInsertEscape: string
   vimWrappedLineMotions: VimWrappedLineMotionMode
   vimBlockImeInNormalMode: boolean
   livePreview: boolean
+  colorfulMarkdown: boolean
   themeId: string
   themeFamily: ThemeFamily
   themeMode: ThemeMode
@@ -127,6 +95,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
     vimWrappedLineMotions: 'display',
     vimBlockImeInNormalMode: true,
     livePreview: true,
+    colorfulMarkdown: true,
     themeId: DEFAULT_THEME_ID,
     themeFamily: 'gruvbox',
     themeMode: 'dark',
@@ -157,6 +126,7 @@ export function loadFloatingPrefs(): FloatingPrefs {
       vimWrappedLineMotions:
         parsed.vimWrappedLineMotions === 'logical' ? 'logical' : 'display',
       vimBlockImeInNormalMode: parsed.vimBlockImeInNormalMode !== false,
+      colorfulMarkdown: parsed.colorfulMarkdown !== false,
       cursorBlink: parsed.cursorBlink !== false,
       themeFamily: (parsed.themeFamily as ThemeFamily) ?? fallback.themeFamily,
       themeMode: (parsed.themeMode as ThemeMode) ?? fallback.themeMode,
@@ -196,6 +166,8 @@ export function applyTheme(prefs: FloatingPrefs): void {
     id = resolveAuto(prefs.themeFamily, mql.matches, prefs.themeId)
   }
   if (!THEMES.some((t) => t.id === id)) id = DEFAULT_THEME_ID
+  html.dataset.colorfulMarkdown = String(prefs.colorfulMarkdown)
+  html.dataset.themeMode = THEMES.find((theme) => theme.id === id)!.mode
   html.dataset.theme = id
   html.style.setProperty('--z-editor-font-size', `${prefs.editorFontSize}px`)
   html.style.setProperty('--z-editor-line-height', String(prefs.editorLineHeight))
@@ -358,7 +330,8 @@ export function FloatingNoteApp({ notePath }: { notePath: string }): JSX.Element
           vimAwareMarkdownKeymap,
           markdownListIndentPlugin,
           headingFolding({ showLevelLabels: prefs.showHeadingLevelLabels }),
-          syntaxHighlighting(paperHighlight),
+          syntaxHighlighting(markdownHighlight),
+          markdownSourceHighlight((view) => view.plugin(livePreviewPlugin) !== null),
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           prefs.livePreview ? livePreviewPlugin : [],
           lineNumberExtension(prefs.lineNumberMode),

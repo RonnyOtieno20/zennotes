@@ -14,8 +14,9 @@ import { vimAwareDefaultKeymap, vimAwareMarkdownKeymap } from '../lib/cm-vim-def
 import { vimVisualHighlightExtension } from '../lib/cm-vim-visual-highlight'
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown'
 import { yamlFrontmatter } from '@codemirror/lang-yaml'
-import { syntaxHighlighting, HighlightStyle, defaultHighlightStyle } from '@codemirror/language'
-import { tags as t } from '@lezer/highlight'
+import { markdownHighlight } from '../lib/cm-syntax-highlight'
+import { markdownSourceHighlight } from '../lib/cm-markdown-source-highlight'
+import { syntaxHighlighting, defaultHighlightStyle } from '@codemirror/language'
 import { autocompletion } from '@codemirror/autocomplete'
 import { useStore } from '../store'
 import { parseFrontmatter, slugifyTemplateName } from '@shared/template-files'
@@ -59,33 +60,6 @@ const editorTheme = EditorView.theme({
   },
   '.cm-content': { padding: '16px' }
 })
-
-// Mirror the main editor's highlight (class-based `tok-*`, styled by the app
-// stylesheet) instead of `defaultHighlightStyle`, whose inline underline +
-// large headings made the YAML frontmatter look like giant setext headings.
-const templateHighlight = HighlightStyle.define([
-  { tag: t.heading1, class: 'tok-heading1' },
-  { tag: t.heading2, class: 'tok-heading2' },
-  { tag: t.heading3, class: 'tok-heading3' },
-  { tag: t.heading4, class: 'tok-heading4' },
-  { tag: t.heading5, class: 'tok-heading5' },
-  { tag: t.heading6, class: 'tok-heading6' },
-  { tag: t.emphasis, class: 'tok-emphasis' },
-  { tag: t.strong, class: 'tok-strong' },
-  { tag: t.strikethrough, class: 'tok-strikethrough' },
-  { tag: t.url, class: 'tok-url' },
-  { tag: t.monospace, class: 'tok-monospace' },
-  { tag: t.quote, class: 'tok-quote' },
-  { tag: t.list, class: 'tok-list' },
-  { tag: t.meta, class: 'tok-meta' },
-  { tag: t.keyword, class: 'tok-keyword' },
-  { tag: t.string, class: 'tok-string' },
-  { tag: t.comment, class: 'tok-comment' },
-  { tag: t.number, class: 'tok-number' },
-  { tag: t.atom, class: 'tok-atom' },
-  { tag: t.propertyName, class: 'tok-property' },
-  { tag: t.punctuation, class: 'tok-punct' }
-])
 
 export function TemplateEditorModal({
   initialRaw,
@@ -149,7 +123,8 @@ export function TemplateEditorModal({
         headingFolding({
           showLevelLabels: useStore.getState().showHeadingLevelLabels
         }),
-        syntaxHighlighting(templateHighlight),
+        syntaxHighlighting(markdownHighlight),
+        markdownSourceHighlight(),
         syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
         // Render autocomplete tooltips on <body> so the modal's overflow:hidden
         // doesn't clip the slash / variable dropdowns.
