@@ -165,3 +165,18 @@ describe('GrammarSettings typing pause', () => {
     expect(input.value).toBe('2000')
   })
 })
+
+describe('grammar native settings switches', () => {
+  it('preserves existing defaults and updates the same preferences', () => {
+    renderSettings()
+    const switches = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
+    expect(switches.length).toBeGreaterThan(5)
+    const automatic = switches.find(button => button.getAttribute('aria-label') === 'Automatic checks')!
+    expect(automatic.getAttribute('aria-checked')).toBe(String(DEFAULT_GRAMMAR_PREFERENCES.automaticChecks))
+    act(() => automatic.click())
+    expect(storeMock.setGrammarPreferences).toHaveBeenCalledWith({ automaticChecks: !DEFAULT_GRAMMAR_PREFERENCES.automaticChecks })
+    const master = switches.find(button => button.getAttribute('aria-label') === 'Enable grammar assistant')!
+    act(() => master.click())
+    expect(storeMock.setGrammarEnabled).toHaveBeenCalledWith(true)
+  })
+})

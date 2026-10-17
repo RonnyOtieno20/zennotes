@@ -1,3 +1,4 @@
+import { SettingsSwitch } from './SettingsSwitch';
 import {
   useCallback,
   useEffect,
@@ -7883,23 +7884,7 @@ function ToggleRow({
           </div>
         )}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={value}
-        onClick={() => onChange(!value)}
-        className={[
-          "relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors",
-          value ? "bg-accent" : "bg-paper-300",
-        ].join(" ")}
-      >
-        <span
-          className={[
-            "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
-            value ? "translate-x-4" : "translate-x-0.5",
-          ].join(" ")}
-        />
-      </button>
+      <SettingsSwitch value={value} onChange={onChange} label={label} />
     </label>
   );
 }

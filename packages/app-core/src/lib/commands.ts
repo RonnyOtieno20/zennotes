@@ -6,6 +6,8 @@
  * reflect the store state at that moment (toggle labels flip, context-
  * sensitive commands like "Unarchive" only show up when applicable).
  */
+import { getGrammarEditorState } from '../grammar/editor-extension'
+import { runGrammarAction, type GrammarAction } from './grammar-actions'
 import { requestAgentEditReview } from './agent-review-runtime'
 import { isTagsViewActive, isTasksViewActive, isTrashViewActive, useStore } from '../store'
 import { confirmApp } from './confirm-requests'
@@ -1500,6 +1502,23 @@ export function buildCommands(options?: { includeUnavailable?: boolean }): Comma
       keywords: 'decoration inline',
       run: () => getState().setLivePreview(!getState().livePreview)
     },
+    ...(['next', 'previous', 'suggest', 'addWord', 'ignore'] as const).map((action: GrammarAction): Command => ({
+      id: `editor.grammar.${action}`,
+      title: `Grammar: ${{ next: 'Next Issue', previous: 'Previous Issue', suggest: 'Show Suggestions at Cursor', addWord: 'Add Word to Dictionary', ignore: 'Ignore Issue' }[action]}`,
+      category: 'Editor',
+      keywords: 'languagetool grammar spelling dictionary ignore suggestions',
+      when: () => {
+        const view = getState().editorViewRef
+        return !!view && !!getGrammarEditorState(view.state)
+      },
+      run: () => {
+        const view = getState().editorViewRef
+        if (view) {
+          runGrammarAction(view, action)
+          view.focus()
+        }
+      }
+    })),
     {
       id: 'editor.harper.toggle',
       title: getState().harperEnabled

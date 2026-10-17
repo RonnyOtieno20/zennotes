@@ -163,7 +163,7 @@ export function movePanelCursor(panel: RowPanel, move: CursorMove): boolean {
 
 /** Activate the row under the cursor by clicking it — the row itself owns what
  *  "open" means (jump to a heading, open a note, reveal a comment). */
-export function activatePanelRow(panel: RowPanel): boolean {
+export function activatePanelRow(panel: RowPanel, suggestionNumber?: number): boolean {
   const state = useStore.getState()
   const { selector, datasetKey } = ROW_PANEL_DEFS[panel]
   const items = getIndexedElements(selector, datasetKey)
@@ -171,6 +171,13 @@ export function activatePanelRow(panel: RowPanel): boolean {
   const { index } = rowCursor(panel, state)
   const row = items[findPositionByIndex(items, datasetKey, index)]
   if (!row) return false
+  if (suggestionNumber !== undefined) {
+    if (panel !== 'grammar' || !Number.isInteger(suggestionNumber) || suggestionNumber < 1 || suggestionNumber > 9) return false
+    const suggestion = row.querySelector<HTMLButtonElement>(`[data-grammar-suggestion="${suggestionNumber}"]`)
+    if (!suggestion || suggestion.disabled) return false
+    suggestion.click()
+    return true
+  }
   const primaryAction = row.querySelector<HTMLElement>('[data-panel-activate]')
   ;(primaryAction ?? row).click()
   return true

@@ -1,3 +1,4 @@
+import { grammarPopupRows, renderGrammarMessage, type GrammarPopupController } from './grammar-popup'
 /**
  * Harper in the editor: wavy underlines under grammar and spelling problems,
  * a hover tooltip with the fixes, and a keyboard popup at the cursor.
@@ -137,13 +138,7 @@ interface HarperPopup {
 
 const setHarperPopup = StateEffect.define<HarperPopup | null>()
 
-interface PopupController {
-  active: number
-  setActive: (index: number) => void
-  activate: () => void
-  count: number
-}
-const controllers = new WeakMap<EditorView, PopupController>()
+const controllers = new WeakMap<EditorView, GrammarPopupController>()
 
 function popupTooltip(popup: HarperPopup, config: HarperEditorConfig): Tooltip {
   return {
@@ -158,35 +153,11 @@ function popupTooltip(popup: HarperPopup, config: HarperEditorConfig): Tooltip {
 
       const header = document.createElement('div')
       header.className = 'cm-harper-popup-message'
-      renderMessage(header, harper.message)
+      renderGrammarMessage(header, harper.message)
       dom.appendChild(header)
 
-      const items: HTMLButtonElement[] = []
-      const actions: Array<() => void> = []
-      const add = (label: string, hint: string, onPick: () => void, secondary = false): void => {
-        const index = items.length
-        const button = document.createElement('button')
-        button.type = 'button'
-        button.className = secondary
-          ? 'cm-harper-popup-item cm-harper-popup-secondary'
-          : 'cm-harper-popup-item'
-        const hintEl = document.createElement('span')
-        hintEl.className = 'cm-harper-popup-hint'
-        hintEl.textContent = hint
-        const labelEl = document.createElement('span')
-        labelEl.className = 'cm-harper-popup-label'
-        labelEl.textContent = label
-        button.append(hintEl, labelEl)
-        button.addEventListener('mousedown', (event) => event.preventDefault())
-        button.addEventListener('mouseenter', () => controller.setActive(index))
-        button.addEventListener('click', (event) => {
-          event.preventDefault()
-          onPick()
-        })
-        items.push(button)
-        actions.push(onPick)
-        dom.appendChild(button)
-      }
+      const rows = grammarPopupRows(view, dom, () => view.dispatch({ effects: setHarperPopup.of(null) }))
+      const { add, controller } = rows
 
       harper.suggestions.forEach((suggestion, index) => {
         add(suggestion.label, index < 9 ? String(index + 1) : '', () => {
@@ -235,74 +206,18 @@ function popupTooltip(popup: HarperPopup, config: HarperEditorConfig): Tooltip {
       footer.append(brand, kind)
       dom.appendChild(footer)
 
-      const controller: PopupController = {
-        active: 0,
-        count: items.length,
-        setActive(index: number) {
-          const n = items.length
-          this.active = ((index % n) + n) % n
-          items.forEach((item, i) => item.classList.toggle('cm-harper-popup-active', i === this.active))
-        },
-        activate() {
-          actions[this.active]?.()
-        }
-      }
       controller.setActive(0)
       controllers.set(view, controller)
-
-      // The card owns its keys while open. A capture listener on the content
-      // runs before every editor keymap and before Vim, so Enter, digits and
-      // j/k cannot be taken by an extension that happens to sit earlier in
-      // the editor's extension order.
-      const onKeyDown = (event: KeyboardEvent): void => {
-        if (event.metaKey || event.ctrlKey || event.altKey) {
-          if (event.ctrlKey && !event.metaKey && !event.altKey && (event.key === 'n' || event.key === 'p')) {
-            controller.setActive(controller.active + (event.key === 'n' ? 1 : -1))
-          } else return
-        } else if (/^[1-9]$/.test(event.key)) {
-          const index = Number(event.key) - 1
-          if (index >= controller.count) return
-          controller.setActive(index)
-          controller.activate()
-        } else if (event.key === 'ArrowDown' || event.key === 'j') {
-          controller.setActive(controller.active + 1)
-        } else if (event.key === 'ArrowUp' || event.key === 'k') {
-          controller.setActive(controller.active - 1)
-        } else if (event.key === 'Enter') {
-          controller.activate()
-        } else if (event.key === 'Escape') {
-          view.dispatch({ effects: setHarperPopup.of(null) })
-        } else return
-        event.preventDefault()
-        event.stopImmediatePropagation()
-      }
-      view.contentDOM.addEventListener('keydown', onKeyDown, true)
 
       return {
         dom,
         destroy() {
-          view.contentDOM.removeEventListener('keydown', onKeyDown, true)
+          rows.destroy()
           if (controllers.get(view) === controller) controllers.delete(view)
         }
       }
     }
   }
-}
-
-/** Harper's messages quote the problem in backticks; show those as code. */
-function renderMessage(target: HTMLElement, message: string): void {
-  const parts = message.split('`')
-  parts.forEach((part, index) => {
-    if (!part) return
-    if (index % 2 === 1) {
-      const code = document.createElement('code')
-      code.className = 'cm-harper-popup-code'
-      code.textContent = part
-      target.appendChild(code)
-    } else {
-      target.appendChild(document.createTextNode(part))
-    }
-  })
 }
 
 function harperDiagnosticAt(
@@ -434,7 +349,7 @@ function popupField(config: HarperEditorConfig): StateField<HarperPopup | null> 
   })
 }
 
-function openPopup(view: EditorView): PopupController | null {
+function openPopup(view: EditorView): GrammarPopupController | null {
   return controllers.get(view) ?? null
 }
 
@@ -565,4 +480,17 @@ export function harperExtensions(config: HarperEditorConfig): Extension {
     popupFieldFor(config),
     hoverHandlers(config)
   ]
+}
+
+/** Mapped issue positions used by the shared spelling motions. */
+export function harperIssueRanges(view: EditorView): Array<{ from: number; to: number }> {
+  const ranges: Array<{ from: number; to: number }> = []
+  forEachDiagnostic(view.state, (diagnostic, from, to) => {
+    if (isHarperDiagnostic(diagnostic)) ranges.push({ from, to })
+  })
+  return ranges
+}
+
+export function closeHarperSuggestions(view: EditorView): void {
+  view.dispatch({ effects: setHarperPopup.of(null) })
 }

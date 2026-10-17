@@ -14,7 +14,7 @@ import {
   setGrammarSnapshot,
   updateGrammarUi
 } from './editor-state'
-import { closeGrammarSuggestionCard, openGrammarSuggestionCard } from './editor-commands'
+import { applyNumberedGrammarSuggestion, closeGrammarSuggestionCard, openGrammarSuggestionCard } from './editor-commands'
 import { openCardController, openSuggestionCard, suggestionTooltip } from './editor-suggestion-card'
 
 // The grammar editor extension is split by concern; this module wires it into
@@ -120,6 +120,10 @@ const grammarSessionSubscriber = ViewPlugin.fromClass(GrammarSessionSubscriber)
 
 function grammarKeymap(openKey: string | false | undefined): Extension {
   const bindings = [
+    ...Array.from({ length: 9 }, (_, index) => ({
+      key: String(index + 1),
+      run: (view: EditorView) => applyNumberedGrammarSuggestion(view, index)
+    })),
     ...(openKey === false ? [] : [{ key: openKey ?? 'Alt-Enter', run: openGrammarSuggestionCard }]),
     {
       key: 'ArrowDown',

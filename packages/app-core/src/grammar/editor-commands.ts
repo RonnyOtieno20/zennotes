@@ -31,7 +31,7 @@ export function selectGrammarDiagnostic(view: EditorView, diagnosticId: string |
 
 export function openGrammarSuggestionCard(view: EditorView): boolean {
   const grammar = getGrammarEditorState(view.state)
-  if (!grammar?.suggestionCardsEnabled) return false
+  if (!grammar) return false
   const cursor = view.state.selection.main.head
   const diagnostic = grammarDiagnosticAt(grammar.diagnostics, cursor)
   if (!diagnostic) return false
@@ -43,6 +43,31 @@ export function openGrammarSuggestionCard(view: EditorView): boolean {
   })
   sessionFor(view)?.selectDiagnostic?.(diagnostic.id)
   return true
+}
+
+/** Accept just a spelling word, never an entire grammar finding or phrase. */
+export function addGrammarWordToDictionary(view: EditorView, diagnosticId?: string): boolean {
+  const session = sessionFor(view)
+  if (!session?.addToDictionary) return false
+  const diagnostic = diagnosticId
+    ? getGrammarEditorState(view.state)?.diagnostics.find((item) => item.id === diagnosticId)
+    : grammarDiagnosticAt(getGrammarEditorState(view.state)?.diagnostics ?? [], view.state.selection.main.head)
+  if (!diagnostic || diagnostic.category !== 'spelling') return false
+  const range = diagnostic?.range ?? view.state.wordAt(view.state.selection.main.head)
+  if (!range) return false
+  const word = view.state.sliceDoc(range.from, range.to)
+  if (!word || (diagnostic && word !== diagnostic.original)) return false
+  session.addToDictionary(word)
+  if (diagnostic) ignoreGrammarDiagnosticOnce(view, diagnostic.id)
+  closeGrammarSuggestionCard(view)
+  return true
+}
+
+/** Digits address replacements only; secondary actions never acquire a number. */
+export function applyNumberedGrammarSuggestion(view: EditorView, index: number): boolean {
+  const grammar = getGrammarEditorState(view.state)
+  if (!grammar?.openDiagnosticId || index < 0 || index > 8) return false
+  return applyGrammarReplacement(view, grammar.openDiagnosticId, index).applied
 }
 
 function navigateAdjacentGrammarDiagnostic(

@@ -1782,6 +1782,12 @@ export function VimNav(): JSX.Element | null {
     const nativeControlActivation =
       !!target?.closest('[data-grammar-panel-control]') && (key === 'Enter' || key === ' ')
     if (nativeControlActivation) return
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && /^[1-9]$/.test(key)) {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      activatePanelRow('grammar', Number(key))
+      return
+    }
 
     const wantsHandledKey =
       matchesSequenceToken(e, overrides, 'nav.moveDown') ||

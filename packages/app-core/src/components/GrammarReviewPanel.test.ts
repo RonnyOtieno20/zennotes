@@ -160,6 +160,7 @@ describe('GrammarReviewPanel', () => {
     expect(container.querySelectorAll('[data-grammar-idx]')).toHaveLength(2)
     click(container.querySelector('[data-panel-activate]'))
     expect(onApply).toHaveBeenCalledWith('spell', 0)
+    expect(container.querySelector('ol[aria-label="Suggestions"] kbd')?.textContent).toBe('1')
   })
 
   it('filters cards by category', () => {
@@ -175,18 +176,20 @@ describe('GrammarReviewPanel', () => {
   })
 
   it('exposes persistent rule and dictionary actions for each issue', () => {
-    const { container, onIgnoreRuleInNote, onIgnoreRule, onAddToDictionary } = renderPanel()
+    const { container, onIgnore, onIgnoreRuleInNote, onIgnoreRule, onAddToDictionary } = renderPanel()
     const firstCard = container.querySelector('[data-grammar-id="spell"]')
     const button = (label: string): HTMLButtonElement | undefined =>
       [...(firstCard?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find(
         (candidate) => candidate.textContent === label
       )
 
+    click(button('Ignore') ?? null)
+    expect(onIgnore).toHaveBeenCalledWith('spell')
     click(button('Ignore in note') ?? null)
     expect(onIgnoreRuleInNote).toHaveBeenCalledWith(issues[0])
     click(button('Ignore everywhere') ?? null)
     expect(onIgnoreRule).toHaveBeenCalledWith(issues[0])
-    click(button('Add word') ?? null)
+    click(button('Add to dictionary') ?? null)
     expect(onAddToDictionary).toHaveBeenCalledWith(issues[0])
   })
 

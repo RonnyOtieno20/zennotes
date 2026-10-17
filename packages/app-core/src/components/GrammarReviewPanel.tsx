@@ -1,3 +1,4 @@
+import '../grammar/ui.css'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { GrammarDocumentSessionState } from '../grammar/document-sessions'
 import type { GrammarCategory, GrammarDiagnostic } from '../grammar/types'
@@ -179,7 +180,7 @@ export function GrammarReviewPanel({
       aria-label="Grammar review"
       data-grammar-panel
       style={{ width: fitWidth ?? width }}
-      className="relative flex shrink-0 flex-col border-l border-paper-300/70 bg-paper-50/18"
+      className="grammar-ui grammar-ui-panel relative flex shrink-0 flex-col"
       onMouseDown={() => setFocusedPanel('grammar')}
       onFocusCapture={() => setFocusedPanel('grammar')}
     >
@@ -194,7 +195,7 @@ export function GrammarReviewPanel({
         <div className="grammar-review-shortcuts mt-1 text-2xs text-ink-400">
           <span>F8 / Shift+F8 issues</span>
           <span>j / k navigate</span>
-          <span>Enter applies</span>
+          <span>1–9 apply suggestion</span>
         </div>
         <div className="grammar-review-toolbar mt-2 flex items-center gap-1">
           <button
@@ -244,7 +245,7 @@ export function GrammarReviewPanel({
                   aria-pressed={active}
                   onClick={() => setFilter(category)}
                   className={[
-                    'rounded-full border px-2 py-0.5 text-2xs font-medium transition-colors',
+                    `grammar-ui-filter grammar-ui-category-${category} rounded-full border px-2 py-0.5 text-2xs font-medium transition-colors`,
                     active
                       ? 'border-accent/50 bg-accent/14 text-accent'
                       : 'border-paper-300/70 text-ink-500 hover:bg-paper-200'
@@ -316,6 +317,16 @@ export function GrammarReviewPanel({
                     ref={selected ? selectedCardRef : undefined}
                     data-grammar-idx={rowIndex}
                     data-grammar-id={diagnostic.id}
+                    data-category={diagnostic.category}
+                    tabIndex={0}
+                    aria-label={`${categoryLabel(diagnostic.category)}: ${diagnostic.message}`}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' && event.target === event.currentTarget) {
+                        event.preventDefault()
+                        setCursorIndex(rowIndex)
+                        onSelect(diagnostic.id)
+                      }
+                    }}
                     data-grammar-cursor={cursor ? 'true' : undefined}
                     aria-current={selected ? 'true' : undefined}
                     onClick={() => {
@@ -323,7 +334,7 @@ export function GrammarReviewPanel({
                       onSelect(diagnostic.id)
                     }}
                     className={[
-                      'cursor-pointer rounded-lg border p-2.5 transition-colors',
+                      'grammar-ui-issue cursor-pointer rounded-lg border p-2.5 transition-colors',
                       cursor
                         ? 'border-accent bg-accent/12 ring-2 ring-accent/20'
                         : selected
@@ -342,28 +353,36 @@ export function GrammarReviewPanel({
                     <div className="mt-2 text-sm leading-snug text-ink-800">
                       {diagnostic.message}
                     </div>
-                    {diagnostic.original && (
-                      <div className="mt-1.5 truncate font-mono text-xs text-ink-500 line-through">
-                        {diagnostic.original}
-                      </div>
-                    )}
-                    <div className="mt-2 flex flex-wrap gap-1.5">
+                    {diagnostic.context?.range ? (
+                      <p className="grammar-ui-context">
+                        {diagnostic.context.text.slice(0, diagnostic.context.range.from)}
+                        <mark>{diagnostic.context.text.slice(diagnostic.context.range.from, diagnostic.context.range.to)}</mark>
+                        {diagnostic.context.text.slice(diagnostic.context.range.to)}
+                      </p>
+                    ) : diagnostic.original && <p className="grammar-ui-context"><mark>{diagnostic.original}</mark></p>}
+                    <ol className="grammar-ui-suggestions" aria-label="Suggestions">
                       {diagnostic.replacements.map((replacement, replacementIndex) => (
-                        <button
-                          key={`${diagnostic.id}:${replacementIndex}:${replacement.value}`}
-                          type="button"
-                          data-grammar-panel-control
-                          data-panel-activate={replacementIndex === 0 ? 'true' : undefined}
-                          title="Apply and move to the next issue"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            onApply(diagnostic.id, replacementIndex)
-                          }}
-                          className="max-w-full truncate rounded-md border border-accent/35 bg-accent/10 px-2 py-1 text-xs font-medium text-accent hover:bg-accent/18"
-                        >
-                          {replacement.value || 'Delete'}
-                        </button>
+                        <li key={`${diagnostic.id}:${replacementIndex}`}>
+                          <button
+                            type="button"
+                            data-grammar-panel-control
+                            data-grammar-suggestion={replacementIndex < 9 ? replacementIndex + 1 : undefined}
+                            data-panel-activate={replacementIndex === 0 ? 'true' : undefined}
+                            title="Apply and move to the next issue"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              onApply(diagnostic.id, replacementIndex)
+                            }}
+                            className="grammar-ui-suggestion"
+                          >
+                            <kbd aria-hidden="true">{replacementIndex + 1}</kbd>
+                            <span>{replacement.value || `Remove “${diagnostic.original}”`}</span>
+                          </button>
+                        </li>
                       ))}
+                    </ol>
+                    {!diagnostic.replacements.length && <p className="grammar-ui-empty">No automatic fix for this one.</p>}
+                    <div className="grammar-ui-secondary">
                       {onApplyAll && diagnostic.replacements.length > 0 && (() => {
                         const similar = similarGrammarDiagnostics(diagnostics, diagnostic).length
                         if (similar < 2) return null
@@ -395,7 +414,7 @@ export function GrammarReviewPanel({
                         }}
                         className="rounded-md border border-paper-300/70 px-2 py-1 text-xs text-ink-500 hover:bg-paper-200"
                       >
-                        Ignore once
+                        Ignore
                       </button>
                       {onIgnoreRuleInNote && canIgnoreGrammarRule(diagnostic.ruleId) && (
                         <button
@@ -425,7 +444,7 @@ export function GrammarReviewPanel({
                           Ignore everywhere
                         </button>
                       )}
-                      {diagnostic.original && onAddToDictionary && (
+                      {diagnostic.category === 'spelling' && diagnostic.original && onAddToDictionary && (
                         <button
                           type="button"
                           data-grammar-panel-control
@@ -435,7 +454,7 @@ export function GrammarReviewPanel({
                           }}
                           className="rounded-md border border-paper-300/70 px-2 py-1 text-xs text-ink-500 hover:bg-paper-200"
                         >
-                          Add word
+                          Add to dictionary
                         </button>
                       )}
                     </div>

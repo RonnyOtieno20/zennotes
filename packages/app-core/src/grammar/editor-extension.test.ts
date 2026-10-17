@@ -402,9 +402,9 @@ describe('grammar CodeMirror extension', () => {
     expect(card?.getAttribute('role')).toBe('dialog')
     expect(card?.textContent).toContain('style')
     expect(card?.textContent).toContain('Problem one')
-    expect(card?.textContent).toContain('bad')
+    expect(card?.textContent).toContain('LanguageTool')
     expect(card?.textContent).toContain('good')
-    expect(card?.textContent).toContain('Ignore once')
+    expect(card?.textContent).toContain('Ignore')
   })
 
   it('offers persistent ignore and dictionary actions when the session supports them', () => {
@@ -424,12 +424,7 @@ describe('grammar CodeMirror extension', () => {
       ...document.querySelectorAll<HTMLButtonElement>('.cm-grammar-suggestion-card button')
     ]
     expect(buttons.map((button) => button.textContent)).toEqual([
-      'good',
-      'Ignore once',
-      'Ignore in note',
-      'Ignore everywhere',
-      'Add word',
-      'Dismiss'
+      '1good', 'zgAdd to dictionary', 'zGIgnore this suggestion', 'Ignore in note', 'Ignore everywhere'
     ])
     buttons.find((button) => button.textContent === 'Ignore everywhere')?.click()
     expect(ignoreRule).toHaveBeenCalledWith('rule-one')
@@ -490,7 +485,7 @@ describe('grammar CodeMirror extension', () => {
     ].map((button) => button.textContent)
     expect(labels).not.toContain('Ignore everywhere')
     expect(labels).not.toContain('Ignore in note')
-    expect(labels).toContain('Add word')
+    expect(labels).toContain('zgAdd to dictionary')
   })
 
   it('does not open a suggestion card when the cursor is outside an issue', () => {
@@ -547,7 +542,6 @@ describe('grammar CodeMirror extension', () => {
       openDiagnosticId: null,
       suggestionCardsEnabled: false
     })
-    expect(openGrammarSuggestionCard(view)).toBe(false)
     expect(openAdjacentGrammarSuggestionCard(view, 1)).toBe(false)
 
     expect(selectAdjacentGrammarDiagnostic(view, 1)).toBe(true)
@@ -557,6 +551,11 @@ describe('grammar CodeMirror extension', () => {
       suggestionCardsEnabled: false
     })
     expect(view.state.selection.main).toMatchObject({ from: 4, to: 4, empty: true })
+    // Explicit keyboard requests work alongside the sidebar without enabling hover cards.
+    expect(openGrammarSuggestionCard(view)).toBe(true)
+    expect(getGrammarEditorState(view.state)).toMatchObject({
+      openDiagnosticId: 'two', suggestionCardsEnabled: false
+    })
 
     expect(setGrammarSuggestionCards(view, true)).toBe(true)
     expect(openAdjacentGrammarSuggestionCard(view, 1)).toBe(true)

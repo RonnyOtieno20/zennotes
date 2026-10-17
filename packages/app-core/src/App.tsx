@@ -337,6 +337,11 @@ function handlePanelKeyWithoutVim(e: KeyboardEvent, focusedPanel: string | null)
     e.stopImmediatePropagation()
   }
 
+  if (focusedPanel === 'grammar' && /^[1-9]$/.test(e.key)) {
+    activatePanelRow('grammar', Number(e.key))
+    consume()
+    return
+  }
   if (move) {
     const moved = isComments ? moveCommentCursor(move) : movePanelCursor(focusedPanel, move)
     if (moved) consume()
