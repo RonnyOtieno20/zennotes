@@ -2189,7 +2189,7 @@ export function SettingsModal(): JSX.Element {
           id: "render-tables",
           title: "Render tables in live preview",
           description:
-            "Show Markdown tables as interactive widgets, or keep them as plain editable text.",
+            "Render inactive Markdown tables. Reveal the whole source while editing a table.",
           keywords: [
             "table",
             "tables",
@@ -2900,7 +2900,7 @@ export function SettingsModal(): JSX.Element {
                 {livePreview && (
                   <ToggleRow
                     label="Render tables in live preview"
-                    description="Show Markdown tables as interactive widgets. Turn off to keep tables as plain markdown text, so you can edit them with the keyboard (and Vim motions) like any other line."
+                    description="Render inactive Markdown tables. Click a cell or move the cursor into a table to edit its whole Markdown source. Turn off to always show table source."
                     value={renderTablesInLivePreview}
                     settingId="render-tables"
                     onChange={setRenderTablesInLivePreview}

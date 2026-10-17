@@ -11,6 +11,7 @@
  * WYSIWYG-only: registered via `wysiwygExtensions()`.
  */
 import { syntaxTree } from '@codemirror/language'
+import { sourceTableRanges } from './cm-live-tables'
 import { RangeSetBuilder, StateEffect } from '@codemirror/state'
 import {
   Decoration,
@@ -132,6 +133,7 @@ function selectionTouches(
   from: number,
   to: number
 ): boolean {
+  if (sourceTableRanges(state).some((table) => from >= table.from && to <= table.to)) return true
   for (const range of state.selection.ranges) {
     if (range.empty) {
       if (range.from >= from && range.from <= to) return true

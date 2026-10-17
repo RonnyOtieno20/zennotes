@@ -15,6 +15,7 @@
  *
  * WYSIWYG-only: registered via `wysiwygExtensions()`.
  */
+import { sourceTableRanges } from './cm-live-tables'
 import { syntaxTree } from '@codemirror/language'
 import { Facet, RangeSetBuilder, StateField, type EditorState, type Extension } from '@codemirror/state'
 import { Decoration, type DecorationSet, EditorView, WidgetType } from '@codemirror/view'
@@ -220,6 +221,7 @@ class BlockMathWidget extends WidgetType {
 
 /** Cursor/selection overlaps (or just touches an edge of) `[from, to]`. */
 function selectionTouches(state: EditorState, from: number, to: number): boolean {
+  if (sourceTableRanges(state).some((table) => from >= table.from && to <= table.to)) return true
   for (const range of state.selection.ranges) {
     if (Math.max(range.from, from) <= Math.min(range.to, to)) return true
   }
