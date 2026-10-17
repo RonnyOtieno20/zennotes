@@ -16,7 +16,7 @@ const requireDesktop = createRequire(join(repoRoot, 'apps/desktop/package.json')
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 const stage = process.argv[2] ?? 'after'
 if (!['before', 'after'].includes(stage)) throw new Error('Use before or after')
-const output = join(repoRoot, 'docs/downstream/grammar-ui', stage)
+const output = process.env.ZENNOTES_SMOKE_OUTPUT_DIR ?? join(repoRoot, 'docs/downstream/grammar-ui', stage)
 const notePath = 'zztest-grammar-ui.md'
 const text =
   '# A little room to write\n\nWe beleive good notes start with a clear thought.\n\nThis are a quiet place to collect ideas.\n\nTry a simpler word to utilise in your next draft.\n'

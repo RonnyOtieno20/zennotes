@@ -10,15 +10,15 @@ import { fileURLToPath } from 'node:url'
 import net from 'node:net'
 import WebSocket from 'ws'
 const root = fileURLToPath(new URL('../../', import.meta.url))
-const output = join(root, 'docs/downstream/markdown-colors')
+const output = process.env.ZENNOTES_SMOKE_OUTPUT_DIR ?? join(root, 'docs/downstream/markdown-colors')
 const temporary = await mkdtemp(join(tmpdir(), 'zennotes-rendered-colors-'))
 const vault = join(temporary, 'vault')
 const profile = join(temporary, 'profile')
 const config = join(temporary, 'config')
 await Promise.all([mkdir(output, { recursive: true }), ...[vault, profile, config].map(p => mkdir(p))])
 await mkdir(join(vault, 'inbox'))
-const note = 'inbox/Android Colour Comparison.md'
-await writeFile(join(vault, note), await readFile(join(output, 'sample-note.md'), 'utf8'))
+const note = 'inbox/zztest-markdown-colors.md'
+await writeFile(join(vault, note), await readFile(join(root, 'docs/downstream/markdown-colors/sample-note.md'), 'utf8'))
 await writeFile(join(profile, 'zennotes.config.json'), JSON.stringify({ workspaceMode: 'local', vaultRoot: vault, remoteWorkspace: null, remoteWorkspaceProfileId: null, remoteWorkspaceProfiles: [], windowState: { x: 40, y: 40, width: 1440, height: 1400, isMaximized: false }, zoomFactor: 1, quickCaptureHotkey: '' }))
 await writeFile(join(config, 'config.toml'), '[vim]\nenabled = false\n[editor]\nlive_preview = true\n[appearance]\ntheme_family = "catppuccin"\ntheme_mode = "dark"\ntheme_id = "catppuccin-mocha"\n')
 const port = await new Promise((yes, no) => { const s = net.createServer(); s.on('error', no); s.listen(0, '127.0.0.1', () => { const p = s.address().port; s.close(() => yes(p)) }) })
@@ -69,7 +69,7 @@ try {
   check(preview.bold !== preview.body && preview.italic !== preview.body, `${mode} Preview colours emphasis`)
   await snap(`${mode}-preview`)
   await setMode('edit'); await until('!!document.querySelector(".cm-wysiwyg .cm-editor .tok-strong")')
-  const edit = await evaluate(`(() => { const css = s => getComputedStyle(document.querySelector('.cm-editor ' + s)).color; return {h1:css('.tok-heading1'),h2:css('.tok-heading2'),h3:css('.tok-heading3'),h4:css('.tok-heading4'),h5:css('.tok-heading5'),h6:css('.tok-heading6'),bold:css('.tok-strong'),italic:css('.tok-emphasis'),quote:css('.cm-wq-quote'),header:css('.cm-table-widget th'),quoteBold:css('.cm-wq-quote .tok-strong'),quoteItalic:css('.cm-wq-quote .tok-emphasis')}; })()`)
+  const edit = await evaluate(`(() => { const css = s => getComputedStyle(document.querySelector('.cm-editor ' + s)).color; return {h1:css('.tok-heading1'),h2:css('.tok-heading2'),h3:css('.tok-heading3'),h4:css('.tok-heading4'),h5:css('.tok-heading5'),h6:css('.tok-heading6'),bold:css('.tok-strong'),italic:css('.tok-emphasis'),quote:css('.cm-wq-quote'),header:css('.cm-live-table th'),quoteBold:css('.cm-wq-quote .tok-strong'),quoteItalic:css('.cm-wq-quote .tok-emphasis')}; })()`)
   if (edit.quoteBold !== preview.quoteBold || edit.quoteItalic !== preview.quoteItalic) console.log('Quote diagnostics:', JSON.stringify({preview,edit,dom:await evaluate("document.querySelector('.cm-wq-quote').innerHTML")}))
   for (const key of Object.keys(edit)) check(edit[key] === preview[key], `${mode} Edit/Preview ${key} colours match`)
   check(edit.quoteBold === preview.bold && edit.quoteItalic === preview.italic, `${mode} quote retains nested emphasis colours`)

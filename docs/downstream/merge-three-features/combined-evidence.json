@@ -1,0 +1,20 @@
+{
+  "electron": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) ZenNotes/2.70.1-grammar.1 Chrome/146.0.7680.216 Electron/41.10.7 Safari/537.36",
+  "note": "zztest-three-features.md",
+  "checks": [
+    "running real Electron",
+    "Live Preview, Markdown colours and Vim enabled together",
+    "Live Preview heading is coloured",
+    "table renders outside selection",
+    "]s jumps to first mocked LanguageTool issue",
+    "grammar popup shows three numbered suggestions",
+    "]s jumps to the next mocked issue",
+    "number 1 applies replacement",
+    "clicking a cell reveals the entire table source at that cell",
+    "table renders again after cursor leaves it"
+  ],
+  "colours": {
+    "heading": "oklch(0.823679 0.101494 52.6182)",
+    "body": "rgb(205, 214, 244)"
+  }
+}
